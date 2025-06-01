@@ -1,0 +1,4 @@
+[workspace]
+members = ["espy-eyes"]
+
+resolver = "3"
