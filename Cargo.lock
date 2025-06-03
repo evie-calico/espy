@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
+name = "espy-ears"
+version = "0.1.0"
+dependencies = [
+ "espy-eyes",
+]
+
+[[package]]
 name = "espy-eyes"
 version = "0.1.0"

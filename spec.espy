@@ -2,17 +2,17 @@ let dict = require std:dictionary;
 let client = import client;
 
 // () creates an expression scope, which evalutes to its final expression
-if x > 10 (
-	let y = (
+if x > 10 {
+	let y = {
 		let a = 0;
-		for i in 0..10 (
+		for i in 0..10 {
 			a += a;
-		)
+		}
 		a
-	)
+	}
 
 	return x * y;
-)
+}
 // This is useful for precedence:
 let x = (1 + 2) * 3;
 
@@ -85,9 +85,11 @@ let Iter = struct ( start = u32, end = u32 ) {
 	)
 };
 
+range => iterator.map |x| x + 1 => for |x| print x;
+
 for i in range => iterator.map |x| x + 1 {
 	print i
-}
+};
 
 // `for` covers `loop` and `while` too.
 // an `interator.foreach` function could work,

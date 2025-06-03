@@ -1,5 +1,12 @@
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Token<'source> {
+pub struct Token<'source> {
+    pub start: usize,
+    pub end: usize,
+    pub ty: TokenType<'source>,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum TokenType<'source> {
     // Keywords
     Let,
 
@@ -32,19 +39,25 @@ pub enum Token<'source> {
     SingleArrow,
     Slash,
     Star,
+    Triangle,
 
     // Values
     Ident(&'source str),
     Number(&'source str),
 }
 
+#[derive(Copy, Clone, Default)]
 pub struct Lexer<'source> {
     cursor: &'source str,
+    index: usize,
 }
 
 impl<'source> From<&'source str> for Lexer<'source> {
     fn from(source: &'source str) -> Self {
-        Self { cursor: source }
+        Self {
+            cursor: source,
+            index: 0,
+        }
     }
 }
 
@@ -54,6 +67,7 @@ impl<'source> From<&'source str> for Lexer<'source> {
 impl<'source> Lexer<'source> {
     fn next(&mut self) -> Option<char> {
         self.cursor.chars().next().inspect(|_| {
+            self.index += 1;
             self.cursor = &self.cursor[1..];
         })
     }
@@ -78,8 +92,9 @@ impl<'source> Iterator for Lexer<'source> {
             .next_if(|c| matches!(c, ' ' | '\n' | '\r' | '\t'))
             .is_some()
         {}
+        let start = self.index;
         let root = self.cursor;
-        match self.next()? {
+        let ty = match self.next()? {
             // Ident
             'A'..='Z' | 'a'..='z' | '_' => {
                 let mut length = 1;
@@ -107,8 +122,8 @@ impl<'source> Iterator for Lexer<'source> {
                     | "use" | "where" | "while" | "yield" => {
                         panic!("the symbol {ident} is reserved")
                     }
-                    "let" => Some(Token::Let),
-                    _ => Some(Token::Ident(ident)),
+                    "let" => TokenType::Let,
+                    _ => TokenType::Ident(ident),
                 }
             }
             // Number
@@ -117,46 +132,52 @@ impl<'source> Iterator for Lexer<'source> {
                 while self.next_if(|c| matches!(c, '0'..='9' | '.')).is_some() {
                     length += 1;
                 }
-                Some(Token::Number(&root[0..length]))
+                TokenType::Number(&root[0..length])
             }
-            '=' if self.next_if(|c| c == '=').is_some() => Some(Token::EqualTo),
-            '=' if self.next_if(|c| c == '>').is_some() => Some(Token::DoubleArrow),
-            '=' => Some(Token::Equals),
-            '!' if self.next_if(|c| c == '=').is_some() => Some(Token::NotEqualTo),
-            '!' => Some(Token::Not),
-            '>' if self.next_if(|c| c == '=').is_some() => Some(Token::GreaterEqual),
-            '>' => Some(Token::Greater),
-            '<' if self.next_if(|c| c == '=').is_some() => Some(Token::LesserEqual),
-            '<' => Some(Token::Lesser),
-            '+' => Some(Token::Plus),
-            '-' if self.next_if(|c| c == '>').is_some() => Some(Token::SingleArrow),
-            '-' => Some(Token::Minus),
-            '*' => Some(Token::Star),
-            '/' => Some(Token::Slash),
+            '=' if self.next_if(|c| c == '=').is_some() => TokenType::EqualTo,
+            '=' if self.next_if(|c| c == '>').is_some() => TokenType::DoubleArrow,
+            '=' => TokenType::Equals,
+            '!' if self.next_if(|c| c == '=').is_some() => TokenType::NotEqualTo,
+            '!' => TokenType::Not,
+            '>' if self.next_if(|c| c == '=').is_some() => TokenType::GreaterEqual,
+            '>' => TokenType::Greater,
+            '<' if self.next_if(|c| c == '=').is_some() => TokenType::LesserEqual,
+            '<' => TokenType::Lesser,
+            '+' => TokenType::Plus,
+            '-' if self.next_if(|c| c == '>').is_some() => TokenType::SingleArrow,
+            '-' => TokenType::Minus,
+            '*' => TokenType::Star,
+            '/' => TokenType::Slash,
             '.' => {
                 if self.next_if(|c| c == '.').is_some() {
                     if self.next_if(|c| c == '=').is_some() {
-                        Some(Token::RangeInclusive)
+                        TokenType::RangeInclusive
                     } else if self.next_if(|c| c == '.').is_some() {
-                        Some(Token::Ellipses)
+                        TokenType::Ellipses
                     } else {
-                        Some(Token::RangeExclusive)
+                        TokenType::RangeExclusive
                     }
                 } else {
-                    Some(Token::Dot)
+                    TokenType::Dot
                 }
             }
-            ',' => Some(Token::Comma),
-            '|' => Some(Token::Pipe),
-            '(' => Some(Token::OpenParen),
-            ')' => Some(Token::CloseParen),
-            '[' => Some(Token::OpenSquare),
-            ']' => Some(Token::CloseSquare),
-            '{' => Some(Token::OpenBrace),
-            '}' => Some(Token::CloseBrace),
-            ':' => Some(Token::Colon),
-            ';' => Some(Token::Semicolon),
+            ',' => TokenType::Comma,
+            '|' if self.next_if(|c| c == '>').is_some() => TokenType::Triangle,
+            '|' => TokenType::Pipe,
+            '(' => TokenType::OpenParen,
+            ')' => TokenType::CloseParen,
+            '[' => TokenType::OpenSquare,
+            ']' => TokenType::CloseSquare,
+            '{' => TokenType::OpenBrace,
+            '}' => TokenType::CloseBrace,
+            ':' => TokenType::Colon,
+            ';' => TokenType::Semicolon,
             c => panic!("unexpected character: {c}"),
-        }
+        };
+        Some(Token {
+            start,
+            end: self.index,
+            ty,
+        })
     }
 }
