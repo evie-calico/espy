@@ -1,8 +1,60 @@
-use espy_eyes::{Lexer, Token, TokenType};
+use espy_eyes::{Lexer, Token, TokenType, UnexpectedCharacter};
 use std::iter::Peekable;
 
 #[cfg(test)]
 mod tests;
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum Error<'source> {
+    UnexpectedCharacter(UnexpectedCharacter),
+    MissingToken {
+        expected: &'static [TokenType<'static>],
+        actual: Option<Token<'source>>,
+    },
+    UnexpectedCloseParen(Option<Token<'source>>),
+    IncompleteExpression,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum Diagnostic<'source> {
+    Error(Error<'source>),
+}
+
+#[derive(Debug, Default, Eq, PartialEq)]
+pub struct Diagnostics<'source> {
+    contents: Vec<Diagnostic<'source>>,
+}
+
+impl<'source> Diagnostics<'source> {
+    fn expect(
+        &mut self,
+        t: Option<Result<Token<'source>, UnexpectedCharacter>>,
+        expected: &'static [TokenType<'static>],
+    ) -> Option<Token<'source>> {
+        let actual = self.wrap(t);
+        if actual.is_some_and(|actual| expected.contains(&actual.ty)) {
+            actual
+        } else {
+            self.contents
+                .push(Diagnostic::Error(Error::MissingToken { expected, actual }));
+            None
+        }
+    }
+
+    fn wrap(
+        &mut self,
+        t: Option<Result<Token<'source>, UnexpectedCharacter>>,
+    ) -> Option<Token<'source>> {
+        match t? {
+            Ok(t) => Some(t),
+            Err(e) => {
+                self.contents
+                    .push(Diagnostic::Error(Error::UnexpectedCharacter(e)));
+                None
+            }
+        }
+    }
+}
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Binding<'source> {
@@ -10,10 +62,11 @@ pub struct Binding<'source> {
     pub ty: Option<&'source str>,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Default, Eq, PartialEq)]
 pub struct Statement<'source> {
     pub binding: Option<Binding<'source>>,
     pub expression: Option<Expression<'source>>,
+    pub diagnostics: Diagnostics<'source>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -25,6 +78,7 @@ pub enum ExpressionNode<'source> {
         condition: Expression<'source>,
         first: Block<'source>,
         second: Block<'source>,
+        diagnostics: Diagnostics<'source>,
     },
 
     Positive,
@@ -39,10 +93,11 @@ pub enum ExpressionNode<'source> {
 
 /// This type must not contain any incomplete expressions.
 #[derive(Debug, Default, Eq, PartialEq)]
-pub struct Expression<'source>(
+pub struct Expression<'source> {
     // TODO: This field should be exposed through an iterator or method, not pub.
-    pub Vec<ExpressionNode<'source>>,
-);
+    contents: Vec<ExpressionNode<'source>>,
+    diagnostics: Diagnostics<'source>,
+}
 
 /// Parse an expression until an unexpected token is upcoming (via peek).
 impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
@@ -98,20 +153,24 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
 
         fn conditional<'source>(lexer: &mut Peekable<Lexer<'source>>) -> ExpressionNode<'source> {
             lexer.next();
+            let mut diagnostics = Diagnostics::default();
             let condition = Expression::from(&mut *lexer);
-            if !matches!(
-                lexer.next(),
+            if diagnostics
+                .expect(lexer.peek().copied(), &[TokenType::Then])
+                .is_some()
+            {
+                lexer.next();
+            }
+            let first = Block::from(Ast::from(&mut *lexer));
+            let second = if matches!(
+                diagnostics.wrap(lexer.peek().copied()),
                 Some(Token {
-                    ty: TokenType::Then,
+                    ty: TokenType::Else,
                     ..
                 })
             ) {
-                panic!("expected then");
-            }
-            let first = Block::from(Ast::from(&mut *lexer));
-            let second = if lexer.next_if(|x| matches!(x.ty, TokenType::Else)).is_some() {
-                // TODO: this then is superfluous until `else if <cond> then` is added.
-                match lexer.peek() {
+                lexer.next();
+                match diagnostics.wrap(lexer.peek().copied()) {
                     Some(Token {
                         ty: TokenType::Then,
                         ..
@@ -122,31 +181,33 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     Some(Token {
                         ty: TokenType::If, ..
                     }) => Block {
-                        statements: Box::new([]),
-                        result: Expression(vec![conditional(&mut *lexer)]),
+                        statements: Vec::new(),
+                        result: Expression {
+                            contents: vec![conditional(&mut *lexer)],
+                            diagnostics: Diagnostics::default(),
+                        },
+                        diagnostics: Diagnostics::default(),
                     },
-                    _ => panic!("expected then or if"),
+                    _ => {
+                        diagnostics
+                            .expect(lexer.peek().copied(), &[TokenType::Then, TokenType::If]);
+                        Block::default()
+                    }
                 }
             } else {
                 Block::default()
             };
-            if !matches!(
-                lexer.peek(),
-                Some(Token {
-                    ty: TokenType::End,
-                    ..
-                })
-            ) {
-                panic!("expected end");
-            }
+            diagnostics.expect(lexer.peek().copied(), &[TokenType::End]);
             ExpressionNode::If {
                 condition,
                 first,
                 second,
+                diagnostics,
             }
         }
 
-        let mut output = Vec::new();
+        let mut diagnostics = Diagnostics::default();
+        let mut contents = Vec::new();
         let mut stack = Vec::new();
         let mut last_token = None;
         // Check if the last token implies the unary position.
@@ -180,19 +241,20 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
             };
         loop {
             let unary_position = unary_position(last_token);
-            match lexer.peek() {
+            let t = diagnostics.wrap(lexer.peek().copied());
+            match t {
                 // Terminals
                 Some(Token {
                     ty: TokenType::Number(number),
                     ..
                 }) if unary_position => {
-                    output.push(ExpressionNode::Number(number));
+                    contents.push(ExpressionNode::Number(number));
                 }
                 Some(Token {
                     ty: TokenType::Ident(number),
                     ..
                 }) if unary_position => {
-                    output.push(ExpressionNode::Ident(number));
+                    contents.push(ExpressionNode::Ident(number));
                 }
 
                 // A terminal value outside of unary position implies a function call,
@@ -201,15 +263,15 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     ty: TokenType::Number(number),
                     ..
                 }) if !unary_position => {
-                    flush(&mut output, &mut stack);
-                    output.push(ExpressionNode::Number(number));
+                    flush(&mut contents, &mut stack);
+                    contents.push(ExpressionNode::Number(number));
                 }
                 Some(Token {
                     ty: TokenType::Ident(number),
                     ..
                 }) if !unary_position => {
-                    flush(&mut output, &mut stack);
-                    output.push(ExpressionNode::Ident(number));
+                    flush(&mut contents, &mut stack);
+                    contents.push(ExpressionNode::Ident(number));
                 }
 
                 // # Operators
@@ -218,56 +280,56 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     ty: TokenType::Plus,
                     ..
                 }) if unary_position => {
-                    push_with_precedence(&mut output, &mut stack, Operation::Positive);
+                    push_with_precedence(&mut contents, &mut stack, Operation::Positive);
                 }
                 // binary add
                 Some(Token {
                     ty: TokenType::Plus,
                     ..
                 }) if !unary_position => {
-                    push_with_precedence(&mut output, &mut stack, Operation::Add);
+                    push_with_precedence(&mut contents, &mut stack, Operation::Add);
                 }
                 // unary negative
                 Some(Token {
                     ty: TokenType::Minus,
                     ..
                 }) if unary_position => {
-                    push_with_precedence(&mut output, &mut stack, Operation::Negative);
+                    push_with_precedence(&mut contents, &mut stack, Operation::Negative);
                 }
                 // binary sub
                 Some(Token {
                     ty: TokenType::Minus,
                     ..
                 }) if !unary_position => {
-                    push_with_precedence(&mut output, &mut stack, Operation::Sub);
+                    push_with_precedence(&mut contents, &mut stack, Operation::Sub);
                 }
                 // binary mul
                 Some(Token {
                     ty: TokenType::Star,
                     ..
                 }) if !unary_position => {
-                    push_with_precedence(&mut output, &mut stack, Operation::Mul);
+                    push_with_precedence(&mut contents, &mut stack, Operation::Mul);
                 }
                 // binary div
                 Some(Token {
                     ty: TokenType::Slash,
                     ..
                 }) if !unary_position => {
-                    push_with_precedence(&mut output, &mut stack, Operation::Div);
+                    push_with_precedence(&mut contents, &mut stack, Operation::Div);
                 }
                 // binary named tuple construction
                 Some(Token {
                     ty: TokenType::Colon,
                     ..
                 }) if !unary_position => {
-                    push_with_precedence(&mut output, &mut stack, Operation::Name);
+                    push_with_precedence(&mut contents, &mut stack, Operation::Name);
                 }
                 // binary tuple concatenation
                 Some(Token {
                     ty: TokenType::Comma,
                     ..
                 }) if !unary_position => {
-                    push_with_precedence(&mut output, &mut stack, Operation::Tuple);
+                    push_with_precedence(&mut contents, &mut stack, Operation::Tuple);
                 }
                 // parenthesized expressions
                 Some(Token {
@@ -281,10 +343,12 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     ..
                 }) if !unary_position => {
                     while let Some(op) = stack.pop_if(|x| !matches!(x, Operation::SubExpression)) {
-                        output.push(op.into());
+                        contents.push(op.into());
                     }
                     if !matches!(stack.pop(), Some(Operation::SubExpression)) {
-                        panic!("closing parenthesis without matching opening parenthesis")
+                        diagnostics
+                            .contents
+                            .push(Diagnostic::Error(Error::UnexpectedCloseParen(t)))
                     }
                 }
                 // brace block
@@ -293,88 +357,72 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     ..
                 }) => {
                     lexer.next();
-                    let mut ast = Ast::from(&mut *lexer);
-                    // This should be a collect but i don't know how to express the `&mut` part.
-                    let mut statements = Vec::new();
-                    for statement in &mut ast {
-                        statements.push(statement);
-                    }
-                    let result = ast.close();
-                    output.push(ExpressionNode::Block(Block {
-                        statements: statements.into_boxed_slice(),
-                        result,
-                    }));
-                    if !matches!(
-                        lexer.peek(),
-                        Some(Token {
-                            ty: TokenType::CloseBrace,
-                            ..
-                        })
-                    ) {
-                        panic!("expected }}");
-                    }
+                    contents.push(ExpressionNode::Block(Block::from(Ast::from(&mut *lexer))));
+                    diagnostics.expect(lexer.peek().copied(), &[TokenType::CloseBrace]);
                 }
                 // if block
                 Some(Token {
                     ty: TokenType::If, ..
                 }) => {
-                    output.push(conditional(lexer));
+                    contents.push(conditional(lexer));
                 }
                 _ if !unary_position => {
-                    flush(&mut output, &mut stack);
+                    flush(&mut contents, &mut stack);
                     if !stack.is_empty() {
-                        panic!("opening parenthesis without matching closing parenthesis");
+                        diagnostics.expect(None, &[TokenType::CloseParen]);
                     }
-                    return Expression(output);
+                    return Expression {
+                        contents,
+                        diagnostics,
+                    };
                 }
                 _ => {
-                    if output.is_empty() && stack.is_empty() {
-                        return Expression(Vec::new());
+                    if !contents.is_empty() || !stack.is_empty() {
+                        diagnostics
+                            .contents
+                            .push(Diagnostic::Error(Error::IncompleteExpression));
                     }
-                    panic!("incomplete expression");
+                    return Expression {
+                        contents,
+                        diagnostics,
+                    };
                 }
             }
-            last_token = lexer.next();
+            last_token = lexer.next().transpose().unwrap_or(None);
         }
     }
 }
 
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Block<'source> {
-    statements: Box<[Statement<'source>]>,
+    statements: Vec<Statement<'source>>,
     result: Expression<'source>,
+    diagnostics: Diagnostics<'source>,
 }
 
 impl<'source> From<Ast<'source, '_>> for Block<'source> {
-    fn from(ast: Ast<'source, '_>) -> Self {
-        let (statements, result) = ast.resolve();
-        Self { statements, result }
+    fn from(mut ast: Ast<'source, '_>) -> Self {
+        let mut statements = Vec::new();
+        for statement in &mut ast {
+            statements.push(statement);
+        }
+        let Ast {
+            closed,
+            diagnostics,
+            ..
+        } = ast;
+        Self {
+            statements,
+            result: closed.expect("ast must be closed by resolve"),
+            diagnostics,
+        }
     }
 }
 
 pub struct Ast<'source, 'iter> {
     lexer: &'iter mut Peekable<Lexer<'source>>,
     closed: Option<Expression<'source>>,
-}
-
-impl<'source> Ast<'source, '_> {
-    pub fn resolve(mut self) -> (Box<[Statement<'source>]>, Expression<'source>) {
-        let mut statements = Vec::new();
-        for statement in &mut self {
-            statements.push(statement);
-        }
-        (statements.into_boxed_slice(), self.close())
-    }
-
-    /// # Panics
-    ///
-    /// Panics if you call this function before exhausting the Ast of its statements.
-    pub fn close(self) -> Expression<'source> {
-        let Some(closed) = self.closed else {
-            panic!("attempted to close ast without exhausting its statements");
-        };
-        closed
-    }
+    diagnostics: Diagnostics<'source>,
 }
 
 impl<'source, 'iter> From<&'iter mut Peekable<Lexer<'source>>> for Ast<'source, 'iter> {
@@ -382,6 +430,7 @@ impl<'source, 'iter> From<&'iter mut Peekable<Lexer<'source>>> for Ast<'source, 
         Self {
             lexer,
             closed: None,
+            diagnostics: Diagnostics::default(),
         }
     }
 }
@@ -392,55 +441,85 @@ impl<'source> Iterator for Ast<'source, '_> {
         if self.closed.is_some() {
             return None;
         }
-        let lexer = &mut *self.lexer;
-        if lexer.next_if(|x| x.ty == TokenType::Let).is_some() {
-            let Some(Token {
+        if let Some(Token {
+            ty: TokenType::Let, ..
+        }) = self.diagnostics.wrap(self.lexer.peek().copied())
+        {
+            self.lexer.next();
+            let mut st_diagnostics = Diagnostics::default();
+            let t = st_diagnostics.wrap(self.lexer.next());
+            if let Some(Token {
                 ty: TokenType::Ident(ident),
                 ..
-            }) = lexer.next()
-            else {
-                panic!("expected binding following `let`");
-            };
-            match lexer.next() {
-                Some(Token {
-                    ty: TokenType::Equals,
-                    ..
-                }) => {
-                    let expression = Expression::from(&mut *lexer);
-                    let Some(Token {
+            }) = t
+            {
+                match st_diagnostics.wrap(self.lexer.peek().copied()) {
+                    Some(Token {
+                        ty: TokenType::Equals,
+                        ..
+                    }) => {
+                        self.lexer.next();
+                        let expression = Expression::from(&mut *self.lexer);
+                        if st_diagnostics
+                            .expect(self.lexer.peek().copied(), &[TokenType::Semicolon])
+                            .is_some()
+                        {
+                            self.lexer.next();
+                        }
+                        Some(Statement {
+                            binding: Some(Binding { ident, ty: None }),
+                            expression: Some(expression),
+                            diagnostics: st_diagnostics,
+                        })
+                    }
+                    Some(Token {
                         ty: TokenType::Semicolon,
                         ..
-                    }) = lexer.next()
-                    else {
-                        // Actually, there's no reason syntactically that a } couldn't terminate an assignment,
-                        // but a semicolon is more correct.
-                        // That said, this is the type of error where we should continue parsing once error handling is implemented.
-                        panic!("let expression must be terminated by a semicolon");
-                    };
-                    Some(Statement {
-                        binding: Some(Binding { ident, ty: None }),
-                        expression: Some(expression),
-                    })
+                    }) => {
+                        self.lexer.next();
+                        Some(Statement {
+                            binding: Some(Binding { ident, ty: None }),
+                            expression: None,
+                            diagnostics: st_diagnostics,
+                        })
+                    }
+                    _ => {
+                        st_diagnostics.expect(
+                            self.lexer.peek().copied(),
+                            &[TokenType::Equals, TokenType::Semicolon],
+                        );
+                        Some(Statement {
+                            binding: Some(Binding { ident, ty: None }),
+                            expression: None,
+                            diagnostics: st_diagnostics,
+                        })
+                    }
                 }
-                Some(Token {
-                    ty: TokenType::Semicolon,
-                    ..
-                }) => Some(Statement {
-                    binding: Some(Binding { ident, ty: None }),
+            } else {
+                st_diagnostics
+                    .contents
+                    .push(Diagnostic::Error(Error::MissingToken {
+                        expected: &[TokenType::Ident("")],
+                        actual: t,
+                    }));
+                Some(Statement {
+                    binding: None,
                     expression: None,
-                }),
-                // TODO: Just log the erroneous statement and parse another expression. This is probably a forgotten = or ; and will parse fine.
-                _ => panic!("expected = or ;"),
+                    diagnostics: st_diagnostics,
+                })
             }
         } else {
-            let expression = Expression::from(&mut *lexer);
-            if lexer
-                .next_if(|x| matches!(x.ty, TokenType::Semicolon))
-                .is_some()
+            let mut st_diagnostics = Diagnostics::default();
+            let expression = Expression::from(&mut *self.lexer);
+            if let Some(Token {
+                ty: TokenType::Semicolon,
+                ..
+            }) = st_diagnostics.wrap(self.lexer.peek().copied())
             {
                 Some(Statement {
                     binding: None,
                     expression: Some(expression),
+                    diagnostics: st_diagnostics,
                 })
             } else {
                 self.closed = Some(expression);

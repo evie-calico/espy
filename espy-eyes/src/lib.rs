@@ -51,6 +51,12 @@ pub enum TokenType<'source> {
     Number(&'source str),
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct UnexpectedCharacter {
+    c: char,
+    index: usize,
+}
+
 #[derive(Copy, Clone, Default)]
 pub struct Lexer<'source> {
     cursor: &'source str,
@@ -71,10 +77,12 @@ impl<'source> From<&'source str> for Lexer<'source> {
 /// and since `peek` relies on buffering the result of `next` the resulting slice would be useless anyways.
 impl<'source> Lexer<'source> {
     fn next(&mut self) -> Option<char> {
-        self.cursor.chars().next().inspect(|_| {
-            self.index += 1;
-            self.cursor = &self.cursor[1..];
-        })
+        let mut chars = self.cursor.char_indices();
+        let (_, c) = chars.next()?;
+        let offset = chars.next().map_or(self.cursor.len(), |(x, _)| x);
+        self.index += offset;
+        self.cursor = &self.cursor[offset..];
+        Some(c)
     }
 
     fn next_if(&mut self, cond: impl FnOnce(char) -> bool) -> Option<char> {
@@ -91,7 +99,7 @@ impl<'source> Lexer<'source> {
 }
 
 impl<'source> Iterator for Lexer<'source> {
-    type Item = Token<'source>;
+    type Item = Result<Token<'source>, UnexpectedCharacter>;
     fn next(&mut self) -> Option<Self::Item> {
         while self
             .next_if(|c| matches!(c, ' ' | '\n' | '\r' | '\t'))
@@ -182,12 +190,14 @@ impl<'source> Iterator for Lexer<'source> {
             '}' => TokenType::CloseBrace,
             ':' => TokenType::Colon,
             ';' => TokenType::Semicolon,
-            c => panic!("unexpected character: {c}"),
+            c => {
+                return Some(Err(UnexpectedCharacter { c, index: start }));
+            }
         };
-        Some(Token {
+        Some(Ok(Token {
             start,
             end: self.index,
             ty,
-        })
+        }))
     }
 }
