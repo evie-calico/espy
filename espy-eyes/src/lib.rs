@@ -9,6 +9,11 @@ pub struct Token<'source> {
 pub enum TokenType<'source> {
     // Keywords
     Let,
+    If,
+    Else,
+    End,
+    For,
+    Then,
 
     // Symbols
     CloseBrace,
@@ -112,17 +117,22 @@ impl<'source> Iterator for Lexer<'source> {
                 let ident = &root[0..length];
                 match ident {
                     "and" | "any" | "array" | "as" | "async" | "await" | "break" | "case"
-                    | "char" | "class" | "const" | "continue" | "do" | "dyn" | "else" | "end"
-                    | "enum" | "false" | "fixed" | "float" | "fn" | "for" | "if" | "impl"
-                    | "import" | "in" | "include" | "integer" | "iterator" | "loop" | "macro"
-                    | "match" | "mod" | "move" | "mut" | "never" | "or" | "priv" | "pub"
-                    | "ref" | "require" | "return" | "safe" | "self" | "Self" | "static"
-                    | "string" | "struct" | "super" | "switch" | "table" | "trait" | "true"
-                    | "try" | "tuple" | "type" | "union" | "unit" | "unsafe" | "unsigned"
-                    | "use" | "where" | "while" | "yield" => {
+                    | "char" | "class" | "const" | "continue" | "do" | "dyn" | "enum" | "false"
+                    | "fixed" | "float" | "fn" | "impl" | "import" | "in" | "include"
+                    | "integer" | "iterator" | "loop" | "macro" | "match" | "mod" | "move"
+                    | "mut" | "never" | "or" | "priv" | "pub" | "ref" | "require" | "return"
+                    | "safe" | "self" | "Self" | "static" | "string" | "struct" | "super"
+                    | "switch" | "table" | "trait" | "true" | "try" | "tuple" | "type"
+                    | "union" | "unit" | "unsafe" | "unsigned" | "use" | "where" | "while"
+                    | "yield" => {
                         panic!("the symbol {ident} is reserved")
                     }
+                    "for" => TokenType::For,
+                    "else" => TokenType::Else,
+                    "end" => TokenType::End,
+                    "if" => TokenType::If,
                     "let" => TokenType::Let,
+                    "then" => TokenType::Then,
                     _ => TokenType::Ident(ident),
                 }
             }

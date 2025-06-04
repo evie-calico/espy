@@ -1,4 +1,4 @@
-use crate::{Ast, Binding, Expression, ExpressionNode, Statement};
+use crate::{Ast, Binding, Block, Expression, ExpressionNode, Statement};
 use espy_eyes::Lexer;
 
 #[test]
@@ -58,7 +58,7 @@ fn block_expression() {
             ident: "x",
             ty: None,
         }),
-        expression: Some(Expression(vec![ExpressionNode::Block {
+        expression: Some(Expression(vec![ExpressionNode::Block(Block {
             statements: [Statement {
                 binding: Some(Binding {
                     ident: "y",
@@ -72,6 +72,30 @@ fn block_expression() {
                 ExpressionNode::Number("3"),
                 ExpressionNode::Mul,
             ]),
+        })])),
+    }];
+    assert!(Ast::from(&mut lexer).eq(expected));
+}
+
+#[test]
+fn if_expression() {
+    let source = "let x = if condition then 1 else then 2 end;";
+    let mut lexer = Lexer::from(source).peekable();
+    let expected = [Statement {
+        binding: Some(Binding {
+            ident: "x",
+            ty: None,
+        }),
+        expression: Some(Expression(vec![ExpressionNode::If {
+            condition: Expression(vec![ExpressionNode::Ident("condition")]),
+            first: Block {
+                statements: Box::new([]),
+                result: Expression(vec![ExpressionNode::Number("1")]),
+            },
+            second: Block {
+                statements: Box::new([]),
+                result: Expression(vec![ExpressionNode::Number("2")]),
+            },
         }])),
     }];
     assert!(Ast::from(&mut lexer).eq(expected));

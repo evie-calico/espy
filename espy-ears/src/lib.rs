@@ -16,20 +16,15 @@ pub struct Statement<'source> {
     pub expression: Option<Expression<'source>>,
 }
 
-/// This type must not contain any incomplete expressions.
-#[derive(Debug, Eq, PartialEq)]
-pub struct Expression<'source>(
-    // TODO: This field should be exposed through an iterator or method, not pub.
-    pub Vec<ExpressionNode<'source>>,
-);
-
 #[derive(Debug, Eq, PartialEq)]
 pub enum ExpressionNode<'source> {
     Number(&'source str),
     Ident(&'source str),
-    Block {
-        statements: Box<[Statement<'source>]>,
-        result: Expression<'source>,
+    Block(Block<'source>),
+    If {
+        condition: Expression<'source>,
+        first: Block<'source>,
+        second: Block<'source>,
     },
 
     Positive,
@@ -42,56 +37,65 @@ pub enum ExpressionNode<'source> {
     Tuple,
 }
 
-impl From<Operation> for ExpressionNode<'_> {
-    fn from(op: Operation) -> Self {
-        match op {
-            Operation::Positive => ExpressionNode::Positive,
-            Operation::Negative => ExpressionNode::Negative,
-            Operation::Mul => ExpressionNode::Mul,
-            Operation::Div => ExpressionNode::Div,
-            Operation::Add => ExpressionNode::Add,
-            Operation::Sub => ExpressionNode::Sub,
-            Operation::Name => ExpressionNode::Name,
-            Operation::Tuple => ExpressionNode::Tuple,
-            Operation::SubExpression => panic!("sub expressions may not enter the output stack"),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Operation {
-    Positive,
-    Negative,
-
-    Mul,
-    Div,
-
-    Add,
-    Sub,
-
-    Name,
-
-    Tuple,
-
-    SubExpression,
-}
-
-impl Operation {
-    fn precedence(self) -> usize {
-        match self {
-            Operation::Positive | Operation::Negative => 5,
-            Operation::Mul | Operation::Div => 4,
-            Operation::Add | Operation::Sub => 3,
-            Operation::Name => 2,
-            Operation::Tuple => 1,
-            Operation::SubExpression => 0,
-        }
-    }
-}
+/// This type must not contain any incomplete expressions.
+#[derive(Debug, Default, Eq, PartialEq)]
+pub struct Expression<'source>(
+    // TODO: This field should be exposed through an iterator or method, not pub.
+    pub Vec<ExpressionNode<'source>>,
+);
 
 /// Parse an expression until an unexpected token is upcoming (via peek).
 impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
     fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        enum Operation {
+            Positive,
+            Negative,
+
+            Mul,
+            Div,
+
+            Add,
+            Sub,
+
+            Name,
+
+            Tuple,
+
+            SubExpression,
+        }
+
+        impl Operation {
+            fn precedence(self) -> usize {
+                match self {
+                    Operation::Positive | Operation::Negative => 5,
+                    Operation::Mul | Operation::Div => 4,
+                    Operation::Add | Operation::Sub => 3,
+                    Operation::Name => 2,
+                    Operation::Tuple => 1,
+                    Operation::SubExpression => 0,
+                }
+            }
+        }
+
+        impl From<Operation> for ExpressionNode<'_> {
+            fn from(op: Operation) -> Self {
+                match op {
+                    Operation::Positive => ExpressionNode::Positive,
+                    Operation::Negative => ExpressionNode::Negative,
+                    Operation::Mul => ExpressionNode::Mul,
+                    Operation::Div => ExpressionNode::Div,
+                    Operation::Add => ExpressionNode::Add,
+                    Operation::Sub => ExpressionNode::Sub,
+                    Operation::Name => ExpressionNode::Name,
+                    Operation::Tuple => ExpressionNode::Tuple,
+                    Operation::SubExpression => {
+                        panic!("sub expressions may not enter the output stack")
+                    }
+                }
+            }
+        }
+
         let mut output = Vec::new();
         let mut stack = Vec::new();
         let mut last_token = None;
@@ -246,10 +250,10 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         statements.push(statement);
                     }
                     let result = ast.close();
-                    output.push(ExpressionNode::Block {
+                    output.push(ExpressionNode::Block(Block {
                         statements: statements.into_boxed_slice(),
                         result,
-                    });
+                    }));
                     if !matches!(
                         lexer.peek(),
                         Some(Token {
@@ -259,6 +263,52 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     ) {
                         panic!("expected }}");
                     }
+                }
+                // if block
+                Some(Token {
+                    ty: TokenType::If, ..
+                }) => {
+                    lexer.next();
+                    let condition = Expression::from(&mut *lexer);
+                    if !matches!(
+                        lexer.next(),
+                        Some(Token {
+                            ty: TokenType::Then,
+                            ..
+                        })
+                    ) {
+                        panic!("expected then");
+                    }
+                    let first = Block::from(Ast::from(&mut *lexer));
+                    let second = if lexer.next_if(|x| matches!(x.ty, TokenType::Else)).is_some() {
+                        // TODO: this then is superfluous until `else if <cond> then` is added.
+                        if !matches!(
+                            lexer.next(),
+                            Some(Token {
+                                ty: TokenType::Then,
+                                ..
+                            })
+                        ) {
+                            panic!("expected then");
+                        }
+                        Block::from(Ast::from(&mut *lexer))
+                    } else {
+                        Block::default()
+                    };
+                    if !matches!(
+                        lexer.peek(),
+                        Some(Token {
+                            ty: TokenType::End,
+                            ..
+                        })
+                    ) {
+                        panic!("expected end");
+                    }
+                    output.push(ExpressionNode::If {
+                        condition,
+                        first,
+                        second,
+                    });
                 }
                 _ if !unary_position => {
                     flush(&mut output, &mut stack);
@@ -279,18 +329,36 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
     }
 }
 
+#[derive(Debug, Default, Eq, PartialEq)]
+pub struct Block<'source> {
+    statements: Box<[Statement<'source>]>,
+    result: Expression<'source>,
+}
+
+impl<'source> From<Ast<'source, '_>> for Block<'source> {
+    fn from(ast: Ast<'source, '_>) -> Self {
+        let (statements, result) = ast.resolve();
+        Self { statements, result }
+    }
+}
+
 pub struct Ast<'source, 'iter> {
     lexer: &'iter mut Peekable<Lexer<'source>>,
     closed: Option<Expression<'source>>,
 }
+
 impl<'source> Ast<'source, '_> {
+    pub fn resolve(mut self) -> (Box<[Statement<'source>]>, Expression<'source>) {
+        let mut statements = Vec::new();
+        for statement in &mut self {
+            statements.push(statement);
+        }
+        (statements.into_boxed_slice(), self.close())
+    }
+
     /// # Panics
     ///
     /// Panics if you call this function before exhausting the Ast of its statements.
-    ///
-    /// The simplest way to ensure this doesn't happen is to use it in a `for` loop first.
-    /// Make sure you write `for _ in &mut ast {}` instead of `for _ in ast {}`,
-    /// so that the for loop doesn't move `ast`.
     pub fn close(self) -> Expression<'source> {
         let Some(closed) = self.closed else {
             panic!("attempted to close ast without exhausting its statements");
