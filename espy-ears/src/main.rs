@@ -30,14 +30,31 @@ struct Expression<'source>(Vec<ExpressionNode<'source>>);
 
 #[derive(Debug)]
 enum ExpressionNode<'source> {
-    Operation(Operation),
     Number(&'source str),
     Ident(&'source str),
+
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Tuple,
+
+    Positive,
+    Negative,
 }
 
 impl From<Operation> for ExpressionNode<'_> {
     fn from(op: Operation) -> Self {
-        Self::Operation(op)
+        match op {
+            Operation::Add => ExpressionNode::Add,
+            Operation::Sub => ExpressionNode::Sub,
+            Operation::Mul => ExpressionNode::Mul,
+            Operation::Div => ExpressionNode::Div,
+            Operation::Tuple => ExpressionNode::Tuple,
+            Operation::Positive => ExpressionNode::Positive,
+            Operation::Negative => ExpressionNode::Negative,
+            Operation::SubExpression => panic!("sub expressions may not enter the output stack"),
+        }
     }
 }
 
@@ -51,15 +68,18 @@ enum Operation {
 
     Positive,
     Negative,
+
+    SubExpression,
 }
 
 impl Operation {
     fn precedence(self) -> usize {
         match self {
-            Operation::Positive | Operation::Negative => 3,
-            Operation::Mul | Operation::Div => 2,
-            Operation::Add | Operation::Sub => 1,
-            Operation::Tuple => 0,
+            Operation::Positive | Operation::Negative => 4,
+            Operation::Mul | Operation::Div => 3,
+            Operation::Add | Operation::Sub => 2,
+            Operation::Tuple => 1,
+            Operation::SubExpression => 0,
         }
     }
 }
@@ -88,13 +108,14 @@ impl<'source, Iter: Iterator<Item = Token<'source>>> From<&mut Peekable<Iter>>
             )
         };
         let flush = |output: &mut Vec<ExpressionNode>, stack: &mut Vec<Operation>| {
-            while let Some(op) = stack.pop() {
+            while let Some(op) = stack.pop_if(|x| !matches!(x, Operation::SubExpression)) {
                 output.push(op.into());
             }
         };
         let push_with_precedence =
             |output: &mut Vec<ExpressionNode>, stack: &mut Vec<Operation>, operator: Operation| {
                 while let Some(op) = stack.pop_if(|x| x.precedence() > operator.precedence()) {
+                    // SubExpression has the lowest precedence, so this cannot panic.
                     output.push(op.into());
                 }
                 stack.push(operator);
@@ -183,8 +204,28 @@ impl<'source, Iter: Iterator<Item = Token<'source>>> From<&mut Peekable<Iter>>
                 }) if !unary_position => {
                     push_with_precedence(&mut output, &mut stack, Operation::Tuple);
                 }
+                Some(Token {
+                    ty: TokenType::OpenParen,
+                    ..
+                }) => {
+                    stack.push(Operation::SubExpression);
+                }
+                Some(Token {
+                    ty: TokenType::CloseParen,
+                    ..
+                }) if !unary_position => {
+                    while let Some(op) = stack.pop_if(|x| !matches!(x, Operation::SubExpression)) {
+                        output.push(op.into());
+                    }
+                    if !matches!(stack.pop(), Some(Operation::SubExpression)) {
+                        panic!("closing parenthesis without matching opening parenthesis")
+                    }
+                }
                 _ if !unary_position => {
                     flush(&mut output, &mut stack);
+                    if !stack.is_empty() {
+                        panic!("opening parenthesis without matching closing parenthesis");
+                    }
                     return Expression(output);
                 }
                 _ => {
@@ -261,13 +302,12 @@ impl<'source, Iter: Iterator<Item = Token<'source>>> Iterator for Ast<'source, I
                 Some(Token {
                     ty: TokenType::Semicolon,
                     ..
-                })
-                | None => Some(Statement {
+                }) => Some(Statement {
                     binding: Some(Binding { ident, ty: None }),
                     expression: None,
                 }),
                 // TODO: Just log the erroneous statement and parse another expression. This is probably a forgotten = or ; and will parse fine.
-                _ => panic!("expected =, ;, or EOF"),
+                _ => panic!("expected = or ;"),
             }
         } else {
             let expression = Expression::from(&mut *lexer);
