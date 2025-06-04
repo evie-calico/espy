@@ -1,36 +1,30 @@
 use espy_eyes::{Lexer, Token, TokenType};
 use std::iter::Peekable;
 
-fn main() {
-    for i in std::env::args().skip(1) {
-        let mut peekable = Lexer::from(i.as_str()).peekable();
-        let mut ast = Ast::from(&mut peekable);
-        for statement in &mut ast {
-            println!("{statement:?}");
-        }
-        let result = ast.close();
-        println!("result: {result:?}");
-    }
+#[cfg(test)]
+mod tests;
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct Binding<'source> {
+    pub ident: &'source str,
+    pub ty: Option<&'source str>,
 }
 
-#[derive(Debug)]
-struct Binding<'source> {
-    ident: &'source str,
-    ty: Option<&'source str>,
-}
-
-#[derive(Debug)]
-struct Statement<'source> {
-    binding: Option<Binding<'source>>,
-    expression: Option<Expression<'source>>,
+#[derive(Debug, Eq, PartialEq)]
+pub struct Statement<'source> {
+    pub binding: Option<Binding<'source>>,
+    pub expression: Option<Expression<'source>>,
 }
 
 /// This type must not contain any incomplete expressions.
-#[derive(Debug)]
-struct Expression<'source>(Vec<ExpressionNode<'source>>);
+#[derive(Debug, Eq, PartialEq)]
+pub struct Expression<'source>(
+    // TODO: This field should be exposed through an iterator or method, not pub.
+    pub Vec<ExpressionNode<'source>>,
+);
 
-#[derive(Debug)]
-enum ExpressionNode<'source> {
+#[derive(Debug, Eq, PartialEq)]
+pub enum ExpressionNode<'source> {
     Number(&'source str),
     Ident(&'source str),
     Block {
@@ -111,7 +105,8 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         | TokenType::Minus
                         | TokenType::Star
                         | TokenType::Slash
-                        | TokenType::Comma,
+                        | TokenType::Comma
+                        | TokenType::Colon,
                     ..
                 })
             )
@@ -284,7 +279,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
     }
 }
 
-struct Ast<'source, 'iter> {
+pub struct Ast<'source, 'iter> {
     lexer: &'iter mut Peekable<Lexer<'source>>,
     closed: Option<Expression<'source>>,
 }
@@ -296,7 +291,7 @@ impl<'source> Ast<'source, '_> {
     /// The simplest way to ensure this doesn't happen is to use it in a `for` loop first.
     /// Make sure you write `for _ in &mut ast {}` instead of `for _ in ast {}`,
     /// so that the for loop doesn't move `ast`.
-    fn close(self) -> Expression<'source> {
+    pub fn close(self) -> Expression<'source> {
         let Some(closed) = self.closed else {
             panic!("attempted to close ast without exhausting its statements");
         };
