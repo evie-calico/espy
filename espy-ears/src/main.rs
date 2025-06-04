@@ -33,26 +33,27 @@ enum ExpressionNode<'source> {
     Number(&'source str),
     Ident(&'source str),
 
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Tuple,
-
     Positive,
     Negative,
+    Mul,
+    Div,
+    Add,
+    Sub,
+    Name,
+    Tuple,
 }
 
 impl From<Operation> for ExpressionNode<'_> {
     fn from(op: Operation) -> Self {
         match op {
-            Operation::Add => ExpressionNode::Add,
-            Operation::Sub => ExpressionNode::Sub,
-            Operation::Mul => ExpressionNode::Mul,
-            Operation::Div => ExpressionNode::Div,
-            Operation::Tuple => ExpressionNode::Tuple,
             Operation::Positive => ExpressionNode::Positive,
             Operation::Negative => ExpressionNode::Negative,
+            Operation::Mul => ExpressionNode::Mul,
+            Operation::Div => ExpressionNode::Div,
+            Operation::Add => ExpressionNode::Add,
+            Operation::Sub => ExpressionNode::Sub,
+            Operation::Name => ExpressionNode::Name,
+            Operation::Tuple => ExpressionNode::Tuple,
             Operation::SubExpression => panic!("sub expressions may not enter the output stack"),
         }
     }
@@ -60,14 +61,18 @@ impl From<Operation> for ExpressionNode<'_> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Operation {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Tuple,
-
     Positive,
     Negative,
+
+    Mul,
+    Div,
+
+    Add,
+    Sub,
+
+    Name,
+
+    Tuple,
 
     SubExpression,
 }
@@ -75,9 +80,10 @@ enum Operation {
 impl Operation {
     fn precedence(self) -> usize {
         match self {
-            Operation::Positive | Operation::Negative => 4,
-            Operation::Mul | Operation::Div => 3,
-            Operation::Add | Operation::Sub => 2,
+            Operation::Positive | Operation::Negative => 5,
+            Operation::Mul | Operation::Div => 4,
+            Operation::Add | Operation::Sub => 3,
+            Operation::Name => 2,
             Operation::Tuple => 1,
             Operation::SubExpression => 0,
         }
@@ -197,6 +203,13 @@ impl<'source, Iter: Iterator<Item = Token<'source>>> From<&mut Peekable<Iter>>
                 }) if !unary_position => {
                     push_with_precedence(&mut output, &mut stack, Operation::Div);
                 }
+                // binary named tuple construction
+                Some(Token {
+                    ty: TokenType::Colon,
+                    ..
+                }) if !unary_position => {
+                    push_with_precedence(&mut output, &mut stack, Operation::Name);
+                }
                 // binary tuple concatenation
                 Some(Token {
                     ty: TokenType::Comma,
@@ -204,6 +217,7 @@ impl<'source, Iter: Iterator<Item = Token<'source>>> From<&mut Peekable<Iter>>
                 }) if !unary_position => {
                     push_with_precedence(&mut output, &mut stack, Operation::Tuple);
                 }
+                // parenthesized expressions
                 Some(Token {
                     ty: TokenType::OpenParen,
                     ..
