@@ -3,11 +3,12 @@ use std::iter::Peekable;
 
 fn main() {
     for i in std::env::args().skip(1) {
-        let mut ast = Ast::from(Lexer::from(i.as_str()).peekable());
+        let mut peekable = Lexer::from(i.as_str()).peekable();
+        let mut ast = Ast::from(&mut peekable);
         for statement in &mut ast {
             println!("{statement:?}");
         }
-        let (_, result) = ast.close();
+        let result = ast.close();
         println!("result: {result:?}");
     }
 }
@@ -32,6 +33,10 @@ struct Expression<'source>(Vec<ExpressionNode<'source>>);
 enum ExpressionNode<'source> {
     Number(&'source str),
     Ident(&'source str),
+    Block {
+        statements: Box<[Statement<'source>]>,
+        result: Expression<'source>,
+    },
 
     Positive,
     Negative,
@@ -91,10 +96,8 @@ impl Operation {
 }
 
 /// Parse an expression until an unexpected token is upcoming (via peek).
-impl<'source, Iter: Iterator<Item = Token<'source>>> From<&mut Peekable<Iter>>
-    for Expression<'source>
-{
-    fn from(lexer: &mut Peekable<Iter>) -> Self {
+impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
+    fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
         let mut output = Vec::new();
         let mut stack = Vec::new();
         let mut last_token = None;
@@ -235,6 +238,33 @@ impl<'source, Iter: Iterator<Item = Token<'source>>> From<&mut Peekable<Iter>>
                         panic!("closing parenthesis without matching opening parenthesis")
                     }
                 }
+                // brace block
+                Some(Token {
+                    ty: TokenType::OpenBrace,
+                    ..
+                }) => {
+                    lexer.next();
+                    let mut ast = Ast::from(&mut *lexer);
+                    // This should be a collect but i don't know how to express the `&mut` part.
+                    let mut statements = Vec::new();
+                    for statement in &mut ast {
+                        statements.push(statement);
+                    }
+                    let result = ast.close();
+                    output.push(ExpressionNode::Block {
+                        statements: statements.into_boxed_slice(),
+                        result,
+                    });
+                    if !matches!(
+                        lexer.peek(),
+                        Some(Token {
+                            ty: TokenType::CloseBrace,
+                            ..
+                        })
+                    ) {
+                        panic!("expected }}");
+                    }
+                }
                 _ if !unary_position => {
                     flush(&mut output, &mut stack);
                     if !stack.is_empty() {
@@ -254,36 +284,42 @@ impl<'source, Iter: Iterator<Item = Token<'source>>> From<&mut Peekable<Iter>>
     }
 }
 
-struct Ast<'source, Iter: Iterator<Item = Token<'source>>> {
-    lexer: Peekable<Iter>,
+struct Ast<'source, 'iter> {
+    lexer: &'iter mut Peekable<Lexer<'source>>,
     closed: Option<Expression<'source>>,
 }
-
-impl<'source, Iter: Iterator<Item = Token<'source>>> Ast<'source, Iter> {
-    fn close(self) -> (Peekable<Iter>, Expression<'source>) {
+impl<'source> Ast<'source, '_> {
+    /// # Panics
+    ///
+    /// Panics if you call this function before exhausting the Ast of its statements.
+    ///
+    /// The simplest way to ensure this doesn't happen is to use it in a `for` loop first.
+    /// Make sure you write `for _ in &mut ast {}` instead of `for _ in ast {}`,
+    /// so that the for loop doesn't move `ast`.
+    fn close(self) -> Expression<'source> {
         let Some(closed) = self.closed else {
-            panic!("attempted to close ast without exausting its statements");
+            panic!("attempted to close ast without exhausting its statements");
         };
-        (self.lexer, closed)
+        closed
     }
 }
 
-impl<'source, Iter: Iterator<Item = Token<'source>>> From<Iter> for Ast<'source, Iter> {
-    fn from(lexer: Iter) -> Self {
+impl<'source, 'iter> From<&'iter mut Peekable<Lexer<'source>>> for Ast<'source, 'iter> {
+    fn from(lexer: &'iter mut Peekable<Lexer<'source>>) -> Self {
         Self {
-            lexer: lexer.peekable(),
+            lexer,
             closed: None,
         }
     }
 }
 
-impl<'source, Iter: Iterator<Item = Token<'source>>> Iterator for Ast<'source, Iter> {
+impl<'source> Iterator for Ast<'source, '_> {
     type Item = Statement<'source>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.closed.is_some() {
             return None;
         }
-        let lexer = &mut self.lexer;
+        let lexer = &mut *self.lexer;
         if lexer.next_if(|x| x.ty == TokenType::Let).is_some() {
             let Some(Token {
                 ty: TokenType::Ident(ident),
