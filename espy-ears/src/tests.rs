@@ -100,3 +100,37 @@ fn if_expression() {
     }];
     assert!(Ast::from(&mut lexer).eq(expected));
 }
+
+#[test]
+fn if_else() {
+    let source = "let x = if condition then 1 else if other then 2 else then 3 end;";
+    let mut lexer = Lexer::from(source).peekable();
+    let expected = [Statement {
+        binding: Some(Binding {
+            ident: "x",
+            ty: None,
+        }),
+        expression: Some(Expression(vec![ExpressionNode::If {
+            condition: Expression(vec![ExpressionNode::Ident("condition")]),
+            first: Block {
+                statements: Box::new([]),
+                result: Expression(vec![ExpressionNode::Number("1")]),
+            },
+            second: Block {
+                statements: Box::new([]),
+                result: Expression(vec![ExpressionNode::If {
+                    condition: Expression(vec![ExpressionNode::Ident("other")]),
+                    first: Block {
+                        statements: Box::new([]),
+                        result: Expression(vec![ExpressionNode::Number("2")]),
+                    },
+                    second: Block {
+                        statements: Box::new([]),
+                        result: Expression(vec![ExpressionNode::Number("3")]),
+                    },
+                }]),
+            },
+        }])),
+    }];
+    assert!(Ast::from(&mut lexer).eq(expected));
+}

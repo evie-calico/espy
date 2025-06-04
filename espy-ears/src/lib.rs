@@ -96,6 +96,56 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
             }
         }
 
+        fn conditional<'source>(lexer: &mut Peekable<Lexer<'source>>) -> ExpressionNode<'source> {
+            lexer.next();
+            let condition = Expression::from(&mut *lexer);
+            if !matches!(
+                lexer.next(),
+                Some(Token {
+                    ty: TokenType::Then,
+                    ..
+                })
+            ) {
+                panic!("expected then");
+            }
+            let first = Block::from(Ast::from(&mut *lexer));
+            let second = if lexer.next_if(|x| matches!(x.ty, TokenType::Else)).is_some() {
+                // TODO: this then is superfluous until `else if <cond> then` is added.
+                match lexer.peek() {
+                    Some(Token {
+                        ty: TokenType::Then,
+                        ..
+                    }) => {
+                        lexer.next();
+                        Block::from(Ast::from(&mut *lexer))
+                    }
+                    Some(Token {
+                        ty: TokenType::If, ..
+                    }) => Block {
+                        statements: Box::new([]),
+                        result: Expression(vec![conditional(&mut *lexer)]),
+                    },
+                    _ => panic!("expected then or if"),
+                }
+            } else {
+                Block::default()
+            };
+            if !matches!(
+                lexer.peek(),
+                Some(Token {
+                    ty: TokenType::End,
+                    ..
+                })
+            ) {
+                panic!("expected end");
+            }
+            ExpressionNode::If {
+                condition,
+                first,
+                second,
+            }
+        }
+
         let mut output = Vec::new();
         let mut stack = Vec::new();
         let mut last_token = None;
@@ -268,47 +318,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 Some(Token {
                     ty: TokenType::If, ..
                 }) => {
-                    lexer.next();
-                    let condition = Expression::from(&mut *lexer);
-                    if !matches!(
-                        lexer.next(),
-                        Some(Token {
-                            ty: TokenType::Then,
-                            ..
-                        })
-                    ) {
-                        panic!("expected then");
-                    }
-                    let first = Block::from(Ast::from(&mut *lexer));
-                    let second = if lexer.next_if(|x| matches!(x.ty, TokenType::Else)).is_some() {
-                        // TODO: this then is superfluous until `else if <cond> then` is added.
-                        if !matches!(
-                            lexer.next(),
-                            Some(Token {
-                                ty: TokenType::Then,
-                                ..
-                            })
-                        ) {
-                            panic!("expected then");
-                        }
-                        Block::from(Ast::from(&mut *lexer))
-                    } else {
-                        Block::default()
-                    };
-                    if !matches!(
-                        lexer.peek(),
-                        Some(Token {
-                            ty: TokenType::End,
-                            ..
-                        })
-                    ) {
-                        panic!("expected end");
-                    }
-                    output.push(ExpressionNode::If {
-                        condition,
-                        first,
-                        second,
-                    });
+                    output.push(conditional(lexer));
                 }
                 _ if !unary_position => {
                     flush(&mut output, &mut stack);
