@@ -80,6 +80,13 @@ pub enum ExpressionNode<'source> {
         second: Block<'source>,
         diagnostics: Diagnostics<'source>,
     },
+    For {
+        binding: Option<&'source str>,
+        iterator: Expression<'source>,
+        first: Block<'source>,
+        second: Block<'source>,
+        diagnostics: Diagnostics<'source>,
+    },
 
     Positive,
     Negative,
@@ -366,6 +373,89 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 }) => {
                     contents.push(conditional(lexer));
                 }
+                // for block
+                Some(Token {
+                    ty: TokenType::For, ..
+                }) => {
+                    lexer.next();
+                    let mut diagnostics = Diagnostics::default();
+
+                    let binding = match diagnostics.wrap(lexer.peek().copied()) {
+                        Some(Token {
+                            ty: TokenType::Ident(ident),
+                            ..
+                        }) => {
+                            lexer.next();
+                            Some(ident)
+                        }
+                        Some(Token {
+                            ty: TokenType::Discard,
+                            ..
+                        }) => {
+                            lexer.next();
+                            None
+                        }
+                        _ => {
+                            diagnostics.expect(
+                                lexer.peek().copied(),
+                                &[TokenType::Ident(""), TokenType::Discard],
+                            );
+                            None
+                        }
+                    };
+                    if diagnostics
+                        .expect(lexer.peek().copied(), &[TokenType::In])
+                        .is_some()
+                    {
+                        lexer.next();
+                    }
+                    let iterator = Expression::from(&mut *lexer);
+                    if diagnostics
+                        .expect(lexer.peek().copied(), &[TokenType::Then])
+                        .is_some()
+                    {
+                        lexer.next();
+                    }
+                    let first = Block::from(Ast::from(&mut *lexer));
+                    let result = match diagnostics.wrap(lexer.peek().copied()) {
+                        Some(Token {
+                            ty: TokenType::End, ..
+                        }) => ExpressionNode::For {
+                            binding,
+                            iterator,
+                            first,
+                            second: Block::default(),
+                            diagnostics,
+                        },
+                        Some(Token {
+                            ty: TokenType::Else,
+                            ..
+                        }) => {
+                            lexer.next();
+                            let second = Block::from(Ast::from(&mut *lexer));
+                            diagnostics.expect(lexer.peek().copied(), &[TokenType::End]);
+                            ExpressionNode::For {
+                                binding,
+                                iterator,
+                                first,
+                                second,
+                                diagnostics,
+                            }
+                        }
+                        _ => {
+                            diagnostics
+                                .expect(lexer.peek().copied(), &[TokenType::End, TokenType::Else]);
+                            ExpressionNode::For {
+                                binding,
+                                iterator,
+                                first,
+                                second: Block::default(),
+                                diagnostics,
+                            }
+                        }
+                    };
+                    contents.push(result);
+                }
                 _ if !unary_position => {
                     flush(&mut contents, &mut stack);
                     if !stack.is_empty() {
@@ -516,6 +606,7 @@ impl<'source> Iterator for Ast<'source, '_> {
                 ..
             }) = st_diagnostics.wrap(self.lexer.peek().copied())
             {
+                self.lexer.next();
                 Some(Statement {
                     binding: None,
                     expression: Some(expression),

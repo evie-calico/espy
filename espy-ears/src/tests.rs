@@ -220,7 +220,7 @@ fn incomplete_expression() {
                 ExpressionNode::Mul,
             ],
             diagnostics: Diagnostics {
-                contents: vec![Diagnostic::Error(crate::Error::IncompleteExpression)],
+                contents: vec![Diagnostic::Error(Error::IncompleteExpression)],
             },
         },
         ..Default::default()
@@ -254,6 +254,42 @@ fn forgotten_semicolon() {
             contents: vec![ExpressionNode::Number("2")],
             ..Default::default()
         },
+        ..Default::default()
+    };
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn for_loop() {
+    let source = "for i in iter then print i end;";
+    let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
+    let expected = Block {
+        statements: vec![Statement {
+            binding: None,
+            expression: Some(Expression {
+                contents: vec![ExpressionNode::For {
+                    binding: Some("i"),
+                    iterator: Expression {
+                        contents: vec![ExpressionNode::Ident("iter")],
+                        ..Default::default()
+                    },
+                    first: Block {
+                        result: Expression {
+                            contents: vec![
+                                ExpressionNode::Ident("print"),
+                                ExpressionNode::Ident("i"),
+                            ],
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                    second: Block::default(),
+                    diagnostics: Diagnostics::default(),
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        }],
         ..Default::default()
     };
     assert_eq!(actual, expected);

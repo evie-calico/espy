@@ -10,10 +10,12 @@ pub enum TokenType<'source> {
     // Keywords
     Let,
     If,
+    In,
     Else,
     End,
     For,
     Then,
+    Discard,
 
     // Symbols
     CloseBrace,
@@ -126,21 +128,22 @@ impl<'source> Iterator for Lexer<'source> {
                 match ident {
                     "and" | "any" | "array" | "as" | "async" | "await" | "break" | "case"
                     | "char" | "class" | "const" | "continue" | "do" | "dyn" | "enum" | "false"
-                    | "fixed" | "float" | "fn" | "impl" | "import" | "in" | "include"
-                    | "integer" | "iterator" | "loop" | "macro" | "match" | "mod" | "move"
-                    | "mut" | "never" | "or" | "priv" | "pub" | "ref" | "require" | "return"
-                    | "safe" | "self" | "Self" | "static" | "string" | "struct" | "super"
-                    | "switch" | "table" | "trait" | "true" | "try" | "tuple" | "type"
-                    | "union" | "unit" | "unsafe" | "unsigned" | "use" | "where" | "while"
-                    | "yield" => {
+                    | "fixed" | "float" | "fn" | "impl" | "import" | "include" | "integer"
+                    | "iterator" | "loop" | "macro" | "match" | "mod" | "move" | "mut"
+                    | "never" | "or" | "priv" | "pub" | "ref" | "require" | "return" | "safe"
+                    | "self" | "Self" | "static" | "string" | "struct" | "super" | "switch"
+                    | "table" | "trait" | "true" | "try" | "tuple" | "type" | "union" | "unit"
+                    | "unsafe" | "unsigned" | "use" | "where" | "while" | "yield" => {
                         panic!("the symbol {ident} is reserved")
                     }
                     "for" => TokenType::For,
                     "else" => TokenType::Else,
                     "end" => TokenType::End,
                     "if" => TokenType::If,
+                    "in" => TokenType::In,
                     "let" => TokenType::Let,
                     "then" => TokenType::Then,
+                    "_" => TokenType::Discard,
                     _ => TokenType::Ident(ident),
                 }
             }
