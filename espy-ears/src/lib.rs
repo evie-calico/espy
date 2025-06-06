@@ -81,6 +81,7 @@ pub enum ExpressionNode<'source> {
     Div,
     Add,
     Sub,
+    EqualTo,
     Name,
     Tuple,
 }
@@ -107,6 +108,8 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
             Add,
             Sub,
 
+            EqualTo,
+
             Name,
 
             Tuple,
@@ -117,9 +120,10 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
         impl Operation {
             fn precedence(self) -> usize {
                 match self {
-                    Operation::Positive | Operation::Negative => 5,
-                    Operation::Mul | Operation::Div => 4,
-                    Operation::Add | Operation::Sub => 3,
+                    Operation::Positive | Operation::Negative => 6,
+                    Operation::Mul | Operation::Div => 5,
+                    Operation::Add | Operation::Sub => 4,
+                    Operation::EqualTo => 3,
                     Operation::Name => 2,
                     Operation::Tuple => 1,
                     Operation::SubExpression => 0,
@@ -136,6 +140,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     Operation::Div => ExpressionNode::Div,
                     Operation::Add => ExpressionNode::Add,
                     Operation::Sub => ExpressionNode::Sub,
+                    Operation::EqualTo => ExpressionNode::EqualTo,
                     Operation::Name => ExpressionNode::Name,
                     Operation::Tuple => ExpressionNode::Tuple,
                     Operation::SubExpression => {
@@ -214,6 +219,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         | Lexigram::Minus
                         | Lexigram::Star
                         | Lexigram::Slash
+                        | Lexigram::EqualTo
                         | Lexigram::Comma
                         | Lexigram::Colon,
                     ..
@@ -310,6 +316,12 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     ..
                 }) if !unary_position => {
                     push_with_precedence(&mut contents, &mut stack, Operation::Div);
+                }
+                Some(Token {
+                    lexigram: Lexigram::EqualTo,
+                    ..
+                }) if !unary_position => {
+                    push_with_precedence(&mut contents, &mut stack, Operation::EqualTo);
                 }
                 // binary named tuple construction
                 Some(Token {
