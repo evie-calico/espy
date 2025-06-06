@@ -6,10 +6,13 @@ fn assignment() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            binding: Some(Binding {
-                ident: "x",
-                ty: None,
-            }),
+            action: Some(
+                Binding {
+                    ident: "x",
+                    ty: None,
+                }
+                .into(),
+            ),
             expression: Some(Expression {
                 contents: vec![ExpressionNode::Number("1")],
                 ..Default::default()
@@ -69,17 +72,23 @@ fn block_expression() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            binding: Some(Binding {
-                ident: "x",
-                ty: None,
-            }),
+            action: Some(
+                Binding {
+                    ident: "x",
+                    ty: None,
+                }
+                .into(),
+            ),
             expression: Some(Expression {
                 contents: vec![ExpressionNode::Block(Block {
                     statements: [Statement {
-                        binding: Some(Binding {
-                            ident: "y",
-                            ty: None,
-                        }),
+                        action: Some(
+                            Binding {
+                                ident: "y",
+                                ty: None,
+                            }
+                            .into(),
+                        ),
                         expression: Some(Expression {
                             contents: vec![ExpressionNode::Number("2")],
                             ..Default::default()
@@ -112,10 +121,13 @@ fn if_expression() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            binding: Some(Binding {
-                ident: "x",
-                ty: None,
-            }),
+            action: Some(
+                Binding {
+                    ident: "x",
+                    ty: None,
+                }
+                .into(),
+            ),
             expression: Some(Expression {
                 contents: vec![ExpressionNode::If {
                     condition: Expression {
@@ -153,10 +165,13 @@ fn if_else() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            binding: Some(Binding {
-                ident: "x",
-                ty: None,
-            }),
+            action: Some(
+                Binding {
+                    ident: "x",
+                    ty: None,
+                }
+                .into(),
+            ),
             expression: Some(Expression {
                 contents: vec![ExpressionNode::If {
                     condition: Expression {
@@ -234,10 +249,13 @@ fn forgotten_semicolon() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            binding: Some(Binding {
-                ident: "x",
-                ty: None,
-            }),
+            action: Some(
+                Binding {
+                    ident: "x",
+                    ty: None,
+                }
+                .into(),
+            ),
             expression: None,
             diagnostics: Diagnostics {
                 contents: vec![Diagnostic::Error(Error::MissingToken {
@@ -265,7 +283,7 @@ fn for_loop() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            binding: None,
+            action: None,
             expression: Some(Expression {
                 contents: vec![ExpressionNode::For {
                     binding: Some("i"),
