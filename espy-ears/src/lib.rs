@@ -72,6 +72,8 @@ pub enum Node<'source> {
         diagnostics: Diagnostics<'source>,
     },
 
+    Pipe,
+    Call,
     Positive,
     Negative,
     Mul,
@@ -106,6 +108,8 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
     fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         enum Operation {
+            Call,
+            Pipe,
             Positive,
             Negative,
             Mul,
@@ -131,6 +135,8 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
         impl Operation {
             fn precedence(self) -> usize {
                 match self {
+                    Operation::Pipe => 13,
+                    Operation::Call => 12,
                     Operation::Positive | Operation::Negative => 11,
                     Operation::Mul | Operation::Div => 10,
                     Operation::Add | Operation::Sub => 9,
@@ -155,6 +161,8 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
         impl From<Operation> for Node<'_> {
             fn from(op: Operation) -> Self {
                 match op {
+                    Operation::Pipe => Node::Pipe,
+                    Operation::Call => Node::Call,
                     Operation::Positive => Node::Positive,
                     Operation::Negative => Node::Negative,
                     Operation::Mul => Node::Mul,
@@ -262,7 +270,9 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         | Lexigram::And
                         | Lexigram::Or
                         | Lexigram::Comma
-                        | Lexigram::Colon,
+                        | Lexigram::Colon
+                        | Lexigram::Triangle
+                        | Lexigram::OpenParen,
                     ..
                 })
             )
@@ -306,7 +316,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     ..
                 }) => {
                     if !unary_position {
-                        flush(&mut contents, &mut stack);
+                        push_with_precedence(&mut contents, &mut stack, Operation::Call);
                     }
                     contents.push(Node::Number(number));
                 }
@@ -315,15 +325,21 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     ..
                 }) => {
                     if !unary_position {
-                        flush(&mut contents, &mut stack);
+                        push_with_precedence(&mut contents, &mut stack, Operation::Call);
                     }
                     contents.push(Node::Ident(number));
                 }
-                lexi!(OpenBrace) => {
-                    lexer.next();
+                lexi!(OpenParen) => {
                     if !unary_position {
-                        flush(&mut contents, &mut stack);
+                        push_with_precedence(&mut contents, &mut stack, Operation::Call);
                     }
+                    stack.push(Operation::SubExpression);
+                }
+                lexi!(OpenBrace) => {
+                    if !unary_position {
+                        push_with_precedence(&mut contents, &mut stack, Operation::Call);
+                    }
+                    lexer.next();
                     contents.push(Node::Block(Block::from(Ast::from(&mut *lexer))));
                     diagnostics.expect(lexer.peek().copied(), &[Lexigram::CloseBrace]);
                 }
@@ -346,11 +362,9 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 lexi!(LesserEqual) if !unary_position => op!(LesserEqual),
                 lexi!(And) if !unary_position => op!(LogicalAnd),
                 lexi!(Or) if !unary_position => op!(LogicalOr),
+                lexi!(Triangle) if !unary_position => op!(Pipe),
                 lexi!(Colon) if !unary_position => op!(Name),
                 lexi!(Comma) if !unary_position => op!(Tuple),
-                lexi!(OpenParen) => {
-                    stack.push(Operation::SubExpression);
-                }
                 lexi!(CloseParen) if !unary_position => {
                     while let Some(op) = stack.pop_if(|x| !matches!(x, Operation::SubExpression)) {
                         contents.push(op.into());

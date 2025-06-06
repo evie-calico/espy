@@ -285,7 +285,7 @@ fn for_loop() {
                     },
                     first: Block {
                         result: Expression {
-                            contents: vec![Node::Ident("print"), Node::Ident("i")],
+                            contents: vec![Node::Ident("print"), Node::Ident("i"), Node::Call],
                             ..Default::default()
                         },
                         ..Default::default()
@@ -337,7 +337,11 @@ fn for_expression() {
                                     statements: vec![Statement {
                                         action: Some(Action::Break),
                                         expression: Some(Expression {
-                                            contents: vec![Node::Ident("Some"), Node::Ident("i")],
+                                            contents: vec![
+                                                Node::Ident("Some"),
+                                                Node::Ident("i"),
+                                                Node::Call,
+                                            ],
                                             ..Default::default()
                                         }),
                                         ..Default::default()
@@ -482,6 +486,26 @@ fn nested_parens() {
                 Node::BitwiseXor,
                 Node::BitwiseAnd,
                 Node::BitwiseOr,
+            ],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn pipe() {
+    let source = "1 |> f x";
+    let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
+    let expected = Block {
+        result: Expression {
+            contents: vec![
+                Node::Number("1"),
+                Node::Ident("f"),
+                Node::Pipe,
+                Node::Ident("x"),
+                Node::Call,
             ],
             ..Default::default()
         },
