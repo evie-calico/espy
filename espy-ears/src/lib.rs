@@ -57,7 +57,7 @@ impl<'source> Diagnostics<'source> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub enum ExpressionNode<'source> {
+pub enum Node<'source> {
     Number(&'source str),
     Ident(&'source str),
     Block(Block<'source>),
@@ -90,7 +90,7 @@ pub enum ExpressionNode<'source> {
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Expression<'source> {
     // TODO: This field should be exposed through an iterator or method, not pub.
-    contents: Vec<ExpressionNode<'source>>,
+    contents: Vec<Node<'source>>,
     diagnostics: Diagnostics<'source>,
 }
 
@@ -131,18 +131,18 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
             }
         }
 
-        impl From<Operation> for ExpressionNode<'_> {
+        impl From<Operation> for Node<'_> {
             fn from(op: Operation) -> Self {
                 match op {
-                    Operation::Positive => ExpressionNode::Positive,
-                    Operation::Negative => ExpressionNode::Negative,
-                    Operation::Mul => ExpressionNode::Mul,
-                    Operation::Div => ExpressionNode::Div,
-                    Operation::Add => ExpressionNode::Add,
-                    Operation::Sub => ExpressionNode::Sub,
-                    Operation::EqualTo => ExpressionNode::EqualTo,
-                    Operation::Name => ExpressionNode::Name,
-                    Operation::Tuple => ExpressionNode::Tuple,
+                    Operation::Positive => Node::Positive,
+                    Operation::Negative => Node::Negative,
+                    Operation::Mul => Node::Mul,
+                    Operation::Div => Node::Div,
+                    Operation::Add => Node::Add,
+                    Operation::Sub => Node::Sub,
+                    Operation::EqualTo => Node::EqualTo,
+                    Operation::Name => Node::Name,
+                    Operation::Tuple => Node::Tuple,
                     Operation::SubExpression => {
                         panic!("sub expressions may not enter the output stack")
                     }
@@ -150,7 +150,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
             }
         }
 
-        fn conditional<'source>(lexer: &mut Peekable<Lexer<'source>>) -> ExpressionNode<'source> {
+        fn conditional<'source>(lexer: &mut Peekable<Lexer<'source>>) -> Node<'source> {
             lexer.next();
             let mut diagnostics = Diagnostics::default();
             let condition = Expression::from(&mut *lexer);
@@ -197,7 +197,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 Block::default()
             };
             diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
-            ExpressionNode::If {
+            Node::If {
                 condition,
                 first,
                 second,
@@ -226,13 +226,13 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 })
             )
         };
-        let flush = |output: &mut Vec<ExpressionNode>, stack: &mut Vec<Operation>| {
+        let flush = |output: &mut Vec<Node>, stack: &mut Vec<Operation>| {
             while let Some(op) = stack.pop_if(|x| !matches!(x, Operation::SubExpression)) {
                 output.push(op.into());
             }
         };
         let push_with_precedence =
-            |output: &mut Vec<ExpressionNode>, stack: &mut Vec<Operation>, operator: Operation| {
+            |output: &mut Vec<Node>, stack: &mut Vec<Operation>, operator: Operation| {
                 while let Some(op) = stack.pop_if(|x| x.precedence() > operator.precedence()) {
                     // SubExpression has the lowest precedence, so this cannot panic.
                     output.push(op.into());
@@ -248,13 +248,13 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     lexigram: Lexigram::Number(number),
                     ..
                 }) if unary_position => {
-                    contents.push(ExpressionNode::Number(number));
+                    contents.push(Node::Number(number));
                 }
                 Some(Token {
                     lexigram: Lexigram::Ident(number),
                     ..
                 }) if unary_position => {
-                    contents.push(ExpressionNode::Ident(number));
+                    contents.push(Node::Ident(number));
                 }
 
                 // A terminal value outside of unary position implies a function call,
@@ -264,14 +264,14 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     ..
                 }) if !unary_position => {
                     flush(&mut contents, &mut stack);
-                    contents.push(ExpressionNode::Number(number));
+                    contents.push(Node::Number(number));
                 }
                 Some(Token {
                     lexigram: Lexigram::Ident(number),
                     ..
                 }) if !unary_position => {
                     flush(&mut contents, &mut stack);
-                    contents.push(ExpressionNode::Ident(number));
+                    contents.push(Node::Ident(number));
                 }
 
                 // # Operators
@@ -363,7 +363,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     ..
                 }) => {
                     lexer.next();
-                    contents.push(ExpressionNode::Block(Block::from(Ast::from(&mut *lexer))));
+                    contents.push(Node::Block(Block::from(Ast::from(&mut *lexer))));
                     diagnostics.expect(lexer.peek().copied(), &[Lexigram::CloseBrace]);
                 }
                 // if block
@@ -422,7 +422,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         Some(Token {
                             lexigram: Lexigram::End,
                             ..
-                        }) => ExpressionNode::For {
+                        }) => Node::For {
                             binding,
                             iterator,
                             first,
@@ -436,7 +436,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                             lexer.next();
                             let second = Block::from(Ast::from(&mut *lexer));
                             diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
-                            ExpressionNode::For {
+                            Node::For {
                                 binding,
                                 iterator,
                                 first,
@@ -447,7 +447,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         _ => {
                             diagnostics
                                 .expect(lexer.peek().copied(), &[Lexigram::End, Lexigram::Else]);
-                            ExpressionNode::For {
+                            Node::For {
                                 binding,
                                 iterator,
                                 first,

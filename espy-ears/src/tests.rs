@@ -14,7 +14,7 @@ fn assignment() {
                 .into(),
             ),
             expression: Some(Expression {
-                contents: vec![ExpressionNode::Number("1")],
+                contents: vec![Node::Number("1")],
                 ..Default::default()
             }),
             ..Default::default()
@@ -31,11 +31,11 @@ fn tuples() {
     let expected = Block {
         result: Expression {
             contents: vec![
-                ExpressionNode::Number("1"),
-                ExpressionNode::Number("2"),
-                ExpressionNode::Mul,
-                ExpressionNode::Number("3"),
-                ExpressionNode::Tuple,
+                Node::Number("1"),
+                Node::Number("2"),
+                Node::Mul,
+                Node::Number("3"),
+                Node::Tuple,
             ],
             ..Default::default()
         },
@@ -51,13 +51,13 @@ fn named_tuple() {
     let expected = Block {
         result: Expression {
             contents: vec![
-                ExpressionNode::Ident("x"),
-                ExpressionNode::Number("1"),
-                ExpressionNode::Name,
-                ExpressionNode::Ident("y"),
-                ExpressionNode::Number("2"),
-                ExpressionNode::Name,
-                ExpressionNode::Tuple,
+                Node::Ident("x"),
+                Node::Number("1"),
+                Node::Name,
+                Node::Ident("y"),
+                Node::Number("2"),
+                Node::Name,
+                Node::Tuple,
             ],
             ..Default::default()
         },
@@ -80,7 +80,7 @@ fn block_expression() {
                 .into(),
             ),
             expression: Some(Expression {
-                contents: vec![ExpressionNode::Block(Block {
+                contents: vec![Node::Block(Block {
                     statements: [Statement {
                         action: Some(
                             Binding {
@@ -90,18 +90,14 @@ fn block_expression() {
                             .into(),
                         ),
                         expression: Some(Expression {
-                            contents: vec![ExpressionNode::Number("2")],
+                            contents: vec![Node::Number("2")],
                             ..Default::default()
                         }),
                         ..Default::default()
                     }]
                     .into(),
                     result: Expression {
-                        contents: vec![
-                            ExpressionNode::Ident("y"),
-                            ExpressionNode::Number("3"),
-                            ExpressionNode::Mul,
-                        ],
+                        contents: vec![Node::Ident("y"), Node::Number("3"), Node::Mul],
                         ..Default::default()
                     },
                     ..Default::default()
@@ -129,21 +125,21 @@ fn if_expression() {
                 .into(),
             ),
             expression: Some(Expression {
-                contents: vec![ExpressionNode::If {
+                contents: vec![Node::If {
                     condition: Expression {
-                        contents: vec![ExpressionNode::Ident("condition")],
+                        contents: vec![Node::Ident("condition")],
                         ..Default::default()
                     },
                     first: Block {
                         result: Expression {
-                            contents: vec![ExpressionNode::Number("1")],
+                            contents: vec![Node::Number("1")],
                             ..Default::default()
                         },
                         ..Default::default()
                     },
                     second: Block {
                         result: Expression {
-                            contents: vec![ExpressionNode::Number("2")],
+                            contents: vec![Node::Number("2")],
                             ..Default::default()
                         },
                         ..Default::default()
@@ -173,35 +169,35 @@ fn if_else() {
                 .into(),
             ),
             expression: Some(Expression {
-                contents: vec![ExpressionNode::If {
+                contents: vec![Node::If {
                     condition: Expression {
-                        contents: vec![ExpressionNode::Ident("condition")],
+                        contents: vec![Node::Ident("condition")],
                         ..Default::default()
                     },
                     first: Block {
                         result: Expression {
-                            contents: vec![ExpressionNode::Number("1")],
+                            contents: vec![Node::Number("1")],
                             ..Default::default()
                         },
                         ..Default::default()
                     },
                     second: Block {
                         result: Expression {
-                            contents: vec![ExpressionNode::If {
+                            contents: vec![Node::If {
                                 condition: Expression {
-                                    contents: vec![ExpressionNode::Ident("other")],
+                                    contents: vec![Node::Ident("other")],
                                     ..Default::default()
                                 },
                                 first: Block {
                                     result: Expression {
-                                        contents: vec![ExpressionNode::Number("2")],
+                                        contents: vec![Node::Number("2")],
                                         ..Default::default()
                                     },
                                     ..Default::default()
                                 },
                                 second: Block {
                                     result: Expression {
-                                        contents: vec![ExpressionNode::Number("3")],
+                                        contents: vec![Node::Number("3")],
                                         ..Default::default()
                                     },
                                     ..Default::default()
@@ -229,11 +225,7 @@ fn incomplete_expression() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         result: Expression {
-            contents: vec![
-                ExpressionNode::Number("1"),
-                ExpressionNode::Number("2"),
-                ExpressionNode::Mul,
-            ],
+            contents: vec![Node::Number("1"), Node::Number("2"), Node::Mul],
             diagnostics: Diagnostics {
                 contents: vec![Diagnostic::Error(Error::IncompleteExpression)],
             },
@@ -269,7 +261,7 @@ fn forgotten_semicolon() {
             },
         }],
         result: Expression {
-            contents: vec![ExpressionNode::Number("2")],
+            contents: vec![Node::Number("2")],
             ..Default::default()
         },
         ..Default::default()
@@ -285,18 +277,15 @@ fn for_loop() {
         statements: vec![Statement {
             action: None,
             expression: Some(Expression {
-                contents: vec![ExpressionNode::For {
+                contents: vec![Node::For {
                     binding: Some("i"),
                     iterator: Expression {
-                        contents: vec![ExpressionNode::Ident("iter")],
+                        contents: vec![Node::Ident("iter")],
                         ..Default::default()
                     },
                     first: Block {
                         result: Expression {
-                            contents: vec![
-                                ExpressionNode::Ident("print"),
-                                ExpressionNode::Ident("i"),
-                            ],
+                            contents: vec![Node::Ident("print"), Node::Ident("i")],
                             ..Default::default()
                         },
                         ..Default::default()
@@ -327,20 +316,20 @@ fn for_expression() {
                 .into(),
             ),
             expression: Some(Expression {
-                contents: vec![ExpressionNode::For {
+                contents: vec![Node::For {
                     binding: Some("i"),
                     iterator: Expression {
-                        contents: vec![ExpressionNode::Ident("iter")],
+                        contents: vec![Node::Ident("iter")],
                         ..Default::default()
                     },
                     first: Block {
                         result: Expression {
-                            contents: vec![ExpressionNode::If {
+                            contents: vec![Node::If {
                                 condition: Expression {
                                     contents: vec![
-                                        ExpressionNode::Ident("i"),
-                                        ExpressionNode::Ident("needle"),
-                                        ExpressionNode::EqualTo,
+                                        Node::Ident("i"),
+                                        Node::Ident("needle"),
+                                        Node::EqualTo,
                                     ],
                                     ..Default::default()
                                 },
@@ -348,10 +337,7 @@ fn for_expression() {
                                     statements: vec![Statement {
                                         action: Some(Action::Break),
                                         expression: Some(Expression {
-                                            contents: vec![
-                                                ExpressionNode::Ident("Some"),
-                                                ExpressionNode::Ident("i"),
-                                            ],
+                                            contents: vec![Node::Ident("Some"), Node::Ident("i")],
                                             ..Default::default()
                                         }),
                                         ..Default::default()
@@ -367,7 +353,7 @@ fn for_expression() {
                     },
                     second: Block {
                         result: Expression {
-                            contents: vec![ExpressionNode::Ident("None")],
+                            contents: vec![Node::Ident("None")],
                             ..Default::default()
                         },
                         ..Default::default()
