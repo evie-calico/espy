@@ -79,6 +79,11 @@ pub enum Node<'source> {
     Add,
     Sub,
     EqualTo,
+    NotEqualTo,
+    Greater,
+    GreaterEqual,
+    Lesser,
+    LesserEqual,
     Name,
     Tuple,
 }
@@ -106,6 +111,11 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
             Sub,
 
             EqualTo,
+            NotEqualTo,
+            Greater,
+            GreaterEqual,
+            Lesser,
+            LesserEqual,
 
             Name,
 
@@ -120,7 +130,12 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     Operation::Positive | Operation::Negative => 6,
                     Operation::Mul | Operation::Div => 5,
                     Operation::Add | Operation::Sub => 4,
-                    Operation::EqualTo => 3,
+                    Operation::EqualTo
+                    | Operation::NotEqualTo
+                    | Operation::Greater
+                    | Operation::GreaterEqual
+                    | Operation::Lesser
+                    | Operation::LesserEqual => 3,
                     Operation::Name => 2,
                     Operation::Tuple => 1,
                     Operation::SubExpression => 0,
@@ -138,6 +153,11 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     Operation::Add => Node::Add,
                     Operation::Sub => Node::Sub,
                     Operation::EqualTo => Node::EqualTo,
+                    Operation::NotEqualTo => Node::NotEqualTo,
+                    Operation::Greater => Node::Greater,
+                    Operation::GreaterEqual => Node::GreaterEqual,
+                    Operation::Lesser => Node::Lesser,
+                    Operation::LesserEqual => Node::LesserEqual,
                     Operation::Name => Node::Name,
                     Operation::Tuple => Node::Tuple,
                     Operation::SubExpression => {
@@ -217,6 +237,11 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         | Lexigram::Star
                         | Lexigram::Slash
                         | Lexigram::EqualTo
+                        | Lexigram::NotEqualTo
+                        | Lexigram::Greater
+                        | Lexigram::GreaterEqual
+                        | Lexigram::Lesser
+                        | Lexigram::LesserEqual
                         | Lexigram::Comma
                         | Lexigram::Colon,
                     ..
@@ -314,11 +339,47 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 }) if !unary_position => {
                     push_with_precedence(&mut contents, &mut stack, Operation::Div);
                 }
+                // binary equal to
                 Some(Token {
                     lexigram: Lexigram::EqualTo,
                     ..
                 }) if !unary_position => {
                     push_with_precedence(&mut contents, &mut stack, Operation::EqualTo);
+                }
+                // binary not equal to
+                Some(Token {
+                    lexigram: Lexigram::NotEqualTo,
+                    ..
+                }) if !unary_position => {
+                    push_with_precedence(&mut contents, &mut stack, Operation::NotEqualTo);
+                }
+                // binary greater than
+                Some(Token {
+                    lexigram: Lexigram::Greater,
+                    ..
+                }) if !unary_position => {
+                    push_with_precedence(&mut contents, &mut stack, Operation::Greater);
+                }
+                // binary greater than or equal to
+                Some(Token {
+                    lexigram: Lexigram::GreaterEqual,
+                    ..
+                }) if !unary_position => {
+                    push_with_precedence(&mut contents, &mut stack, Operation::GreaterEqual);
+                }
+                // binary less then
+                Some(Token {
+                    lexigram: Lexigram::Lesser,
+                    ..
+                }) if !unary_position => {
+                    push_with_precedence(&mut contents, &mut stack, Operation::Lesser);
+                }
+                // binary less than or equal to
+                Some(Token {
+                    lexigram: Lexigram::LesserEqual,
+                    ..
+                }) if !unary_position => {
+                    push_with_precedence(&mut contents, &mut stack, Operation::LesserEqual);
                 }
                 // binary named tuple construction
                 Some(Token {

@@ -391,3 +391,57 @@ fn reserved_symbol() {
     };
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn comparison() {
+    let source = "1 == 1; 1 != 1; 1 > 1; 1 >= 1; 1 < 1; 1<= 1;";
+    let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
+    let expected = Block {
+        statements: vec![
+            Statement {
+                expression: Some(Expression {
+                    contents: vec![Node::Number("1"), Node::Number("1"), Node::EqualTo],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            Statement {
+                expression: Some(Expression {
+                    contents: vec![Node::Number("1"), Node::Number("1"), Node::NotEqualTo],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            Statement {
+                expression: Some(Expression {
+                    contents: vec![Node::Number("1"), Node::Number("1"), Node::Greater],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            Statement {
+                expression: Some(Expression {
+                    contents: vec![Node::Number("1"), Node::Number("1"), Node::GreaterEqual],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            Statement {
+                expression: Some(Expression {
+                    contents: vec![Node::Number("1"), Node::Number("1"), Node::Lesser],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            Statement {
+                expression: Some(Expression {
+                    contents: vec![Node::Number("1"), Node::Number("1"), Node::LesserEqual],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    assert_eq!(actual, expected);
+}
