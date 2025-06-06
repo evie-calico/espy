@@ -393,7 +393,7 @@ fn reserved_symbol() {
 }
 
 #[test]
-fn comparison() {
+fn comparison_operators() {
     let source = "1 == 1; 1 != 1; 1 > 1; 1 >= 1; 1 < 1; 1<= 1;";
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
@@ -441,6 +441,50 @@ fn comparison() {
                 ..Default::default()
             },
         ],
+        ..Default::default()
+    };
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn bitwise_operators() {
+    let source = "1 | 2 & 3 ^ 4";
+    let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
+    let expected = Block {
+        result: Expression {
+            contents: vec![
+                Node::Number("1"),
+                Node::Number("2"),
+                Node::Number("3"),
+                Node::BitwiseAnd,
+                Node::Number("4"),
+                Node::BitwiseXor,
+                Node::BitwiseOr,
+            ],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn nested_parens() {
+    let source = "1 | (2 & (3 ^ 4))";
+    let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
+    let expected = Block {
+        result: Expression {
+            contents: vec![
+                Node::Number("1"),
+                Node::Number("2"),
+                Node::Number("3"),
+                Node::Number("4"),
+                Node::BitwiseXor,
+                Node::BitwiseAnd,
+                Node::BitwiseOr,
+            ],
+            ..Default::default()
+        },
         ..Default::default()
     };
     assert_eq!(actual, expected);

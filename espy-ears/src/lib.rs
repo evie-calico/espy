@@ -78,12 +78,17 @@ pub enum Node<'source> {
     Div,
     Add,
     Sub,
+    BitwiseAnd,
+    BitwiseOr,
+    BitwiseXor,
     EqualTo,
     NotEqualTo,
     Greater,
     GreaterEqual,
     Lesser,
     LesserEqual,
+    LogicalAnd,
+    LogicalOr,
     Name,
     Tuple,
 }
@@ -103,39 +108,43 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
         enum Operation {
             Positive,
             Negative,
-
             Mul,
             Div,
-
             Add,
             Sub,
-
+            BitwiseAnd,
+            BitwiseXor,
+            BitwiseOr,
             EqualTo,
             NotEqualTo,
             Greater,
             GreaterEqual,
             Lesser,
             LesserEqual,
-
+            LogicalAnd,
+            LogicalOr,
             Name,
-
             Tuple,
-
             SubExpression,
         }
 
         impl Operation {
             fn precedence(self) -> usize {
                 match self {
-                    Operation::Positive | Operation::Negative => 6,
-                    Operation::Mul | Operation::Div => 5,
-                    Operation::Add | Operation::Sub => 4,
+                    Operation::Positive | Operation::Negative => 11,
+                    Operation::Mul | Operation::Div => 10,
+                    Operation::Add | Operation::Sub => 9,
+                    Operation::BitwiseAnd => 8,
+                    Operation::BitwiseXor => 7,
+                    Operation::BitwiseOr => 6,
                     Operation::EqualTo
                     | Operation::NotEqualTo
                     | Operation::Greater
                     | Operation::GreaterEqual
                     | Operation::Lesser
-                    | Operation::LesserEqual => 3,
+                    | Operation::LesserEqual => 5,
+                    Operation::LogicalAnd => 4,
+                    Operation::LogicalOr => 3,
                     Operation::Name => 2,
                     Operation::Tuple => 1,
                     Operation::SubExpression => 0,
@@ -152,12 +161,17 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     Operation::Div => Node::Div,
                     Operation::Add => Node::Add,
                     Operation::Sub => Node::Sub,
+                    Operation::BitwiseAnd => Node::BitwiseAnd,
+                    Operation::BitwiseXor => Node::BitwiseXor,
+                    Operation::BitwiseOr => Node::BitwiseOr,
                     Operation::EqualTo => Node::EqualTo,
                     Operation::NotEqualTo => Node::NotEqualTo,
                     Operation::Greater => Node::Greater,
                     Operation::GreaterEqual => Node::GreaterEqual,
                     Operation::Lesser => Node::Lesser,
                     Operation::LesserEqual => Node::LesserEqual,
+                    Operation::LogicalAnd => Node::LogicalAnd,
+                    Operation::LogicalOr => Node::LogicalOr,
                     Operation::Name => Node::Name,
                     Operation::Tuple => Node::Tuple,
                     Operation::SubExpression => {
@@ -236,12 +250,17 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         | Lexigram::Minus
                         | Lexigram::Star
                         | Lexigram::Slash
+                        | Lexigram::Ampersand
+                        | Lexigram::Caret
+                        | Lexigram::Pipe
                         | Lexigram::EqualTo
                         | Lexigram::NotEqualTo
                         | Lexigram::Greater
                         | Lexigram::GreaterEqual
                         | Lexigram::Lesser
                         | Lexigram::LesserEqual
+                        | Lexigram::And
+                        | Lexigram::Or
                         | Lexigram::Comma
                         | Lexigram::Colon,
                     ..
@@ -262,150 +281,77 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 stack.push(operator);
             };
         loop {
+            macro_rules! lexi {
+                ($lexi:ident) => {
+                    Some(Token {
+                        lexigram: Lexigram::$lexi,
+                        ..
+                    })
+                };
+            }
+            macro_rules! op {
+                ($op:ident) => {
+                    push_with_precedence(&mut contents, &mut stack, Operation::$op)
+                };
+            }
             let unary_position = unary_position(last_token);
             let t = diagnostics.wrap(lexer.peek().copied());
             match t {
                 // Terminals
-                Some(Token {
-                    lexigram: Lexigram::Number(number),
-                    ..
-                }) if unary_position => {
-                    contents.push(Node::Number(number));
-                }
-                Some(Token {
-                    lexigram: Lexigram::Ident(number),
-                    ..
-                }) if unary_position => {
-                    contents.push(Node::Ident(number));
-                }
-
+                //
                 // A terminal value outside of unary position implies a function call,
-                // so flush the operator stack.
+                // so flush the operator stack in this case.
                 Some(Token {
                     lexigram: Lexigram::Number(number),
                     ..
-                }) if !unary_position => {
-                    flush(&mut contents, &mut stack);
+                }) => {
+                    if !unary_position {
+                        flush(&mut contents, &mut stack);
+                    }
                     contents.push(Node::Number(number));
                 }
                 Some(Token {
                     lexigram: Lexigram::Ident(number),
                     ..
-                }) if !unary_position => {
-                    flush(&mut contents, &mut stack);
+                }) => {
+                    if !unary_position {
+                        flush(&mut contents, &mut stack);
+                    }
                     contents.push(Node::Ident(number));
+                }
+                lexi!(OpenBrace) => {
+                    lexer.next();
+                    if !unary_position {
+                        flush(&mut contents, &mut stack);
+                    }
+                    contents.push(Node::Block(Block::from(Ast::from(&mut *lexer))));
+                    diagnostics.expect(lexer.peek().copied(), &[Lexigram::CloseBrace]);
                 }
 
                 // # Operators
-                // unary positive
-                Some(Token {
-                    lexigram: Lexigram::Plus,
-                    ..
-                }) if unary_position => {
-                    push_with_precedence(&mut contents, &mut stack, Operation::Positive);
-                }
-                // binary add
-                Some(Token {
-                    lexigram: Lexigram::Plus,
-                    ..
-                }) if !unary_position => {
-                    push_with_precedence(&mut contents, &mut stack, Operation::Add);
-                }
-                // unary negative
-                Some(Token {
-                    lexigram: Lexigram::Minus,
-                    ..
-                }) if unary_position => {
-                    push_with_precedence(&mut contents, &mut stack, Operation::Negative);
-                }
-                // binary sub
-                Some(Token {
-                    lexigram: Lexigram::Minus,
-                    ..
-                }) if !unary_position => {
-                    push_with_precedence(&mut contents, &mut stack, Operation::Sub);
-                }
-                // binary mul
-                Some(Token {
-                    lexigram: Lexigram::Star,
-                    ..
-                }) if !unary_position => {
-                    push_with_precedence(&mut contents, &mut stack, Operation::Mul);
-                }
-                // binary div
-                Some(Token {
-                    lexigram: Lexigram::Slash,
-                    ..
-                }) if !unary_position => {
-                    push_with_precedence(&mut contents, &mut stack, Operation::Div);
-                }
-                // binary equal to
-                Some(Token {
-                    lexigram: Lexigram::EqualTo,
-                    ..
-                }) if !unary_position => {
-                    push_with_precedence(&mut contents, &mut stack, Operation::EqualTo);
-                }
-                // binary not equal to
-                Some(Token {
-                    lexigram: Lexigram::NotEqualTo,
-                    ..
-                }) if !unary_position => {
-                    push_with_precedence(&mut contents, &mut stack, Operation::NotEqualTo);
-                }
-                // binary greater than
-                Some(Token {
-                    lexigram: Lexigram::Greater,
-                    ..
-                }) if !unary_position => {
-                    push_with_precedence(&mut contents, &mut stack, Operation::Greater);
-                }
-                // binary greater than or equal to
-                Some(Token {
-                    lexigram: Lexigram::GreaterEqual,
-                    ..
-                }) if !unary_position => {
-                    push_with_precedence(&mut contents, &mut stack, Operation::GreaterEqual);
-                }
-                // binary less then
-                Some(Token {
-                    lexigram: Lexigram::Lesser,
-                    ..
-                }) if !unary_position => {
-                    push_with_precedence(&mut contents, &mut stack, Operation::Lesser);
-                }
-                // binary less than or equal to
-                Some(Token {
-                    lexigram: Lexigram::LesserEqual,
-                    ..
-                }) if !unary_position => {
-                    push_with_precedence(&mut contents, &mut stack, Operation::LesserEqual);
-                }
-                // binary named tuple construction
-                Some(Token {
-                    lexigram: Lexigram::Colon,
-                    ..
-                }) if !unary_position => {
-                    push_with_precedence(&mut contents, &mut stack, Operation::Name);
-                }
-                // binary tuple concatenation
-                Some(Token {
-                    lexigram: Lexigram::Comma,
-                    ..
-                }) if !unary_position => {
-                    push_with_precedence(&mut contents, &mut stack, Operation::Tuple);
-                }
-                // parenthesized expressions
-                Some(Token {
-                    lexigram: Lexigram::OpenParen,
-                    ..
-                }) => {
+                lexi!(Plus) if unary_position => op!(Positive),
+                lexi!(Plus) if !unary_position => op!(Add),
+                lexi!(Minus) if unary_position => op!(Negative),
+                lexi!(Minus) if !unary_position => op!(Sub),
+                lexi!(Star) if !unary_position => op!(Mul),
+                lexi!(Slash) if !unary_position => op!(Div),
+                lexi!(Ampersand) if !unary_position => op!(BitwiseAnd),
+                lexi!(Caret) if !unary_position => op!(BitwiseXor),
+                lexi!(Pipe) if !unary_position => op!(BitwiseOr),
+                lexi!(EqualTo) if !unary_position => op!(EqualTo),
+                lexi!(NotEqualTo) if !unary_position => op!(NotEqualTo),
+                lexi!(Greater) if !unary_position => op!(Greater),
+                lexi!(GreaterEqual) if !unary_position => op!(GreaterEqual),
+                lexi!(Lesser) if !unary_position => op!(Lesser),
+                lexi!(LesserEqual) if !unary_position => op!(LesserEqual),
+                lexi!(And) if !unary_position => op!(LogicalAnd),
+                lexi!(Or) if !unary_position => op!(LogicalOr),
+                lexi!(Colon) if !unary_position => op!(Name),
+                lexi!(Comma) if !unary_position => op!(Tuple),
+                lexi!(OpenParen) => {
                     stack.push(Operation::SubExpression);
                 }
-                Some(Token {
-                    lexigram: Lexigram::CloseParen,
-                    ..
-                }) if !unary_position => {
+                lexi!(CloseParen) if !unary_position => {
                     while let Some(op) = stack.pop_if(|x| !matches!(x, Operation::SubExpression)) {
                         contents.push(op.into());
                     }
@@ -415,27 +361,10 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                             .push(Diagnostic::Error(Error::UnexpectedCloseParen(t)))
                     }
                 }
-                // brace block
-                Some(Token {
-                    lexigram: Lexigram::OpenBrace,
-                    ..
-                }) => {
-                    lexer.next();
-                    contents.push(Node::Block(Block::from(Ast::from(&mut *lexer))));
-                    diagnostics.expect(lexer.peek().copied(), &[Lexigram::CloseBrace]);
-                }
-                // if block
-                Some(Token {
-                    lexigram: Lexigram::If,
-                    ..
-                }) => {
+                lexi!(If) => {
                     contents.push(conditional(lexer));
                 }
-                // for block
-                Some(Token {
-                    lexigram: Lexigram::For,
-                    ..
-                }) => {
+                lexi!(For) => {
                     lexer.next();
                     let mut diagnostics = Diagnostics::default();
 
@@ -527,10 +456,20 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     };
                 }
                 _ => {
-                    if !contents.is_empty() || !stack.is_empty() {
-                        diagnostics
-                            .contents
-                            .push(Diagnostic::Error(Error::IncompleteExpression));
+                    if unary_position {
+                        if !contents.is_empty() || !stack.is_empty() {
+                            diagnostics
+                                .contents
+                                .push(Diagnostic::Error(Error::IncompleteExpression));
+                        }
+                    } else {
+                        loop {
+                            flush(&mut contents, &mut stack);
+                            if stack.is_empty() {
+                                break;
+                            }
+                            diagnostics.expect(None, &[Lexigram::CloseParen]);
+                        }
                     }
                     return Expression {
                         contents,

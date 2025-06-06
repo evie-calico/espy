@@ -8,6 +8,7 @@ pub struct Token<'source> {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Lexigram<'source> {
     // Keywords
+    And,
     Break,
     Let,
     If,
@@ -15,10 +16,13 @@ pub enum Lexigram<'source> {
     Else,
     End,
     For,
+    Or,
     Then,
     Discard,
 
     // Symbols
+    Ampersand,
+    Caret,
     CloseBrace,
     CloseParen,
     CloseSquare,
@@ -135,16 +139,17 @@ impl<'source> Iterator for Lexer<'source> {
                 }
                 let ident = &root[0..length];
                 match ident {
-                    "and" | "any" | "array" | "as" | "async" | "await" | "case" | "char"
-                    | "class" | "const" | "continue" | "do" | "dyn" | "enum" | "false"
-                    | "fixed" | "float" | "fn" | "impl" | "import" | "include" | "integer"
-                    | "iterator" | "loop" | "macro" | "match" | "mod" | "move" | "mut"
-                    | "never" | "or" | "priv" | "pub" | "ref" | "require" | "return" | "safe"
-                    | "self" | "Self" | "static" | "string" | "struct" | "super" | "switch"
-                    | "table" | "trait" | "true" | "try" | "tuple" | "type" | "union" | "unit"
-                    | "unsafe" | "unsigned" | "use" | "where" | "while" | "yield" => {
+                    "any" | "array" | "as" | "async" | "await" | "case" | "char" | "class"
+                    | "const" | "continue" | "do" | "dyn" | "enum" | "false" | "fixed"
+                    | "float" | "fn" | "impl" | "import" | "include" | "integer" | "iterator"
+                    | "loop" | "macro" | "match" | "mod" | "move" | "mut" | "never" | "priv"
+                    | "pub" | "ref" | "require" | "return" | "safe" | "self" | "Self"
+                    | "static" | "string" | "struct" | "super" | "switch" | "table" | "trait"
+                    | "true" | "try" | "tuple" | "type" | "union" | "unit" | "unsafe"
+                    | "unsigned" | "use" | "where" | "while" | "yield" => {
                         return Some(Err(Error::ReservedSymbol(ident)));
                     }
+                    "and" => Lexigram::And,
                     "break" => Lexigram::Break,
                     "for" => Lexigram::For,
                     "else" => Lexigram::Else,
@@ -152,6 +157,7 @@ impl<'source> Iterator for Lexer<'source> {
                     "if" => Lexigram::If,
                     "in" => Lexigram::In,
                     "let" => Lexigram::Let,
+                    "or" => Lexigram::Or,
                     "then" => Lexigram::Then,
                     "_" => Lexigram::Discard,
                     _ => Lexigram::Ident(ident),
@@ -193,8 +199,10 @@ impl<'source> Iterator for Lexer<'source> {
                 }
             }
             ',' => Lexigram::Comma,
+            '&' => Lexigram::Ampersand,
             '|' if self.next_if(|c| c == '>').is_some() => Lexigram::Triangle,
             '|' => Lexigram::Pipe,
+            '^' => Lexigram::Caret,
             '(' => Lexigram::OpenParen,
             ')' => Lexigram::CloseParen,
             '[' => Lexigram::OpenSquare,
