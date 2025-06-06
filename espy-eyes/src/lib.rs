@@ -127,8 +127,8 @@ impl<'source> Iterator for Lexer<'source> {
                 }
                 let ident = &root[0..length];
                 match ident {
-                    "and" | "any" | "array" | "as" | "async" | "await" | "break" | "case"
-                    | "char" | "class" | "const" | "continue" | "do" | "dyn" | "enum" | "false"
+                    "and" | "any" | "array" | "as" | "async" | "await" | "case" | "char"
+                    | "class" | "const" | "continue" | "do" | "dyn" | "enum" | "false"
                     | "fixed" | "float" | "fn" | "impl" | "import" | "include" | "integer"
                     | "iterator" | "loop" | "macro" | "match" | "mod" | "move" | "mut"
                     | "never" | "or" | "priv" | "pub" | "ref" | "require" | "return" | "safe"
@@ -137,6 +137,7 @@ impl<'source> Iterator for Lexer<'source> {
                     | "unsafe" | "unsigned" | "use" | "where" | "while" | "yield" => {
                         panic!("the symbol {ident} is reserved")
                     }
+                    "break" => Lexigram::Break,
                     "for" => Lexigram::For,
                     "else" => Lexigram::Else,
                     "end" => Lexigram::End,
