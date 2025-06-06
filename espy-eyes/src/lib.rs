@@ -60,6 +60,14 @@ pub struct UnexpectedCharacter {
     index: usize,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Error<'source> {
+    UnexpectedCharacter(UnexpectedCharacter),
+    ReservedSymbol(&'source str),
+}
+
+pub type Result<'source, T = Token<'source>, E = Error<'source>> = std::result::Result<T, E>;
+
 #[derive(Copy, Clone, Default)]
 pub struct Lexer<'source> {
     cursor: &'source str,
@@ -102,7 +110,7 @@ impl<'source> Lexer<'source> {
 }
 
 impl<'source> Iterator for Lexer<'source> {
-    type Item = Result<Token<'source>, UnexpectedCharacter>;
+    type Item = Result<'source>;
     fn next(&mut self) -> Option<Self::Item> {
         while self
             .next_if(|c| matches!(c, ' ' | '\n' | '\r' | '\t'))
@@ -135,7 +143,7 @@ impl<'source> Iterator for Lexer<'source> {
                     | "self" | "Self" | "static" | "string" | "struct" | "super" | "switch"
                     | "table" | "trait" | "true" | "try" | "tuple" | "type" | "union" | "unit"
                     | "unsafe" | "unsigned" | "use" | "where" | "while" | "yield" => {
-                        panic!("the symbol {ident} is reserved")
+                        return Some(Err(Error::ReservedSymbol(ident)));
                     }
                     "break" => Lexigram::Break,
                     "for" => Lexigram::For,
@@ -196,7 +204,10 @@ impl<'source> Iterator for Lexer<'source> {
             ':' => Lexigram::Colon,
             ';' => Lexigram::Semicolon,
             c => {
-                return Some(Err(UnexpectedCharacter { c, index: start }));
+                return Some(Err(Error::UnexpectedCharacter(UnexpectedCharacter {
+                    c,
+                    index: start,
+                })));
             }
         };
         Some(Ok(Token {

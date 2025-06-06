@@ -368,3 +368,26 @@ fn for_expression() {
     };
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn reserved_symbol() {
+    let source = "let class = 1;";
+    let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
+    let expected = Block {
+        statements: vec![Statement {
+            action: None,
+            expression: None,
+            diagnostics: Diagnostics {
+                contents: vec![
+                    Diagnostic::Error(Error::Lexer(lexer::Error::ReservedSymbol("class"))),
+                    Diagnostic::Error(Error::MissingToken {
+                        expected: &[Lexigram::Ident("")],
+                        actual: None,
+                    }),
+                ],
+            },
+        }],
+        ..Default::default()
+    };
+    assert_eq!(actual, expected);
+}

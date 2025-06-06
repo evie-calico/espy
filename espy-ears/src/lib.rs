@@ -1,4 +1,4 @@
-use espy_eyes::{Lexer, Lexigram, Token, UnexpectedCharacter};
+use espy_eyes::{self as lexer, Lexer, Lexigram, Token};
 use std::iter::Peekable;
 
 #[cfg(test)]
@@ -6,7 +6,7 @@ mod tests;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Error<'source> {
-    UnexpectedCharacter(UnexpectedCharacter),
+    Lexer(lexer::Error<'source>),
     MissingToken {
         expected: &'static [Lexigram<'static>],
         actual: Option<Token<'source>>,
@@ -28,7 +28,7 @@ pub struct Diagnostics<'source> {
 impl<'source> Diagnostics<'source> {
     fn expect(
         &mut self,
-        t: Option<Result<Token<'source>, UnexpectedCharacter>>,
+        t: Option<lexer::Result<'source>>,
         expected: &'static [Lexigram<'static>],
     ) -> Option<Token<'source>> {
         let actual = self.wrap(t);
@@ -41,15 +41,12 @@ impl<'source> Diagnostics<'source> {
         }
     }
 
-    fn wrap(
-        &mut self,
-        t: Option<Result<Token<'source>, UnexpectedCharacter>>,
-    ) -> Option<Token<'source>> {
+    fn wrap(&mut self, t: Option<lexer::Result<'source>>) -> Option<Token<'source>> {
         match t? {
             Ok(t) => Some(t),
             Err(e) => {
-                self.contents
-                    .push(Diagnostic::Error(Error::UnexpectedCharacter(e)));
+                // TODO: If `lexer::Error` carried a position we could convert `lexer::Error::ReservedSymbol` to `Lexigram::Ident` for fault-tolerance.
+                self.contents.push(Diagnostic::Error(Error::Lexer(e)));
                 None
             }
         }
