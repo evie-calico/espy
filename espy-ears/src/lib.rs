@@ -156,6 +156,32 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     Operation::SubExpression => 0,
                 }
             }
+
+            fn left_associative(self) -> bool {
+                match self {
+                    Operation::Call
+                    | Operation::Positive
+                    | Operation::Negative
+                    | Operation::Mul
+                    | Operation::Div
+                    | Operation::Add
+                    | Operation::Sub
+                    | Operation::BitwiseAnd
+                    | Operation::BitwiseXor
+                    | Operation::BitwiseOr
+                    | Operation::EqualTo
+                    | Operation::NotEqualTo
+                    | Operation::Greater
+                    | Operation::GreaterEqual
+                    | Operation::Lesser
+                    | Operation::LesserEqual
+                    | Operation::LogicalAnd
+                    | Operation::LogicalOr
+                    | Operation::Tuple
+                    | Operation::SubExpression => true,
+                    Operation::Name | Operation::Pipe => false,
+                }
+            }
         }
 
         impl From<Operation> for Node<'_> {
@@ -284,7 +310,13 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
         };
         let push_with_precedence =
             |output: &mut Vec<Node>, stack: &mut Vec<Operation>, operator: Operation| {
-                while let Some(op) = stack.pop_if(|x| x.precedence() > operator.precedence()) {
+                while let Some(op) = stack.pop_if(|x| {
+                    if operator.left_associative() {
+                        x.precedence() >= operator.precedence()
+                    } else {
+                        x.precedence() > operator.precedence()
+                    }
+                }) {
                     // SubExpression has the lowest precedence, so this cannot panic.
                     output.push(op.into());
                 }

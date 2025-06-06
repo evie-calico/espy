@@ -496,13 +496,15 @@ fn nested_parens() {
 
 #[test]
 fn pipe() {
-    let source = "1 |> f x";
+    let source = "1 |> 2 |> f x";
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         result: Expression {
             contents: vec![
                 Node::Number("1"),
+                Node::Number("2"),
                 Node::Ident("f"),
+                Node::Pipe,
                 Node::Pipe,
                 Node::Ident("x"),
                 Node::Call,
