@@ -241,11 +241,11 @@ fn forgotten_semicolon() {
             expression: None,
             diagnostics: Diagnostics {
                 contents: vec![Diagnostic::Error(Error::MissingToken {
-                    expected: &[TokenType::Equals, TokenType::Semicolon],
+                    expected: &[Lexigram::Equals, Lexigram::Semicolon],
                     actual: Some(Token {
                         start: 6,
                         end: 7,
-                        ty: TokenType::Number("2"),
+                        lexigram: Lexigram::Number("2"),
                     }),
                 })],
             },

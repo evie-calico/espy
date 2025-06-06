@@ -1,12 +1,12 @@
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Token<'source> {
+    pub lexigram: Lexigram<'source>,
     pub start: usize,
     pub end: usize,
-    pub ty: TokenType<'source>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum TokenType<'source> {
+pub enum Lexigram<'source> {
     // Keywords
     Let,
     If,
@@ -109,7 +109,7 @@ impl<'source> Iterator for Lexer<'source> {
         {}
         let start = self.index;
         let root = self.cursor;
-        let ty = match self.next()? {
+        let lexigram = match self.next()? {
             // Ident
             'A'..='Z' | 'a'..='z' | '_' => {
                 let mut length = 1;
@@ -136,15 +136,15 @@ impl<'source> Iterator for Lexer<'source> {
                     | "unsafe" | "unsigned" | "use" | "where" | "while" | "yield" => {
                         panic!("the symbol {ident} is reserved")
                     }
-                    "for" => TokenType::For,
-                    "else" => TokenType::Else,
-                    "end" => TokenType::End,
-                    "if" => TokenType::If,
-                    "in" => TokenType::In,
-                    "let" => TokenType::Let,
-                    "then" => TokenType::Then,
-                    "_" => TokenType::Discard,
-                    _ => TokenType::Ident(ident),
+                    "for" => Lexigram::For,
+                    "else" => Lexigram::Else,
+                    "end" => Lexigram::End,
+                    "if" => Lexigram::If,
+                    "in" => Lexigram::In,
+                    "let" => Lexigram::Let,
+                    "then" => Lexigram::Then,
+                    "_" => Lexigram::Discard,
+                    _ => Lexigram::Ident(ident),
                 }
             }
             // Number
@@ -153,46 +153,46 @@ impl<'source> Iterator for Lexer<'source> {
                 while self.next_if(|c| matches!(c, '0'..='9' | '.')).is_some() {
                     length += 1;
                 }
-                TokenType::Number(&root[0..length])
+                Lexigram::Number(&root[0..length])
             }
-            '=' if self.next_if(|c| c == '=').is_some() => TokenType::EqualTo,
-            '=' if self.next_if(|c| c == '>').is_some() => TokenType::DoubleArrow,
-            '=' => TokenType::Equals,
-            '!' if self.next_if(|c| c == '=').is_some() => TokenType::NotEqualTo,
-            '!' => TokenType::Not,
-            '>' if self.next_if(|c| c == '=').is_some() => TokenType::GreaterEqual,
-            '>' => TokenType::Greater,
-            '<' if self.next_if(|c| c == '=').is_some() => TokenType::LesserEqual,
-            '<' => TokenType::Lesser,
-            '+' => TokenType::Plus,
-            '-' if self.next_if(|c| c == '>').is_some() => TokenType::SingleArrow,
-            '-' => TokenType::Minus,
-            '*' => TokenType::Star,
-            '/' => TokenType::Slash,
+            '=' if self.next_if(|c| c == '=').is_some() => Lexigram::EqualTo,
+            '=' if self.next_if(|c| c == '>').is_some() => Lexigram::DoubleArrow,
+            '=' => Lexigram::Equals,
+            '!' if self.next_if(|c| c == '=').is_some() => Lexigram::NotEqualTo,
+            '!' => Lexigram::Not,
+            '>' if self.next_if(|c| c == '=').is_some() => Lexigram::GreaterEqual,
+            '>' => Lexigram::Greater,
+            '<' if self.next_if(|c| c == '=').is_some() => Lexigram::LesserEqual,
+            '<' => Lexigram::Lesser,
+            '+' => Lexigram::Plus,
+            '-' if self.next_if(|c| c == '>').is_some() => Lexigram::SingleArrow,
+            '-' => Lexigram::Minus,
+            '*' => Lexigram::Star,
+            '/' => Lexigram::Slash,
             '.' => {
                 if self.next_if(|c| c == '.').is_some() {
                     if self.next_if(|c| c == '=').is_some() {
-                        TokenType::RangeInclusive
+                        Lexigram::RangeInclusive
                     } else if self.next_if(|c| c == '.').is_some() {
-                        TokenType::Ellipses
+                        Lexigram::Ellipses
                     } else {
-                        TokenType::RangeExclusive
+                        Lexigram::RangeExclusive
                     }
                 } else {
-                    TokenType::Dot
+                    Lexigram::Dot
                 }
             }
-            ',' => TokenType::Comma,
-            '|' if self.next_if(|c| c == '>').is_some() => TokenType::Triangle,
-            '|' => TokenType::Pipe,
-            '(' => TokenType::OpenParen,
-            ')' => TokenType::CloseParen,
-            '[' => TokenType::OpenSquare,
-            ']' => TokenType::CloseSquare,
-            '{' => TokenType::OpenBrace,
-            '}' => TokenType::CloseBrace,
-            ':' => TokenType::Colon,
-            ';' => TokenType::Semicolon,
+            ',' => Lexigram::Comma,
+            '|' if self.next_if(|c| c == '>').is_some() => Lexigram::Triangle,
+            '|' => Lexigram::Pipe,
+            '(' => Lexigram::OpenParen,
+            ')' => Lexigram::CloseParen,
+            '[' => Lexigram::OpenSquare,
+            ']' => Lexigram::CloseSquare,
+            '{' => Lexigram::OpenBrace,
+            '}' => Lexigram::CloseBrace,
+            ':' => Lexigram::Colon,
+            ';' => Lexigram::Semicolon,
             c => {
                 return Some(Err(UnexpectedCharacter { c, index: start }));
             }
@@ -200,7 +200,7 @@ impl<'source> Iterator for Lexer<'source> {
         Some(Ok(Token {
             start,
             end: self.index,
-            ty,
+            lexigram,
         }))
     }
 }

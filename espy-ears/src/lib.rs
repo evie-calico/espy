@@ -1,4 +1,4 @@
-use espy_eyes::{Lexer, Token, TokenType, UnexpectedCharacter};
+use espy_eyes::{Lexer, Lexigram, Token, UnexpectedCharacter};
 use std::iter::Peekable;
 
 #[cfg(test)]
@@ -8,7 +8,7 @@ mod tests;
 pub enum Error<'source> {
     UnexpectedCharacter(UnexpectedCharacter),
     MissingToken {
-        expected: &'static [TokenType<'static>],
+        expected: &'static [Lexigram<'static>],
         actual: Option<Token<'source>>,
     },
     UnexpectedCloseParen(Option<Token<'source>>),
@@ -29,10 +29,10 @@ impl<'source> Diagnostics<'source> {
     fn expect(
         &mut self,
         t: Option<Result<Token<'source>, UnexpectedCharacter>>,
-        expected: &'static [TokenType<'static>],
+        expected: &'static [Lexigram<'static>],
     ) -> Option<Token<'source>> {
         let actual = self.wrap(t);
-        if actual.is_some_and(|actual| expected.contains(&actual.ty)) {
+        if actual.is_some_and(|actual| expected.contains(&actual.lexigram)) {
             actual
         } else {
             self.contents
@@ -163,7 +163,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
             let mut diagnostics = Diagnostics::default();
             let condition = Expression::from(&mut *lexer);
             if diagnostics
-                .expect(lexer.peek().copied(), &[TokenType::Then])
+                .expect(lexer.peek().copied(), &[Lexigram::Then])
                 .is_some()
             {
                 lexer.next();
@@ -172,21 +172,22 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
             let second = if matches!(
                 diagnostics.wrap(lexer.peek().copied()),
                 Some(Token {
-                    ty: TokenType::Else,
+                    lexigram: Lexigram::Else,
                     ..
                 })
             ) {
                 lexer.next();
                 match diagnostics.wrap(lexer.peek().copied()) {
                     Some(Token {
-                        ty: TokenType::Then,
+                        lexigram: Lexigram::Then,
                         ..
                     }) => {
                         lexer.next();
                         Block::from(Ast::from(&mut *lexer))
                     }
                     Some(Token {
-                        ty: TokenType::If, ..
+                        lexigram: Lexigram::If,
+                        ..
                     }) => Block {
                         statements: Vec::new(),
                         result: Expression {
@@ -196,15 +197,14 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         diagnostics: Diagnostics::default(),
                     },
                     _ => {
-                        diagnostics
-                            .expect(lexer.peek().copied(), &[TokenType::Then, TokenType::If]);
+                        diagnostics.expect(lexer.peek().copied(), &[Lexigram::Then, Lexigram::If]);
                         Block::default()
                     }
                 }
             } else {
                 Block::default()
             };
-            diagnostics.expect(lexer.peek().copied(), &[TokenType::End]);
+            diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
             ExpressionNode::If {
                 condition,
                 first,
@@ -223,12 +223,12 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
             matches!(
                 last_token,
                 None | Some(Token {
-                    ty: TokenType::Plus
-                        | TokenType::Minus
-                        | TokenType::Star
-                        | TokenType::Slash
-                        | TokenType::Comma
-                        | TokenType::Colon,
+                    lexigram: Lexigram::Plus
+                        | Lexigram::Minus
+                        | Lexigram::Star
+                        | Lexigram::Slash
+                        | Lexigram::Comma
+                        | Lexigram::Colon,
                     ..
                 })
             )
@@ -252,13 +252,13 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
             match t {
                 // Terminals
                 Some(Token {
-                    ty: TokenType::Number(number),
+                    lexigram: Lexigram::Number(number),
                     ..
                 }) if unary_position => {
                     contents.push(ExpressionNode::Number(number));
                 }
                 Some(Token {
-                    ty: TokenType::Ident(number),
+                    lexigram: Lexigram::Ident(number),
                     ..
                 }) if unary_position => {
                     contents.push(ExpressionNode::Ident(number));
@@ -267,14 +267,14 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 // A terminal value outside of unary position implies a function call,
                 // so flush the operator stack.
                 Some(Token {
-                    ty: TokenType::Number(number),
+                    lexigram: Lexigram::Number(number),
                     ..
                 }) if !unary_position => {
                     flush(&mut contents, &mut stack);
                     contents.push(ExpressionNode::Number(number));
                 }
                 Some(Token {
-                    ty: TokenType::Ident(number),
+                    lexigram: Lexigram::Ident(number),
                     ..
                 }) if !unary_position => {
                     flush(&mut contents, &mut stack);
@@ -284,69 +284,69 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 // # Operators
                 // unary positive
                 Some(Token {
-                    ty: TokenType::Plus,
+                    lexigram: Lexigram::Plus,
                     ..
                 }) if unary_position => {
                     push_with_precedence(&mut contents, &mut stack, Operation::Positive);
                 }
                 // binary add
                 Some(Token {
-                    ty: TokenType::Plus,
+                    lexigram: Lexigram::Plus,
                     ..
                 }) if !unary_position => {
                     push_with_precedence(&mut contents, &mut stack, Operation::Add);
                 }
                 // unary negative
                 Some(Token {
-                    ty: TokenType::Minus,
+                    lexigram: Lexigram::Minus,
                     ..
                 }) if unary_position => {
                     push_with_precedence(&mut contents, &mut stack, Operation::Negative);
                 }
                 // binary sub
                 Some(Token {
-                    ty: TokenType::Minus,
+                    lexigram: Lexigram::Minus,
                     ..
                 }) if !unary_position => {
                     push_with_precedence(&mut contents, &mut stack, Operation::Sub);
                 }
                 // binary mul
                 Some(Token {
-                    ty: TokenType::Star,
+                    lexigram: Lexigram::Star,
                     ..
                 }) if !unary_position => {
                     push_with_precedence(&mut contents, &mut stack, Operation::Mul);
                 }
                 // binary div
                 Some(Token {
-                    ty: TokenType::Slash,
+                    lexigram: Lexigram::Slash,
                     ..
                 }) if !unary_position => {
                     push_with_precedence(&mut contents, &mut stack, Operation::Div);
                 }
                 // binary named tuple construction
                 Some(Token {
-                    ty: TokenType::Colon,
+                    lexigram: Lexigram::Colon,
                     ..
                 }) if !unary_position => {
                     push_with_precedence(&mut contents, &mut stack, Operation::Name);
                 }
                 // binary tuple concatenation
                 Some(Token {
-                    ty: TokenType::Comma,
+                    lexigram: Lexigram::Comma,
                     ..
                 }) if !unary_position => {
                     push_with_precedence(&mut contents, &mut stack, Operation::Tuple);
                 }
                 // parenthesized expressions
                 Some(Token {
-                    ty: TokenType::OpenParen,
+                    lexigram: Lexigram::OpenParen,
                     ..
                 }) => {
                     stack.push(Operation::SubExpression);
                 }
                 Some(Token {
-                    ty: TokenType::CloseParen,
+                    lexigram: Lexigram::CloseParen,
                     ..
                 }) if !unary_position => {
                     while let Some(op) = stack.pop_if(|x| !matches!(x, Operation::SubExpression)) {
@@ -360,36 +360,38 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 }
                 // brace block
                 Some(Token {
-                    ty: TokenType::OpenBrace,
+                    lexigram: Lexigram::OpenBrace,
                     ..
                 }) => {
                     lexer.next();
                     contents.push(ExpressionNode::Block(Block::from(Ast::from(&mut *lexer))));
-                    diagnostics.expect(lexer.peek().copied(), &[TokenType::CloseBrace]);
+                    diagnostics.expect(lexer.peek().copied(), &[Lexigram::CloseBrace]);
                 }
                 // if block
                 Some(Token {
-                    ty: TokenType::If, ..
+                    lexigram: Lexigram::If,
+                    ..
                 }) => {
                     contents.push(conditional(lexer));
                 }
                 // for block
                 Some(Token {
-                    ty: TokenType::For, ..
+                    lexigram: Lexigram::For,
+                    ..
                 }) => {
                     lexer.next();
                     let mut diagnostics = Diagnostics::default();
 
                     let binding = match diagnostics.wrap(lexer.peek().copied()) {
                         Some(Token {
-                            ty: TokenType::Ident(ident),
+                            lexigram: Lexigram::Ident(ident),
                             ..
                         }) => {
                             lexer.next();
                             Some(ident)
                         }
                         Some(Token {
-                            ty: TokenType::Discard,
+                            lexigram: Lexigram::Discard,
                             ..
                         }) => {
                             lexer.next();
@@ -398,20 +400,20 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         _ => {
                             diagnostics.expect(
                                 lexer.peek().copied(),
-                                &[TokenType::Ident(""), TokenType::Discard],
+                                &[Lexigram::Ident(""), Lexigram::Discard],
                             );
                             None
                         }
                     };
                     if diagnostics
-                        .expect(lexer.peek().copied(), &[TokenType::In])
+                        .expect(lexer.peek().copied(), &[Lexigram::In])
                         .is_some()
                     {
                         lexer.next();
                     }
                     let iterator = Expression::from(&mut *lexer);
                     if diagnostics
-                        .expect(lexer.peek().copied(), &[TokenType::Then])
+                        .expect(lexer.peek().copied(), &[Lexigram::Then])
                         .is_some()
                     {
                         lexer.next();
@@ -419,7 +421,8 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     let first = Block::from(Ast::from(&mut *lexer));
                     let result = match diagnostics.wrap(lexer.peek().copied()) {
                         Some(Token {
-                            ty: TokenType::End, ..
+                            lexigram: Lexigram::End,
+                            ..
                         }) => ExpressionNode::For {
                             binding,
                             iterator,
@@ -428,12 +431,12 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                             diagnostics,
                         },
                         Some(Token {
-                            ty: TokenType::Else,
+                            lexigram: Lexigram::Else,
                             ..
                         }) => {
                             lexer.next();
                             let second = Block::from(Ast::from(&mut *lexer));
-                            diagnostics.expect(lexer.peek().copied(), &[TokenType::End]);
+                            diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
                             ExpressionNode::For {
                                 binding,
                                 iterator,
@@ -444,7 +447,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         }
                         _ => {
                             diagnostics
-                                .expect(lexer.peek().copied(), &[TokenType::End, TokenType::Else]);
+                                .expect(lexer.peek().copied(), &[Lexigram::End, Lexigram::Else]);
                             ExpressionNode::For {
                                 binding,
                                 iterator,
@@ -459,7 +462,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 _ if !unary_position => {
                     flush(&mut contents, &mut stack);
                     if !stack.is_empty() {
-                        diagnostics.expect(None, &[TokenType::CloseParen]);
+                        diagnostics.expect(None, &[Lexigram::CloseParen]);
                     }
                     return Expression {
                         contents,
@@ -532,26 +535,27 @@ impl<'source> Iterator for Ast<'source, '_> {
             return None;
         }
         if let Some(Token {
-            ty: TokenType::Let, ..
+            lexigram: Lexigram::Let,
+            ..
         }) = self.diagnostics.wrap(self.lexer.peek().copied())
         {
             self.lexer.next();
             let mut st_diagnostics = Diagnostics::default();
             let t = st_diagnostics.wrap(self.lexer.next());
             if let Some(Token {
-                ty: TokenType::Ident(ident),
+                lexigram: Lexigram::Ident(ident),
                 ..
             }) = t
             {
                 match st_diagnostics.wrap(self.lexer.peek().copied()) {
                     Some(Token {
-                        ty: TokenType::Equals,
+                        lexigram: Lexigram::Equals,
                         ..
                     }) => {
                         self.lexer.next();
                         let expression = Expression::from(&mut *self.lexer);
                         if st_diagnostics
-                            .expect(self.lexer.peek().copied(), &[TokenType::Semicolon])
+                            .expect(self.lexer.peek().copied(), &[Lexigram::Semicolon])
                             .is_some()
                         {
                             self.lexer.next();
@@ -563,7 +567,7 @@ impl<'source> Iterator for Ast<'source, '_> {
                         })
                     }
                     Some(Token {
-                        ty: TokenType::Semicolon,
+                        lexigram: Lexigram::Semicolon,
                         ..
                     }) => {
                         self.lexer.next();
@@ -576,7 +580,7 @@ impl<'source> Iterator for Ast<'source, '_> {
                     _ => {
                         st_diagnostics.expect(
                             self.lexer.peek().copied(),
-                            &[TokenType::Equals, TokenType::Semicolon],
+                            &[Lexigram::Equals, Lexigram::Semicolon],
                         );
                         Some(Statement {
                             binding: Some(Binding { ident, ty: None }),
@@ -589,7 +593,7 @@ impl<'source> Iterator for Ast<'source, '_> {
                 st_diagnostics
                     .contents
                     .push(Diagnostic::Error(Error::MissingToken {
-                        expected: &[TokenType::Ident("")],
+                        expected: &[Lexigram::Ident("")],
                         actual: t,
                     }));
                 Some(Statement {
@@ -602,7 +606,7 @@ impl<'source> Iterator for Ast<'source, '_> {
             let mut st_diagnostics = Diagnostics::default();
             let expression = Expression::from(&mut *self.lexer);
             if let Some(Token {
-                ty: TokenType::Semicolon,
+                lexigram: Lexigram::Semicolon,
                 ..
             }) = st_diagnostics.wrap(self.lexer.peek().copied())
             {
