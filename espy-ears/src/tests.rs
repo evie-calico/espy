@@ -312,3 +312,73 @@ fn for_loop() {
     };
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn for_expression() {
+    let source = "let x = for i in iter then if i == needle then break Some i; end else None end;";
+    let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
+    let expected = Block {
+        statements: vec![Statement {
+            action: Some(
+                Binding {
+                    ident: "x",
+                    ty: None,
+                }
+                .into(),
+            ),
+            expression: Some(Expression {
+                contents: vec![ExpressionNode::For {
+                    binding: Some("i"),
+                    iterator: Expression {
+                        contents: vec![ExpressionNode::Ident("iter")],
+                        ..Default::default()
+                    },
+                    first: Block {
+                        result: Expression {
+                            contents: vec![ExpressionNode::If {
+                                condition: Expression {
+                                    contents: vec![
+                                        ExpressionNode::Ident("i"),
+                                        ExpressionNode::Ident("needle"),
+                                        ExpressionNode::EqualTo,
+                                    ],
+                                    ..Default::default()
+                                },
+                                first: Block {
+                                    statements: vec![Statement {
+                                        action: Some(Action::Break),
+                                        expression: Some(Expression {
+                                            contents: vec![
+                                                ExpressionNode::Ident("Some"),
+                                                ExpressionNode::Ident("i"),
+                                            ],
+                                            ..Default::default()
+                                        }),
+                                        ..Default::default()
+                                    }],
+                                    ..Default::default()
+                                },
+                                second: Block::default(),
+                                diagnostics: Diagnostics::default(),
+                            }],
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                    second: Block {
+                        result: Expression {
+                            contents: vec![ExpressionNode::Ident("None")],
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                    diagnostics: Diagnostics::default(),
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    assert_eq!(actual, expected);
+}
