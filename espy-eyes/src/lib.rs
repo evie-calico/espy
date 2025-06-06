@@ -8,6 +8,7 @@ pub struct Token<'source> {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Lexigram<'source> {
     // Keywords
+    Break,
     Let,
     If,
     In,

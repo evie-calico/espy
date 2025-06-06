@@ -57,19 +57,6 @@ impl<'source> Diagnostics<'source> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct Binding<'source> {
-    pub ident: &'source str,
-    pub ty: Option<&'source str>,
-}
-
-#[derive(Debug, Default, Eq, PartialEq)]
-pub struct Statement<'source> {
-    pub binding: Option<Binding<'source>>,
-    pub expression: Option<Expression<'source>>,
-    pub diagnostics: Diagnostics<'source>,
-}
-
-#[derive(Debug, Eq, PartialEq)]
 pub enum ExpressionNode<'source> {
     Number(&'source str),
     Ident(&'source str),
@@ -486,6 +473,31 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub struct Binding<'source> {
+    pub ident: &'source str,
+    pub ty: Option<&'source str>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum Action<'source> {
+    Binding(Binding<'source>),
+    Break,
+}
+
+impl<'source> From<Binding<'source>> for Action<'source> {
+    fn from(binding: Binding<'source>) -> Self {
+        Action::Binding(binding)
+    }
+}
+
+#[derive(Debug, Default, Eq, PartialEq)]
+pub struct Statement<'source> {
+    pub action: Option<Action<'source>>,
+    pub expression: Option<Expression<'source>>,
+    pub diagnostics: Diagnostics<'source>,
+}
+
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Block<'source> {
     statements: Vec<Statement<'source>>,
@@ -534,91 +546,112 @@ impl<'source> Iterator for Ast<'source, '_> {
         if self.closed.is_some() {
             return None;
         }
-        if let Some(Token {
-            lexigram: Lexigram::Let,
-            ..
-        }) = self.diagnostics.wrap(self.lexer.peek().copied())
-        {
-            self.lexer.next();
-            let mut st_diagnostics = Diagnostics::default();
-            let t = st_diagnostics.wrap(self.lexer.next());
-            if let Some(Token {
-                lexigram: Lexigram::Ident(ident),
+        match self.diagnostics.wrap(self.lexer.peek().copied()) {
+            Some(Token {
+                lexigram: Lexigram::Break,
                 ..
-            }) = t
-            {
-                match st_diagnostics.wrap(self.lexer.peek().copied()) {
-                    Some(Token {
-                        lexigram: Lexigram::Equals,
-                        ..
-                    }) => {
-                        self.lexer.next();
-                        let expression = Expression::from(&mut *self.lexer);
-                        if st_diagnostics
-                            .expect(self.lexer.peek().copied(), &[Lexigram::Semicolon])
-                            .is_some()
-                        {
-                            self.lexer.next();
-                        }
-                        Some(Statement {
-                            binding: Some(Binding { ident, ty: None }),
-                            expression: Some(expression),
-                            diagnostics: st_diagnostics,
-                        })
-                    }
-                    Some(Token {
-                        lexigram: Lexigram::Semicolon,
-                        ..
-                    }) => {
-                        self.lexer.next();
-                        Some(Statement {
-                            binding: Some(Binding { ident, ty: None }),
-                            expression: None,
-                            diagnostics: st_diagnostics,
-                        })
-                    }
-                    _ => {
-                        st_diagnostics.expect(
-                            self.lexer.peek().copied(),
-                            &[Lexigram::Equals, Lexigram::Semicolon],
-                        );
-                        Some(Statement {
-                            binding: Some(Binding { ident, ty: None }),
-                            expression: None,
-                            diagnostics: st_diagnostics,
-                        })
-                    }
+            }) => {
+                self.lexer.next();
+                let expression = Expression::from(&mut *self.lexer);
+                let mut diagnostics = Diagnostics::default();
+                if diagnostics
+                    .expect(self.lexer.peek().copied(), &[Lexigram::Semicolon])
+                    .is_some()
+                {
+                    self.lexer.next();
                 }
-            } else {
-                st_diagnostics
-                    .contents
-                    .push(Diagnostic::Error(Error::MissingToken {
-                        expected: &[Lexigram::Ident("")],
-                        actual: t,
-                    }));
                 Some(Statement {
-                    binding: None,
-                    expression: None,
-                    diagnostics: st_diagnostics,
+                    action: Some(Action::Break),
+                    expression: Some(expression),
+                    diagnostics,
                 })
             }
-        } else {
-            let mut st_diagnostics = Diagnostics::default();
-            let expression = Expression::from(&mut *self.lexer);
-            if let Some(Token {
-                lexigram: Lexigram::Semicolon,
+            Some(Token {
+                lexigram: Lexigram::Let,
                 ..
-            }) = st_diagnostics.wrap(self.lexer.peek().copied())
-            {
+            }) => {
                 self.lexer.next();
-                Some(Statement {
-                    binding: None,
-                    expression: Some(expression),
-                    diagnostics: st_diagnostics,
-                })
-            } else {
-                self.closed = Some(expression);
-                None
+                let mut st_diagnostics = Diagnostics::default();
+                let token = st_diagnostics.wrap(self.lexer.next());
+                if let Some(Token {
+                    lexigram: Lexigram::Ident(ident),
+                    ..
+                }) = token
+                {
+                    match st_diagnostics.wrap(self.lexer.peek().copied()) {
+                        Some(Token {
+                            lexigram: Lexigram::Equals,
+                            ..
+                        }) => {
+                            self.lexer.next();
+                            let expression = Expression::from(&mut *self.lexer);
+                            if st_diagnostics
+                                .expect(self.lexer.peek().copied(), &[Lexigram::Semicolon])
+                                .is_some()
+                            {
+                                self.lexer.next();
+                            }
+                            Some(Statement {
+                                action: Some(Binding { ident, ty: None }.into()),
+                                expression: Some(expression),
+                                diagnostics: st_diagnostics,
+                            })
+                        }
+                        Some(Token {
+                            lexigram: Lexigram::Semicolon,
+                            ..
+                        }) => {
+                            self.lexer.next();
+                            Some(Statement {
+                                action: Some(Binding { ident, ty: None }.into()),
+                                expression: None,
+                                diagnostics: st_diagnostics,
+                            })
+                        }
+                        _ => {
+                            st_diagnostics.expect(
+                                self.lexer.peek().copied(),
+                                &[Lexigram::Equals, Lexigram::Semicolon],
+                            );
+                            Some(Statement {
+                                action: Some(Binding { ident, ty: None }.into()),
+                                expression: None,
+                                diagnostics: st_diagnostics,
+                            })
+                        }
+                    }
+                } else {
+                    st_diagnostics
+                        .contents
+                        .push(Diagnostic::Error(Error::MissingToken {
+                            expected: &[Lexigram::Ident("")],
+                            actual: token,
+                        }));
+                    Some(Statement {
+                        action: None,
+                        expression: None,
+                        diagnostics: st_diagnostics,
+                    })
+                }
+            }
+            _ => {
+                let mut st_diagnostics = Diagnostics::default();
+                let expression = Expression::from(&mut *self.lexer);
+                if let Some(Token {
+                    lexigram: Lexigram::Semicolon,
+                    ..
+                }) = st_diagnostics.wrap(self.lexer.peek().copied())
+                {
+                    self.lexer.next();
+                    Some(Statement {
+                        action: None,
+                        expression: Some(expression),
+                        diagnostics: st_diagnostics,
+                    })
+                } else {
+                    self.closed = Some(expression);
+                    None
+                }
             }
         }
     }
