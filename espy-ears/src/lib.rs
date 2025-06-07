@@ -8,7 +8,7 @@ mod tests;
 pub enum Error<'source> {
     Lexer(lexer::Error<'source>),
     MissingToken {
-        expected: &'static [Lexigram<'static>],
+        expected: &'static [Lexigram],
         actual: Option<Token<'source>>,
     },
     UnexpectedCloseParen(Option<Token<'source>>),
@@ -29,7 +29,7 @@ impl<'source> Diagnostics<'source> {
     fn expect(
         &mut self,
         t: Option<lexer::Result<'source>>,
-        expected: &'static [Lexigram<'static>],
+        expected: &'static [Lexigram],
     ) -> Option<Token<'source>> {
         let actual = self.wrap(t);
         if actual.is_some_and(|actual| expected.contains(&actual.lexigram)) {
@@ -45,11 +45,14 @@ impl<'source> Diagnostics<'source> {
         match t? {
             Ok(t) => Some(t),
             Err(e) => {
-                let t = if let lexer::ErrorKind::ReservedSymbol(ident) = e.kind {
+                let t = if let lexer::Error {
+                    origin,
+                    kind: lexer::ErrorKind::ReservedSymbol,
+                } = e
+                {
                     Some(Token {
-                        lexigram: Lexigram::Ident(ident),
-                        start: e.start,
-                        end: e.end,
+                        origin,
+                        lexigram: Lexigram::Ident,
                     })
                 } else {
                     None
@@ -354,22 +357,24 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 // A terminal value outside of unary position implies a function call,
                 // so flush the operator stack in this case.
                 Some(Token {
-                    lexigram: Lexigram::Number(number),
+                    origin,
+                    lexigram: Lexigram::Number,
                     ..
                 }) => {
                     if !unary_position {
                         push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
-                    contents.push(Node::Number(number, t));
+                    contents.push(Node::Number(origin, t));
                 }
                 Some(Token {
-                    lexigram: Lexigram::Ident(ident),
+                    origin,
+                    lexigram: Lexigram::Ident,
                     ..
                 }) => {
                     if !unary_position {
                         push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
-                    contents.push(Node::Ident(ident, t));
+                    contents.push(Node::Ident(origin, t));
                 }
                 lexi!(OpenParen) => {
                     if !unary_position {
@@ -427,11 +432,12 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
 
                     let binding = match diagnostics.wrap(lexer.peek().copied()) {
                         Some(Token {
-                            lexigram: Lexigram::Ident(ident),
+                            origin,
+                            lexigram: Lexigram::Ident,
                             ..
                         }) => {
                             lexer.next();
-                            Some(ident)
+                            Some(origin)
                         }
                         Some(Token {
                             lexigram: Lexigram::Discard,
@@ -443,7 +449,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         _ => {
                             diagnostics.expect(
                                 lexer.peek().copied(),
-                                &[Lexigram::Ident(""), Lexigram::Discard],
+                                &[Lexigram::Ident, Lexigram::Discard],
                             );
                             None
                         }
@@ -542,10 +548,8 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Binding<'source> {
     pub let_token: Option<Token<'source>>,
-    pub ident: Option<&'source str>,
     pub ident_token: Option<Token<'source>>,
     pub colon_token: Option<Token<'source>>,
-    pub ty: Option<&'source str>,
     pub ty_token: Option<Token<'source>>,
     pub equals_token: Option<Token<'source>>,
 }
@@ -646,13 +650,13 @@ impl<'source> Iterator for Ast<'source, '_> {
                 let mut st_diagnostics = Diagnostics::default();
                 let token = st_diagnostics.wrap(self.lexer.next());
                 if let Some(Token {
-                    lexigram: Lexigram::Ident(ident),
+                    lexigram: Lexigram::Ident,
                     ..
                 }) = token
                 {
                     let ident_token = token;
                     match st_diagnostics.wrap(self.lexer.peek().copied()) {
-                        Some(Token {
+                        equals_token @ Some(Token {
                             lexigram: Lexigram::Equals,
                             ..
                         }) => {
@@ -667,9 +671,10 @@ impl<'source> Iterator for Ast<'source, '_> {
                                 action: Some(
                                     Binding {
                                         let_token,
-                                        ident: Some(ident),
                                         ident_token,
-                                        ..Default::default()
+                                        colon_token: None,
+                                        ty_token: None,
+                                        equals_token,
                                     }
                                     .into(),
                                 ),
@@ -687,9 +692,10 @@ impl<'source> Iterator for Ast<'source, '_> {
                                 action: Some(
                                     Binding {
                                         let_token,
-                                        ident: Some(ident),
                                         ident_token,
-                                        ..Default::default()
+                                        colon_token: None,
+                                        ty_token: None,
+                                        equals_token: None,
                                     }
                                     .into(),
                                 ),
@@ -707,9 +713,10 @@ impl<'source> Iterator for Ast<'source, '_> {
                                 action: Some(
                                     Binding {
                                         let_token,
-                                        ident: Some(ident),
                                         ident_token,
-                                        ..Default::default()
+                                        colon_token: None,
+                                        ty_token: None,
+                                        equals_token: None,
                                     }
                                     .into(),
                                 ),
@@ -725,14 +732,17 @@ impl<'source> Iterator for Ast<'source, '_> {
                     st_diagnostics
                         .contents
                         .push(Diagnostic::Error(Error::MissingToken {
-                            expected: &[Lexigram::Ident("")],
+                            expected: &[Lexigram::Ident],
                             actual: token,
                         }));
                     Some(Statement {
                         action: Some(
                             Binding {
                                 let_token,
-                                ..Default::default()
+                                ident_token: None,
+                                colon_token: None,
+                                ty_token: None,
+                                equals_token: None,
                             }
                             .into(),
                         ),

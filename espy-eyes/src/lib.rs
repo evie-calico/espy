@@ -1,12 +1,12 @@
+/// The position of a token may be derived by comparing the pointer of the origin string to the pointer of the source string.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Token<'source> {
-    pub lexigram: Lexigram<'source>,
-    pub start: usize,
-    pub end: usize,
+    pub origin: &'source str,
+    pub lexigram: Lexigram,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Lexigram<'source> {
+pub enum Lexigram {
     // Keywords
     And,
     Break,
@@ -54,31 +54,20 @@ pub enum Lexigram<'source> {
     Triangle,
 
     // Values
-    Ident(&'source str),
-    Number(&'source str),
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum ErrorKind<'source> {
-    UnexpectedCharacter(char),
-    ReservedSymbol(&'source str),
-}
-
-impl<'source> ErrorKind<'source> {
-    fn at(self, start: usize, end: usize) -> Error<'source> {
-        Error {
-            kind: self,
-            start,
-            end,
-        }
-    }
+    Ident,
+    Number,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Error<'source> {
-    pub kind: ErrorKind<'source>,
-    pub start: usize,
-    pub end: usize,
+    pub origin: &'source str,
+    pub kind: ErrorKind,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ErrorKind {
+    UnexpectedCharacter,
+    ReservedSymbol,
 }
 
 pub type Result<'source, T = Token<'source>, E = Error<'source>> = std::result::Result<T, E>;
@@ -86,15 +75,11 @@ pub type Result<'source, T = Token<'source>, E = Error<'source>> = std::result::
 #[derive(Copy, Clone, Default)]
 pub struct Lexer<'source> {
     cursor: &'source str,
-    index: usize,
 }
 
 impl<'source> From<&'source str> for Lexer<'source> {
     fn from(source: &'source str) -> Self {
-        Self {
-            cursor: source,
-            index: 0,
-        }
+        Self { cursor: source }
     }
 }
 
@@ -106,7 +91,6 @@ impl<'source> Lexer<'source> {
         let mut chars = self.cursor.char_indices();
         let (_, c) = chars.next()?;
         let offset = chars.next().map_or(self.cursor.len(), |(x, _)| x);
-        self.index += offset;
         self.cursor = &self.cursor[offset..];
         Some(c)
     }
@@ -131,7 +115,6 @@ impl<'source> Iterator for Lexer<'source> {
             .next_if(|c| matches!(c, ' ' | '\n' | '\r' | '\t'))
             .is_some()
         {}
-        let start = self.index;
         let root = self.cursor;
         let lexigram = match self.next()? {
             // Ident
@@ -158,7 +141,10 @@ impl<'source> Iterator for Lexer<'source> {
                     | "static" | "string" | "struct" | "super" | "switch" | "table" | "trait"
                     | "true" | "try" | "tuple" | "type" | "union" | "unit" | "unsafe"
                     | "unsigned" | "use" | "where" | "while" | "yield" => {
-                        return Some(Err(ErrorKind::ReservedSymbol(ident).at(start, self.index)));
+                        return Some(Err(Error {
+                            origin: ident,
+                            kind: ErrorKind::ReservedSymbol,
+                        }));
                     }
                     "and" => Lexigram::And,
                     "break" => Lexigram::Break,
@@ -171,7 +157,7 @@ impl<'source> Iterator for Lexer<'source> {
                     "or" => Lexigram::Or,
                     "then" => Lexigram::Then,
                     "_" => Lexigram::Discard,
-                    _ => Lexigram::Ident(ident),
+                    _ => Lexigram::Ident,
                 }
             }
             // Number
@@ -180,7 +166,8 @@ impl<'source> Iterator for Lexer<'source> {
                 while self.next_if(|c| matches!(c, '0'..='9' | '.')).is_some() {
                     length += 1;
                 }
-                Lexigram::Number(&root[0..length])
+                let number = &root[0..length];
+                Lexigram::Number
             }
             '=' if self.next_if(|c| c == '=').is_some() => Lexigram::EqualTo,
             '=' if self.next_if(|c| c == '>').is_some() => Lexigram::DoubleArrow,
@@ -222,13 +209,16 @@ impl<'source> Iterator for Lexer<'source> {
             '}' => Lexigram::CloseBrace,
             ':' => Lexigram::Colon,
             ';' => Lexigram::Semicolon,
-            c => {
-                return Some(Err(ErrorKind::UnexpectedCharacter(c).at(start, self.index)));
+            _ => {
+                return Some(Err(Error {
+                    origin: &root[..1],
+                    kind: ErrorKind::UnexpectedCharacter,
+                }));
             }
         };
+        let len = self.cursor.as_ptr() as usize - root.as_ptr() as usize;
         Some(Ok(Token {
-            start,
-            end: self.index,
+            origin: &root[..len],
             lexigram,
         }))
     }
