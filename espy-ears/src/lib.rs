@@ -63,8 +63,8 @@ impl<'source> Diagnostics<'source> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Node<'source> {
-    Number(&'source str),
-    Ident(&'source str),
+    Number(&'source str, Option<Token<'source>>),
+    Ident(&'source str, Option<Token<'source>>),
     Block(Block<'source>),
     If {
         condition: Expression<'source>,
@@ -80,27 +80,27 @@ pub enum Node<'source> {
         diagnostics: Diagnostics<'source>,
     },
 
-    Pipe,
-    Call,
-    Positive,
-    Negative,
-    Mul,
-    Div,
-    Add,
-    Sub,
-    BitwiseAnd,
-    BitwiseOr,
-    BitwiseXor,
-    EqualTo,
-    NotEqualTo,
-    Greater,
-    GreaterEqual,
-    Lesser,
-    LesserEqual,
-    LogicalAnd,
-    LogicalOr,
-    Name,
-    Tuple,
+    Pipe(Option<Token<'source>>),
+    Call(Option<Token<'source>>),
+    Positive(Option<Token<'source>>),
+    Negative(Option<Token<'source>>),
+    Mul(Option<Token<'source>>),
+    Div(Option<Token<'source>>),
+    Add(Option<Token<'source>>),
+    Sub(Option<Token<'source>>),
+    BitwiseAnd(Option<Token<'source>>),
+    BitwiseOr(Option<Token<'source>>),
+    BitwiseXor(Option<Token<'source>>),
+    EqualTo(Option<Token<'source>>),
+    NotEqualTo(Option<Token<'source>>),
+    Greater(Option<Token<'source>>),
+    GreaterEqual(Option<Token<'source>>),
+    Lesser(Option<Token<'source>>),
+    LesserEqual(Option<Token<'source>>),
+    LogicalAnd(Option<Token<'source>>),
+    LogicalOr(Option<Token<'source>>),
+    Name(Option<Token<'source>>),
+    Tuple(Option<Token<'source>>),
 }
 
 /// This type must not contain any incomplete expressions.
@@ -115,108 +115,108 @@ pub struct Expression<'source> {
 impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
     fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-        enum Operation {
-            Call,
-            Pipe,
-            Positive,
-            Negative,
-            Mul,
-            Div,
-            Add,
-            Sub,
-            BitwiseAnd,
-            BitwiseXor,
-            BitwiseOr,
-            EqualTo,
-            NotEqualTo,
-            Greater,
-            GreaterEqual,
-            Lesser,
-            LesserEqual,
-            LogicalAnd,
-            LogicalOr,
-            Name,
-            Tuple,
-            SubExpression,
+        enum Operation<'source> {
+            Call(Option<Token<'source>>),
+            Pipe(Option<Token<'source>>),
+            Positive(Option<Token<'source>>),
+            Negative(Option<Token<'source>>),
+            Mul(Option<Token<'source>>),
+            Div(Option<Token<'source>>),
+            Add(Option<Token<'source>>),
+            Sub(Option<Token<'source>>),
+            BitwiseAnd(Option<Token<'source>>),
+            BitwiseXor(Option<Token<'source>>),
+            BitwiseOr(Option<Token<'source>>),
+            EqualTo(Option<Token<'source>>),
+            NotEqualTo(Option<Token<'source>>),
+            Greater(Option<Token<'source>>),
+            GreaterEqual(Option<Token<'source>>),
+            Lesser(Option<Token<'source>>),
+            LesserEqual(Option<Token<'source>>),
+            LogicalAnd(Option<Token<'source>>),
+            LogicalOr(Option<Token<'source>>),
+            Name(Option<Token<'source>>),
+            Tuple(Option<Token<'source>>),
+            SubExpression(Option<Token<'source>>),
         }
 
-        impl Operation {
+        impl<'source> Operation<'source> {
             fn precedence(self) -> usize {
                 match self {
-                    Operation::Pipe => 13,
-                    Operation::Call => 12,
-                    Operation::Positive | Operation::Negative => 11,
-                    Operation::Mul | Operation::Div => 10,
-                    Operation::Add | Operation::Sub => 9,
-                    Operation::BitwiseAnd => 8,
-                    Operation::BitwiseXor => 7,
-                    Operation::BitwiseOr => 6,
-                    Operation::EqualTo
-                    | Operation::NotEqualTo
-                    | Operation::Greater
-                    | Operation::GreaterEqual
-                    | Operation::Lesser
-                    | Operation::LesserEqual => 5,
-                    Operation::LogicalAnd => 4,
-                    Operation::LogicalOr => 3,
-                    Operation::Name => 2,
-                    Operation::Tuple => 1,
-                    Operation::SubExpression => 0,
+                    Operation::Pipe(_) => 13,
+                    Operation::Call(_) => 12,
+                    Operation::Positive(_) | Operation::Negative(_) => 11,
+                    Operation::Mul(_) | Operation::Div(_) => 10,
+                    Operation::Add(_) | Operation::Sub(_) => 9,
+                    Operation::BitwiseAnd(_) => 8,
+                    Operation::BitwiseXor(_) => 7,
+                    Operation::BitwiseOr(_) => 6,
+                    Operation::EqualTo(_)
+                    | Operation::NotEqualTo(_)
+                    | Operation::Greater(_)
+                    | Operation::GreaterEqual(_)
+                    | Operation::Lesser(_)
+                    | Operation::LesserEqual(_) => 5,
+                    Operation::LogicalAnd(_) => 4,
+                    Operation::LogicalOr(_) => 3,
+                    Operation::Name(_) => 2,
+                    Operation::Tuple(_) => 1,
+                    Operation::SubExpression(_) => 0,
                 }
             }
 
             fn left_associative(self) -> bool {
                 match self {
-                    Operation::Call
-                    | Operation::Positive
-                    | Operation::Negative
-                    | Operation::Mul
-                    | Operation::Div
-                    | Operation::Add
-                    | Operation::Sub
-                    | Operation::BitwiseAnd
-                    | Operation::BitwiseXor
-                    | Operation::BitwiseOr
-                    | Operation::EqualTo
-                    | Operation::NotEqualTo
-                    | Operation::Greater
-                    | Operation::GreaterEqual
-                    | Operation::Lesser
-                    | Operation::LesserEqual
-                    | Operation::LogicalAnd
-                    | Operation::LogicalOr
-                    | Operation::Tuple
-                    | Operation::SubExpression => true,
-                    Operation::Name | Operation::Pipe => false,
+                    Operation::Call(_)
+                    | Operation::Positive(_)
+                    | Operation::Negative(_)
+                    | Operation::Mul(_)
+                    | Operation::Div(_)
+                    | Operation::Add(_)
+                    | Operation::Sub(_)
+                    | Operation::BitwiseAnd(_)
+                    | Operation::BitwiseXor(_)
+                    | Operation::BitwiseOr(_)
+                    | Operation::EqualTo(_)
+                    | Operation::NotEqualTo(_)
+                    | Operation::Greater(_)
+                    | Operation::GreaterEqual(_)
+                    | Operation::Lesser(_)
+                    | Operation::LesserEqual(_)
+                    | Operation::LogicalAnd(_)
+                    | Operation::LogicalOr(_)
+                    | Operation::Tuple(_)
+                    | Operation::SubExpression(_) => true,
+                    Operation::Name(_) | Operation::Pipe(_) => false,
                 }
             }
         }
 
-        impl From<Operation> for Node<'_> {
-            fn from(op: Operation) -> Self {
+        impl<'source> From<Operation<'source>> for Node<'source> {
+            fn from(op: Operation<'source>) -> Self {
                 match op {
-                    Operation::Pipe => Node::Pipe,
-                    Operation::Call => Node::Call,
-                    Operation::Positive => Node::Positive,
-                    Operation::Negative => Node::Negative,
-                    Operation::Mul => Node::Mul,
-                    Operation::Div => Node::Div,
-                    Operation::Add => Node::Add,
-                    Operation::Sub => Node::Sub,
-                    Operation::BitwiseAnd => Node::BitwiseAnd,
-                    Operation::BitwiseXor => Node::BitwiseXor,
-                    Operation::BitwiseOr => Node::BitwiseOr,
-                    Operation::EqualTo => Node::EqualTo,
-                    Operation::NotEqualTo => Node::NotEqualTo,
-                    Operation::Greater => Node::Greater,
-                    Operation::GreaterEqual => Node::GreaterEqual,
-                    Operation::Lesser => Node::Lesser,
-                    Operation::LesserEqual => Node::LesserEqual,
-                    Operation::LogicalAnd => Node::LogicalAnd,
-                    Operation::LogicalOr => Node::LogicalOr,
-                    Operation::Name => Node::Name,
-                    Operation::Tuple => Node::Tuple,
-                    Operation::SubExpression => {
+                    Operation::Pipe(t) => Node::Pipe(t),
+                    Operation::Call(t) => Node::Call(t),
+                    Operation::Positive(t) => Node::Positive(t),
+                    Operation::Negative(t) => Node::Negative(t),
+                    Operation::Mul(t) => Node::Mul(t),
+                    Operation::Div(t) => Node::Div(t),
+                    Operation::Add(t) => Node::Add(t),
+                    Operation::Sub(t) => Node::Sub(t),
+                    Operation::BitwiseAnd(t) => Node::BitwiseAnd(t),
+                    Operation::BitwiseXor(t) => Node::BitwiseXor(t),
+                    Operation::BitwiseOr(t) => Node::BitwiseOr(t),
+                    Operation::EqualTo(t) => Node::EqualTo(t),
+                    Operation::NotEqualTo(t) => Node::NotEqualTo(t),
+                    Operation::Greater(t) => Node::Greater(t),
+                    Operation::GreaterEqual(t) => Node::GreaterEqual(t),
+                    Operation::Lesser(t) => Node::Lesser(t),
+                    Operation::LesserEqual(t) => Node::LesserEqual(t),
+                    Operation::LogicalAnd(t) => Node::LogicalAnd(t),
+                    Operation::LogicalOr(t) => Node::LogicalOr(t),
+                    Operation::Name(t) => Node::Name(t),
+                    Operation::Tuple(t) => Node::Tuple(t),
+                    Operation::SubExpression(_) => {
                         panic!("sub expressions may not enter the output stack")
                     }
                 }
@@ -311,13 +311,15 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 })
             )
         };
-        let flush = |output: &mut Vec<Node>, stack: &mut Vec<Operation>| {
-            while let Some(op) = stack.pop_if(|x| !matches!(x, Operation::SubExpression)) {
+        let flush = |output: &mut Vec<Node<'source>>, stack: &mut Vec<Operation<'source>>| {
+            while let Some(op) = stack.pop_if(|x| !matches!(x, Operation::SubExpression(_))) {
                 output.push(op.into());
             }
         };
         let push_with_precedence =
-            |output: &mut Vec<Node>, stack: &mut Vec<Operation>, operator: Operation| {
+            |output: &mut Vec<Node<'source>>,
+             stack: &mut Vec<Operation<'source>>,
+             operator: Operation<'source>| {
                 while let Some(op) = stack.pop_if(|x| {
                     if operator.left_associative() {
                         x.precedence() >= operator.precedence()
@@ -331,6 +333,8 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 stack.push(operator);
             };
         loop {
+            let unary_position = unary_position(last_token);
+            let t = diagnostics.wrap(lexer.peek().copied());
             macro_rules! lexi {
                 ($lexi:ident) => {
                     Some(Token {
@@ -341,11 +345,9 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
             }
             macro_rules! op {
                 ($op:ident) => {
-                    push_with_precedence(&mut contents, &mut stack, Operation::$op)
+                    push_with_precedence(&mut contents, &mut stack, Operation::$op(t))
                 };
             }
-            let unary_position = unary_position(last_token);
-            let t = diagnostics.wrap(lexer.peek().copied());
             match t {
                 // Terminals
                 //
@@ -356,28 +358,28 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     ..
                 }) => {
                     if !unary_position {
-                        push_with_precedence(&mut contents, &mut stack, Operation::Call);
+                        push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
-                    contents.push(Node::Number(number));
+                    contents.push(Node::Number(number, t));
                 }
                 Some(Token {
-                    lexigram: Lexigram::Ident(number),
+                    lexigram: Lexigram::Ident(ident),
                     ..
                 }) => {
                     if !unary_position {
-                        push_with_precedence(&mut contents, &mut stack, Operation::Call);
+                        push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
-                    contents.push(Node::Ident(number));
+                    contents.push(Node::Ident(ident, t));
                 }
                 lexi!(OpenParen) => {
                     if !unary_position {
-                        push_with_precedence(&mut contents, &mut stack, Operation::Call);
+                        push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
-                    stack.push(Operation::SubExpression);
+                    stack.push(Operation::SubExpression(t));
                 }
                 lexi!(OpenBrace) => {
                     if !unary_position {
-                        push_with_precedence(&mut contents, &mut stack, Operation::Call);
+                        push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
                     lexer.next();
                     contents.push(Node::Block(Block::from(Ast::from(&mut *lexer))));
@@ -406,10 +408,11 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 lexi!(Colon) if !unary_position => op!(Name),
                 lexi!(Comma) if !unary_position => op!(Tuple),
                 lexi!(CloseParen) if !unary_position => {
-                    while let Some(op) = stack.pop_if(|x| !matches!(x, Operation::SubExpression)) {
+                    while let Some(op) = stack.pop_if(|x| !matches!(x, Operation::SubExpression(_)))
+                    {
                         contents.push(op.into());
                     }
-                    if !matches!(stack.pop(), Some(Operation::SubExpression)) {
+                    if !matches!(stack.pop(), Some(Operation::SubExpression(_))) {
                         diagnostics
                             .contents
                             .push(Diagnostic::Error(Error::UnexpectedCloseParen(t)))
