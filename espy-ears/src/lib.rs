@@ -70,9 +70,14 @@ pub enum Node<'source> {
     Ident(&'source str, Option<Token<'source>>),
     Block(Block<'source>),
     If {
+        if_token: Option<Token<'source>>,
         condition: Expression<'source>,
+        then_token: Option<Token<'source>>,
         first: Block<'source>,
+        else_token: Option<Token<'source>>,
+        else_kind: Option<Token<'source>>,
         second: Block<'source>,
+        end_token: Option<Token<'source>>,
         diagnostics: Diagnostics<'source>,
     },
     For {
@@ -232,56 +237,61 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
         }
 
         fn conditional<'source>(lexer: &mut Peekable<Lexer<'source>>) -> Node<'source> {
-            lexer.next();
+            let if_token = lexer.next().transpose().ok().flatten();
             let mut diagnostics = Diagnostics::default();
             let condition = Expression::from(&mut *lexer);
-            if diagnostics
-                .expect(lexer.peek().copied(), &[Lexigram::Then])
-                .is_some()
-            {
+            let then_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::Then]);
+            if then_token.is_some() {
                 lexer.next();
             }
             let first = Block::from(Ast::from(&mut *lexer));
-            let second = if matches!(
-                diagnostics.wrap(lexer.peek().copied()),
-                Some(Token {
-                    lexigram: Lexigram::Else,
-                    ..
-                })
-            ) {
+            let (second, else_token, else_kind) = if let else_token @ Some(Token {
+                lexigram: Lexigram::Else,
+                ..
+            }) = diagnostics.wrap(lexer.peek().copied())
+            {
                 lexer.next();
-                match diagnostics.wrap(lexer.peek().copied()) {
-                    Some(Token {
+                let (second, else_kind) = match diagnostics.wrap(lexer.peek().copied()) {
+                    else_kind @ Some(Token {
                         lexigram: Lexigram::Then,
                         ..
                     }) => {
                         lexer.next();
-                        Block::from(Ast::from(&mut *lexer))
+                        (Block::from(Ast::from(&mut *lexer)), else_kind)
                     }
-                    Some(Token {
+                    else_kind @ Some(Token {
                         lexigram: Lexigram::If,
                         ..
-                    }) => Block {
-                        statements: Vec::new(),
-                        result: Expression {
-                            contents: vec![conditional(&mut *lexer)],
+                    }) => (
+                        Block {
+                            statements: Vec::new(),
+                            result: Expression {
+                                contents: vec![conditional(&mut *lexer)],
+                                diagnostics: Diagnostics::default(),
+                            },
                             diagnostics: Diagnostics::default(),
                         },
-                        diagnostics: Diagnostics::default(),
-                    },
+                        else_kind,
+                    ),
                     _ => {
                         diagnostics.expect(lexer.peek().copied(), &[Lexigram::Then, Lexigram::If]);
-                        Block::default()
+                        (Block::default(), None)
                     }
-                }
+                };
+                (second, else_token, else_kind)
             } else {
-                Block::default()
+                (Block::default(), None, None)
             };
-            diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
+            let end_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
             Node::If {
+                if_token,
                 condition,
+                then_token,
                 first,
+                else_token,
+                else_kind,
                 second,
+                end_token,
                 diagnostics,
             }
         }

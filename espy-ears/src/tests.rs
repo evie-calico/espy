@@ -9,6 +9,7 @@ macro_rules! token {
     };
 }
 
+token!(IF: If = "if");
 token!(FOR: For = "for");
 token!(IN: In = "in");
 token!(THEN: Then = "then");
@@ -170,15 +171,19 @@ fn if_expression() {
         statements: vec![Statement {
             action: binding("x"),
             expression: expression([Node::If {
+                if_token: Some(IF),
                 condition: expression([ident_node("condition")]),
+                then_token: Some(THEN),
                 first: Block {
                     result: expression([number_node("1")]),
                     ..Default::default()
                 },
+                else_token: Some(ELSE),
                 second: Block {
                     result: expression([number_node("2")]),
                     ..Default::default()
                 },
+                end_token: Some(END),
                 diagnostics: Diagnostics::default(),
             }])
             .into(),
@@ -198,26 +203,34 @@ fn if_else() {
         statements: vec![Statement {
             action: binding("x"),
             expression: expression([Node::If {
+                if_token: Some(IF),
                 condition: expression([ident_node("condition")]),
+                then_token: Some(THEN),
                 first: Block {
                     result: expression([number_node("1")]),
                     ..Default::default()
                 },
+                else_token: Some(ELSE),
                 second: Block {
                     result: expression([Node::If {
+                        if_token: Some(IF),
                         condition: expression([ident_node("other")]),
+                        then_token: Some(THEN),
                         first: Block {
                             result: expression([number_node("2")]),
                             ..Default::default()
                         },
+                        else_token: Some(ELSE),
                         second: Block {
                             result: expression([number_node("3")]),
                             ..Default::default()
                         },
+                        end_token: Some(END),
                         diagnostics: Diagnostics::default(),
                     }]),
                     ..Default::default()
                 },
+                end_token: Some(END),
                 diagnostics: Diagnostics::default(),
             }])
             .into(),
@@ -332,7 +345,9 @@ fn for_expression() {
                 then_token: Some(THEN),
                 first: Block {
                     result: expression([Node::If {
+                        if_token: Some(IF),
                         condition: expression([ident_node("i"), ident_node("needle"), EQUAL_TO]),
+                        then_token: Some(THEN),
                         first: Block {
                             statements: vec![Statement {
                                 action: Some(Action::Break(Some(Token {
@@ -350,7 +365,9 @@ fn for_expression() {
                             }],
                             ..Default::default()
                         },
+                        else_token: None,
                         second: Block::default(),
+                        end_token: Some(END),
                         diagnostics: Diagnostics::default(),
                     }]),
                     ..Default::default()
