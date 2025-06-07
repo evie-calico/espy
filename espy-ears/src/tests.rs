@@ -48,8 +48,32 @@ binop!(lesser_equal = LesserEqual: LesserEqual);
 binop!(tuple = Tuple: Comma);
 binop!(name = Name: Equals);
 
-fn binding<'source>(ident: &'source str) -> Option<Action<'source>> {
-    Some(Action::Binding(Binding { ident, ty: None }))
+fn binding<'source>(let_start: usize, ident: &'source str) -> Option<Action<'source>> {
+    let let_end = let_start + "let".len();
+    let ident_start = let_end + 1;
+    let ident_end = ident_start + ident.len();
+    let equals_start = ident_end + 1;
+    Some(Action::Binding(Binding {
+        let_token: Some(Token {
+            lexigram: Lexigram::Let,
+            start: let_start,
+            end: let_end,
+        }),
+        ident: Some(ident),
+        ident_token: Some(Token {
+            lexigram: Lexigram::Ident(ident),
+            start: ident_start,
+            end: ident_end,
+        }),
+        colon_token: None,
+        ty: None,
+        ty_token: None,
+        equals_token: Some(Token {
+            lexigram: Lexigram::Equals,
+            start: equals_start,
+            end: equals_start + 1,
+        }),
+    }))
 }
 
 fn expression<'source>(contents: impl Into<Vec<Node<'source>>>) -> Expression<'source> {
@@ -65,7 +89,7 @@ fn assignment() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            action: binding("x"),
+            action: binding(0, "x"),
             expression: expression([number("1", 8, 9)]).into(),
             ..Default::default()
         }],
@@ -116,10 +140,10 @@ fn block_expression() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            action: binding("x"),
+            action: binding(0, "x"),
             expression: expression([Node::Block(Block {
                 statements: [Statement {
-                    action: binding("y"),
+                    action: binding(10, "y"),
                     expression: expression([number("2", 18, 19)]).into(),
                     ..Default::default()
                 }]
@@ -141,7 +165,7 @@ fn if_expression() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            action: binding("x"),
+            action: binding(0, "x"),
             expression: expression([Node::If {
                 condition: expression([ident("condition", 11, 20)]),
                 first: Block {
@@ -168,7 +192,7 @@ fn if_else() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            action: binding("x"),
+            action: binding(0, "x"),
             expression: expression([Node::If {
                 condition: expression([ident("condition", 11, 20)]),
                 first: Block {
@@ -222,8 +246,28 @@ fn forgotten_semicolon() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            action: binding("x"),
+            action: Some(
+                Binding {
+                    let_token: Some(Token {
+                        lexigram: Lexigram::Let,
+                        start: 0,
+                        end: 3,
+                    }),
+                    ident: Some("x"),
+                    ident_token: Some(Token {
+                        lexigram: Lexigram::Ident("x"),
+                        start: 4,
+                        end: 5,
+                    }),
+                    colon_token: None,
+                    ty: None,
+                    ty_token: None,
+                    equals_token: None,
+                }
+                .into(),
+            ),
             expression: None,
+            semicolon_token: None,
             diagnostics: Diagnostics {
                 contents: vec![Diagnostic::Error(Error::MissingToken {
                     expected: &[Lexigram::Equals, Lexigram::Semicolon],
@@ -280,7 +324,7 @@ fn for_expression() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            action: binding("x"),
+            action: binding(0, "x"),
             expression: expression([Node::For {
                 binding: Some("i"),
                 iterator: expression([ident("iter", 17, 21)]),
@@ -293,7 +337,11 @@ fn for_expression() {
                         ]),
                         first: Block {
                             statements: vec![Statement {
-                                action: Some(Action::Break),
+                                action: Some(Action::Break(Some(Token {
+                                    lexigram: Lexigram::Break,
+                                    start: 45,
+                                    end: 51,
+                                }))),
                                 expression: expression([
                                     ident("Some", 53, 57),
                                     ident("i", 58, 59),
@@ -335,8 +383,9 @@ fn reserved_symbol() {
         statements: vec![Statement {
             // Note that this is an invalid identifier,
             // but we still know the *intent* and can smooth things over for diagnostics.
-            action: binding("class"),
+            action: binding(0, "class"),
             expression: expression([number("1", 12, 13)]).into(),
+            semicolon_token: None,
             diagnostics: Diagnostics {
                 contents: vec![Diagnostic::Error(Error::Lexer(lexer::Error {
                     kind: lexer::ErrorKind::ReservedSymbol("class"),

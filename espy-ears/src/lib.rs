@@ -539,16 +539,21 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Default, Eq, PartialEq)]
 pub struct Binding<'source> {
-    pub ident: &'source str,
+    pub let_token: Option<Token<'source>>,
+    pub ident: Option<&'source str>,
+    pub ident_token: Option<Token<'source>>,
+    pub colon_token: Option<Token<'source>>,
     pub ty: Option<&'source str>,
+    pub ty_token: Option<Token<'source>>,
+    pub equals_token: Option<Token<'source>>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Action<'source> {
     Binding(Binding<'source>),
-    Break,
+    Break(Option<Token<'source>>),
 }
 
 impl<'source> From<Binding<'source>> for Action<'source> {
@@ -561,6 +566,7 @@ impl<'source> From<Binding<'source>> for Action<'source> {
 pub struct Statement<'source> {
     pub action: Option<Action<'source>>,
     pub expression: Option<Expression<'source>>,
+    pub semicolon_token: Option<Token<'source>>,
     pub diagnostics: Diagnostics<'source>,
 }
 
@@ -613,26 +619,26 @@ impl<'source> Iterator for Ast<'source, '_> {
             return None;
         }
         match self.diagnostics.wrap(self.lexer.peek().copied()) {
-            Some(Token {
+            break_token @ Some(Token {
                 lexigram: Lexigram::Break,
                 ..
             }) => {
                 self.lexer.next();
                 let expression = Expression::from(&mut *self.lexer);
                 let mut diagnostics = Diagnostics::default();
-                if diagnostics
-                    .expect(self.lexer.peek().copied(), &[Lexigram::Semicolon])
-                    .is_some()
-                {
+                let semicolon_token =
+                    diagnostics.expect(self.lexer.peek().copied(), &[Lexigram::Semicolon]);
+                if semicolon_token.is_some() {
                     self.lexer.next();
                 }
                 Some(Statement {
-                    action: Some(Action::Break),
+                    action: Some(Action::Break(break_token)),
                     expression: Some(expression),
+                    semicolon_token,
                     diagnostics,
                 })
             }
-            Some(Token {
+            let_token @ Some(Token {
                 lexigram: Lexigram::Let,
                 ..
             }) => {
@@ -644,6 +650,7 @@ impl<'source> Iterator for Ast<'source, '_> {
                     ..
                 }) = token
                 {
+                    let ident_token = token;
                     match st_diagnostics.wrap(self.lexer.peek().copied()) {
                         Some(Token {
                             lexigram: Lexigram::Equals,
@@ -651,26 +658,43 @@ impl<'source> Iterator for Ast<'source, '_> {
                         }) => {
                             self.lexer.next();
                             let expression = Expression::from(&mut *self.lexer);
-                            if st_diagnostics
-                                .expect(self.lexer.peek().copied(), &[Lexigram::Semicolon])
-                                .is_some()
-                            {
+                            let semicolon_token = st_diagnostics
+                                .expect(self.lexer.peek().copied(), &[Lexigram::Semicolon]);
+                            if semicolon_token.is_some() {
                                 self.lexer.next();
                             }
                             Some(Statement {
-                                action: Some(Binding { ident, ty: None }.into()),
+                                action: Some(
+                                    Binding {
+                                        let_token,
+                                        ident: Some(ident),
+                                        ident_token,
+                                        ..Default::default()
+                                    }
+                                    .into(),
+                                ),
                                 expression: Some(expression),
+                                semicolon_token,
                                 diagnostics: st_diagnostics,
                             })
                         }
-                        Some(Token {
+                        semicolon_token @ Some(Token {
                             lexigram: Lexigram::Semicolon,
                             ..
                         }) => {
                             self.lexer.next();
                             Some(Statement {
-                                action: Some(Binding { ident, ty: None }.into()),
+                                action: Some(
+                                    Binding {
+                                        let_token,
+                                        ident: Some(ident),
+                                        ident_token,
+                                        ..Default::default()
+                                    }
+                                    .into(),
+                                ),
                                 expression: None,
+                                semicolon_token,
                                 diagnostics: st_diagnostics,
                             })
                         }
@@ -680,13 +704,24 @@ impl<'source> Iterator for Ast<'source, '_> {
                                 &[Lexigram::Equals, Lexigram::Semicolon],
                             );
                             Some(Statement {
-                                action: Some(Binding { ident, ty: None }.into()),
+                                action: Some(
+                                    Binding {
+                                        let_token,
+                                        ident: Some(ident),
+                                        ident_token,
+                                        ..Default::default()
+                                    }
+                                    .into(),
+                                ),
                                 expression: None,
+                                semicolon_token: None,
                                 diagnostics: st_diagnostics,
                             })
                         }
                     }
                 } else {
+                    // The ident field of Binding is optional,
+                    // so we could potentially keep parsing if the equal sign or semicolon is present.
                     st_diagnostics
                         .contents
                         .push(Diagnostic::Error(Error::MissingToken {
@@ -694,25 +729,34 @@ impl<'source> Iterator for Ast<'source, '_> {
                             actual: token,
                         }));
                     Some(Statement {
-                        action: None,
+                        action: Some(
+                            Binding {
+                                let_token,
+                                ..Default::default()
+                            }
+                            .into(),
+                        ),
                         expression: None,
                         diagnostics: st_diagnostics,
+                        semicolon_token: None,
                     })
                 }
             }
             _ => {
                 let mut st_diagnostics = Diagnostics::default();
                 let expression = Expression::from(&mut *self.lexer);
+                let semicolon_token = st_diagnostics.wrap(self.lexer.peek().copied());
                 if let Some(Token {
                     lexigram: Lexigram::Semicolon,
                     ..
-                }) = st_diagnostics.wrap(self.lexer.peek().copied())
+                }) = semicolon_token
                 {
                     self.lexer.next();
                     Some(Statement {
                         action: None,
                         expression: Some(expression),
                         diagnostics: st_diagnostics,
+                        semicolon_token,
                     })
                 } else {
                     self.closed = Some(expression);
