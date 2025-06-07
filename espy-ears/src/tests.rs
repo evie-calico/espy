@@ -308,7 +308,7 @@ fn for_loop() {
     let expected = Block {
         statements: vec![Statement {
             action: None,
-            expression: expression([Node::For {
+            expression: expression([For {
                 for_token: Some(FOR),
                 binding: Some(ident("i")),
                 in_token: Some(IN),
@@ -326,7 +326,8 @@ fn for_loop() {
                 second: Block::default(),
                 end_token: Some(END),
                 diagnostics: Diagnostics::default(),
-            }])
+            }
+            .into()])
             .into(),
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
@@ -343,7 +344,7 @@ fn for_expression() {
     let expected = Block {
         statements: vec![Statement {
             action: binding("x"),
-            expression: expression([Node::For {
+            expression: expression([For {
                 for_token: Some(FOR),
                 binding: Some(ident("i")),
                 in_token: Some(IN),
@@ -387,7 +388,8 @@ fn for_expression() {
                 },
                 end_token: Some(END),
                 diagnostics: Diagnostics::default(),
-            }])
+            }
+            .into()])
             .into(),
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
