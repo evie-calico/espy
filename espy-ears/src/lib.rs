@@ -98,9 +98,8 @@ pub enum Node<'source> {
 /// This type must not contain any incomplete expressions.
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Expression<'source> {
-    // TODO: This field should be exposed through an iterator or method, not pub.
-    contents: Vec<Node<'source>>,
-    diagnostics: Diagnostics<'source>,
+    pub contents: Vec<Node<'source>>,
+    pub diagnostics: Diagnostics<'source>,
 }
 
 /// Parse an expression until an unexpected token is upcoming (via peek).
@@ -321,7 +320,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
                     lexer.next();
-                    contents.push(Node::Block(Block::from(Ast::from(&mut *lexer))));
+                    contents.push(Node::Block(Block::from(&mut *lexer)));
                     diagnostics.expect(lexer.peek().copied(), &[Lexigram::CloseBrace]);
                 }
 
@@ -428,7 +427,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for If<'source> {
         if then_token.is_some() {
             lexer.next();
         }
-        let first = Block::from(Ast::from(&mut *lexer));
+        let first = Block::from(&mut *lexer);
         let (second, else_token, else_kind) = if let else_token @ Some(Token {
             lexigram: Lexigram::Else,
             ..
@@ -441,7 +440,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for If<'source> {
                     ..
                 }) => {
                     lexer.next();
-                    (Block::from(Ast::from(&mut *lexer)), else_kind)
+                    (Block::from(&mut *lexer), else_kind)
                 }
                 else_kind @ Some(Token {
                     lexigram: Lexigram::If,
@@ -452,7 +451,8 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for If<'source> {
                         result: Expression {
                             contents: vec![Self::from(&mut *lexer).into()],
                             diagnostics: Diagnostics::default(),
-                        },
+                        }
+                        .into(),
                         diagnostics: Diagnostics::default(),
                     },
                     else_kind,
@@ -520,7 +520,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for For<'source> {
         if then_token.is_some() {
             lexer.next();
         }
-        let first = Block::from(Ast::from(&mut *lexer));
+        let first = Block::from(&mut *lexer);
 
         let (else_token, second, end_token) = match diagnostics.wrap(lexer.peek().copied()) {
             end_token @ Some(Token {
@@ -532,7 +532,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for For<'source> {
                 ..
             }) => {
                 lexer.next();
-                let second = Block::from(Ast::from(&mut *lexer));
+                let second = Block::from(&mut *lexer);
                 let end_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
                 (else_token, second, end_token)
             }
@@ -585,205 +585,255 @@ pub struct Statement<'source> {
     pub diagnostics: Diagnostics<'source>,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub struct Function<'source> {
+    pub with_token: Option<Token<'source>>,
+    pub arguments: Vec<Token<'source>>,
+    pub semicolon_token: Option<Token<'source>>,
+    pub block: Block<'source>,
+    pub diagnostics: Diagnostics<'source>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum BlockResult<'source> {
+    Expression(Expression<'source>),
+    // This box resolves the recursive relationship between block -> result -> function -> block.
+    // You could also put it on `Function`'s `block`, but putting it here shrinks the enum.
+    Function(Box<Function<'source>>),
+}
+
+impl Default for BlockResult<'_> {
+    fn default() -> Self {
+        Self::Expression(Expression::default())
+    }
+}
+
+impl<'source> From<Expression<'source>> for BlockResult<'source> {
+    fn from(expression: Expression<'source>) -> Self {
+        Self::Expression(expression)
+    }
+}
+
+impl<'source> From<Function<'source>> for BlockResult<'source> {
+    fn from(function: Function<'source>) -> Self {
+        Self::Function(Box::new(function))
+    }
+}
+
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Block<'source> {
     statements: Vec<Statement<'source>>,
-    result: Expression<'source>,
+    result: BlockResult<'source>,
     diagnostics: Diagnostics<'source>,
 }
 
-impl<'source> From<Ast<'source, '_>> for Block<'source> {
-    fn from(mut ast: Ast<'source, '_>) -> Self {
+impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
+    fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
+        let mut diagnostics = Diagnostics::default();
         let mut statements = Vec::new();
-        for statement in &mut ast {
-            statements.push(statement);
-        }
-        let Ast {
-            closed,
-            diagnostics,
-            ..
-        } = ast;
-        Self {
-            statements,
-            result: closed.expect("ast must be closed by resolve"),
-            diagnostics,
-        }
-    }
-}
-
-pub struct Ast<'source, 'iter> {
-    lexer: &'iter mut Peekable<Lexer<'source>>,
-    closed: Option<Expression<'source>>,
-    diagnostics: Diagnostics<'source>,
-}
-
-impl<'source, 'iter> From<&'iter mut Peekable<Lexer<'source>>> for Ast<'source, 'iter> {
-    fn from(lexer: &'iter mut Peekable<Lexer<'source>>) -> Self {
-        Self {
-            lexer,
-            closed: None,
-            diagnostics: Diagnostics::default(),
-        }
-    }
-}
-
-impl<'source> Iterator for Ast<'source, '_> {
-    type Item = Statement<'source>;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.closed.is_some() {
-            return None;
-        }
-        match self.diagnostics.wrap(self.lexer.peek().copied()) {
-            break_token @ Some(Token {
-                lexigram: Lexigram::Break,
-                ..
-            }) => {
-                self.lexer.next();
-                let expression = Expression::from(&mut *self.lexer);
-                let mut diagnostics = Diagnostics::default();
-                let semicolon_token =
-                    diagnostics.expect(self.lexer.peek().copied(), &[Lexigram::Semicolon]);
-                if semicolon_token.is_some() {
-                    self.lexer.next();
-                }
-                Some(Statement {
-                    action: Some(Action::Break(break_token)),
-                    expression: Some(expression),
-                    semicolon_token,
-                    diagnostics,
-                })
-            }
-            let_token @ Some(Token {
-                lexigram: Lexigram::Let,
-                ..
-            }) => {
-                self.lexer.next();
-                let mut st_diagnostics = Diagnostics::default();
-                let token = st_diagnostics.wrap(self.lexer.next());
-                if let Some(Token {
-                    lexigram: Lexigram::Ident,
+        loop {
+            let statement = match diagnostics.wrap(lexer.peek().copied()) {
+                break_token @ Some(Token {
+                    lexigram: Lexigram::Break,
                     ..
-                }) = token
-                {
-                    let ident_token = token;
-                    match st_diagnostics.wrap(self.lexer.peek().copied()) {
-                        equals_token @ Some(Token {
-                            lexigram: Lexigram::Equals,
-                            ..
-                        }) => {
-                            self.lexer.next();
-                            let expression = Expression::from(&mut *self.lexer);
-                            let semicolon_token = st_diagnostics
-                                .expect(self.lexer.peek().copied(), &[Lexigram::Semicolon]);
-                            if semicolon_token.is_some() {
-                                self.lexer.next();
+                }) => {
+                    lexer.next();
+                    let expression = Expression::from(&mut *lexer);
+                    let mut diagnostics = Diagnostics::default();
+                    let semicolon_token =
+                        diagnostics.expect(lexer.peek().copied(), &[Lexigram::Semicolon]);
+                    if semicolon_token.is_some() {
+                        lexer.next();
+                    }
+                    Statement {
+                        action: Some(Action::Break(break_token)),
+                        expression: Some(expression),
+                        semicolon_token,
+                        diagnostics,
+                    }
+                }
+                let_token @ Some(Token {
+                    lexigram: Lexigram::Let,
+                    ..
+                }) => {
+                    lexer.next();
+                    let mut st_diagnostics = Diagnostics::default();
+                    let token = st_diagnostics.wrap(lexer.next());
+                    if let Some(Token {
+                        lexigram: Lexigram::Ident,
+                        ..
+                    }) = token
+                    {
+                        let ident_token = token;
+                        match st_diagnostics.wrap(lexer.peek().copied()) {
+                            equals_token @ Some(Token {
+                                lexigram: Lexigram::Equals,
+                                ..
+                            }) => {
+                                lexer.next();
+                                let expression = Expression::from(&mut *lexer);
+                                let semicolon_token = st_diagnostics
+                                    .expect(lexer.peek().copied(), &[Lexigram::Semicolon]);
+                                if semicolon_token.is_some() {
+                                    lexer.next();
+                                }
+                                Statement {
+                                    action: Some(
+                                        Binding {
+                                            let_token,
+                                            ident_token,
+                                            colon_token: None,
+                                            ty_token: None,
+                                            equals_token,
+                                        }
+                                        .into(),
+                                    ),
+                                    expression: Some(expression),
+                                    semicolon_token,
+                                    diagnostics: st_diagnostics,
+                                }
                             }
-                            Some(Statement {
-                                action: Some(
-                                    Binding {
-                                        let_token,
-                                        ident_token,
-                                        colon_token: None,
-                                        ty_token: None,
-                                        equals_token,
-                                    }
-                                    .into(),
-                                ),
-                                expression: Some(expression),
-                                semicolon_token,
-                                diagnostics: st_diagnostics,
-                            })
+                            semicolon_token @ Some(Token {
+                                lexigram: Lexigram::Semicolon,
+                                ..
+                            }) => {
+                                lexer.next();
+                                Statement {
+                                    action: Some(
+                                        Binding {
+                                            let_token,
+                                            ident_token,
+                                            colon_token: None,
+                                            ty_token: None,
+                                            equals_token: None,
+                                        }
+                                        .into(),
+                                    ),
+                                    expression: None,
+                                    semicolon_token,
+                                    diagnostics: st_diagnostics,
+                                }
+                            }
+                            _ => {
+                                st_diagnostics.expect(
+                                    lexer.peek().copied(),
+                                    &[Lexigram::Equals, Lexigram::Semicolon],
+                                );
+                                Statement {
+                                    action: Some(
+                                        Binding {
+                                            let_token,
+                                            ident_token,
+                                            colon_token: None,
+                                            ty_token: None,
+                                            equals_token: None,
+                                        }
+                                        .into(),
+                                    ),
+                                    expression: None,
+                                    semicolon_token: None,
+                                    diagnostics: st_diagnostics,
+                                }
+                            }
                         }
-                        semicolon_token @ Some(Token {
-                            lexigram: Lexigram::Semicolon,
-                            ..
-                        }) => {
-                            self.lexer.next();
-                            Some(Statement {
-                                action: Some(
-                                    Binding {
-                                        let_token,
-                                        ident_token,
-                                        colon_token: None,
-                                        ty_token: None,
-                                        equals_token: None,
-                                    }
-                                    .into(),
-                                ),
-                                expression: None,
-                                semicolon_token,
-                                diagnostics: st_diagnostics,
-                            })
-                        }
-                        _ => {
-                            st_diagnostics.expect(
-                                self.lexer.peek().copied(),
-                                &[Lexigram::Equals, Lexigram::Semicolon],
-                            );
-                            Some(Statement {
-                                action: Some(
-                                    Binding {
-                                        let_token,
-                                        ident_token,
-                                        colon_token: None,
-                                        ty_token: None,
-                                        equals_token: None,
-                                    }
-                                    .into(),
-                                ),
-                                expression: None,
-                                semicolon_token: None,
-                                diagnostics: st_diagnostics,
-                            })
+                    } else {
+                        // The ident field of Binding is optional,
+                        // so we could potentially keep parsing if the equal sign or semicolon is present.
+                        st_diagnostics
+                            .contents
+                            .push(Diagnostic::Error(Error::MissingToken {
+                                expected: &[Lexigram::Ident],
+                                actual: token,
+                            }));
+                        Statement {
+                            action: Some(
+                                Binding {
+                                    let_token,
+                                    ident_token: None,
+                                    colon_token: None,
+                                    ty_token: None,
+                                    equals_token: None,
+                                }
+                                .into(),
+                            ),
+                            expression: None,
+                            diagnostics: st_diagnostics,
+                            semicolon_token: None,
                         }
                     }
-                } else {
-                    // The ident field of Binding is optional,
-                    // so we could potentially keep parsing if the equal sign or semicolon is present.
-                    st_diagnostics
-                        .contents
-                        .push(Diagnostic::Error(Error::MissingToken {
-                            expected: &[Lexigram::Ident],
-                            actual: token,
-                        }));
-                    Some(Statement {
-                        action: Some(
-                            Binding {
-                                let_token,
-                                ident_token: None,
-                                colon_token: None,
-                                ty_token: None,
-                                equals_token: None,
-                            }
-                            .into(),
-                        ),
-                        expression: None,
-                        diagnostics: st_diagnostics,
-                        semicolon_token: None,
-                    })
                 }
-            }
-            _ => {
-                let mut st_diagnostics = Diagnostics::default();
-                let expression = Expression::from(&mut *self.lexer);
-                let semicolon_token = st_diagnostics.wrap(self.lexer.peek().copied());
-                if let Some(Token {
-                    lexigram: Lexigram::Semicolon,
+                with_token @ Some(Token {
+                    lexigram: Lexigram::With,
                     ..
-                }) = semicolon_token
-                {
-                    self.lexer.next();
-                    Some(Statement {
-                        action: None,
-                        expression: Some(expression),
-                        diagnostics: st_diagnostics,
-                        semicolon_token,
-                    })
-                } else {
-                    self.closed = Some(expression);
-                    None
+                }) => {
+                    lexer.next();
+                    let mut st_diagnostics = Diagnostics::default();
+                    let mut arguments = Vec::new();
+                    let semicolon_token = loop {
+                        match st_diagnostics.wrap(lexer.peek().copied()) {
+                            Some(
+                                arg @ Token {
+                                    lexigram: Lexigram::Ident,
+                                    ..
+                                },
+                            ) => {
+                                lexer.next();
+                                arguments.push(arg);
+                            }
+                            semicolon_token @ Some(Token {
+                                lexigram: Lexigram::Semicolon,
+                                ..
+                            }) => {
+                                lexer.next();
+                                break semicolon_token;
+                            }
+                            _ => {
+                                break None;
+                            }
+                        }
+                    };
+
+                    let block = Block::from(&mut *lexer);
+
+                    return Self {
+                        statements,
+                        result: Function {
+                            with_token,
+                            arguments,
+                            semicolon_token,
+                            block,
+                            diagnostics: st_diagnostics,
+                        }
+                        .into(),
+                        diagnostics,
+                    };
                 }
-            }
+                _ => {
+                    let mut st_diagnostics = Diagnostics::default();
+                    let expression = Expression::from(&mut *lexer);
+                    let semicolon_token = st_diagnostics.wrap(lexer.peek().copied());
+                    if let Some(Token {
+                        lexigram: Lexigram::Semicolon,
+                        ..
+                    }) = semicolon_token
+                    {
+                        lexer.next();
+                        Statement {
+                            action: None,
+                            expression: Some(expression),
+                            diagnostics: st_diagnostics,
+                            semicolon_token,
+                        }
+                    } else {
+                        return Self {
+                            statements,
+                            result: expression.into(),
+                            diagnostics,
+                        };
+                    }
+                }
+            };
+            statements.push(statement);
         }
     }
 }

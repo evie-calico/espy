@@ -10,15 +10,16 @@ pub enum Lexigram {
     // Keywords
     And,
     Break,
-    Let,
-    If,
-    In,
+    Discard,
     Else,
     End,
     For,
+    If,
+    In,
+    Let,
     Or,
     Then,
-    Discard,
+    With,
 
     // Symbols
     Ampersand,
@@ -148,25 +149,22 @@ impl<'source> Iterator for Lexer<'source> {
                     }
                     "and" => Lexigram::And,
                     "break" => Lexigram::Break,
-                    "for" => Lexigram::For,
                     "else" => Lexigram::Else,
                     "end" => Lexigram::End,
+                    "for" => Lexigram::For,
                     "if" => Lexigram::If,
                     "in" => Lexigram::In,
                     "let" => Lexigram::Let,
                     "or" => Lexigram::Or,
                     "then" => Lexigram::Then,
+                    "with" => Lexigram::With,
                     "_" => Lexigram::Discard,
                     _ => Lexigram::Ident,
                 }
             }
             // Number
             '0'..='9' => {
-                let mut length = 1;
-                while self.next_if(|c| matches!(c, '0'..='9' | '.')).is_some() {
-                    length += 1;
-                }
-                let number = &root[0..length];
+                while self.next_if(|c| matches!(c, '0'..='9' | '.')).is_some() {}
                 Lexigram::Number
             }
             '=' if self.next_if(|c| c == '=').is_some() => Lexigram::EqualTo,
