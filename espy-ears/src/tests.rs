@@ -1,29 +1,72 @@
 use crate::*;
 
+fn number<'source>(s: &'source str, start: usize, end: usize) -> Node<'source> {
+    Node::Number(
+        s,
+        Some(Token {
+            lexigram: Lexigram::Number(s),
+            start,
+            end,
+        }),
+    )
+}
+
+fn ident<'source>(s: &'source str, start: usize, end: usize) -> Node<'source> {
+    Node::Ident(
+        s,
+        Some(Token {
+            lexigram: Lexigram::Ident(s),
+            start,
+            end,
+        }),
+    )
+}
+
+macro_rules! binop {
+    ($name:ident = $node:ident: $lexigram:ident) => {
+        fn $name(start: usize, end: usize) -> Node<'static> {
+            Node::$node(Some(Token {
+                lexigram: Lexigram::$lexigram,
+                start,
+                end,
+            }))
+        }
+    };
+}
+
+binop!(pipe = Pipe: Triangle);
+binop!(mul = Mul: Star);
+binop!(bitwise_and = BitwiseAnd: Ampersand);
+binop!(bitwise_xor = BitwiseXor: Caret);
+binop!(bitwise_or = BitwiseOr: Pipe);
+binop!(equal_to = EqualTo: EqualTo);
+binop!(not_equal_to = NotEqualTo: NotEqualTo);
+binop!(greater = Greater: Greater);
+binop!(greater_equal = GreaterEqual: GreaterEqual);
+binop!(lesser = Lesser: Lesser);
+binop!(lesser_equal = LesserEqual: LesserEqual);
+binop!(tuple = Tuple: Comma);
+binop!(name = Name: Equals);
+
+fn binding<'source>(ident: &'source str) -> Option<Action<'source>> {
+    Some(Action::Binding(Binding { ident, ty: None }))
+}
+
+fn expression<'source>(contents: impl Into<Vec<Node<'source>>>) -> Expression<'source> {
+    Expression {
+        contents: contents.into(),
+        diagnostics: Diagnostics::default(),
+    }
+}
+
 #[test]
 fn assignment() {
     let source = "let x = 1;";
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            action: Some(
-                Binding {
-                    ident: "x",
-                    ty: None,
-                }
-                .into(),
-            ),
-            expression: Some(Expression {
-                contents: vec![Node::Number(
-                    "1",
-                    Some(Token {
-                        lexigram: Lexigram::Number("1"),
-                        start: 8,
-                        end: 9,
-                    }),
-                )],
-                ..Default::default()
-            }),
+            action: binding("x"),
+            expression: expression([number("1", 8, 9)]).into(),
             ..Default::default()
         }],
         ..Default::default()
@@ -36,45 +79,13 @@ fn tuples() {
     let source = "1 * 2, 3";
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
-        result: Expression {
-            contents: vec![
-                Node::Number(
-                    "1",
-                    Some(Token {
-                        lexigram: Lexigram::Number("1"),
-                        start: 0,
-                        end: 1,
-                    }),
-                ),
-                Node::Number(
-                    "2",
-                    Some(Token {
-                        lexigram: Lexigram::Number("2"),
-                        start: 4,
-                        end: 5,
-                    }),
-                ),
-                Node::Mul(Some(Token {
-                    lexigram: Lexigram::Star,
-                    start: 2,
-                    end: 3,
-                })),
-                Node::Number(
-                    "3",
-                    Some(Token {
-                        lexigram: Lexigram::Number("3"),
-                        start: 7,
-                        end: 8,
-                    }),
-                ),
-                Node::Tuple(Some(Token {
-                    lexigram: Lexigram::Comma,
-                    start: 5,
-                    end: 6,
-                })),
-            ],
-            ..Default::default()
-        },
+        result: expression([
+            number("1", 0, 1),
+            number("2", 4, 5),
+            mul(2, 3),
+            number("3", 7, 8),
+            tuple(5, 6),
+        ]),
         ..Default::default()
     };
     assert_eq!(actual, expected);
@@ -85,58 +96,15 @@ fn named_tuple() {
     let source = "x: 1, y: 2";
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
-        result: Expression {
-            contents: vec![
-                Node::Ident(
-                    "x",
-                    Some(Token {
-                        lexigram: Lexigram::Ident("x"),
-                        start: 0,
-                        end: 1,
-                    }),
-                ),
-                Node::Number(
-                    "1",
-                    Some(Token {
-                        lexigram: Lexigram::Number("1"),
-                        start: 3,
-                        end: 4,
-                    }),
-                ),
-                Node::Name(Some(Token {
-                    lexigram: Lexigram::Colon,
-                    start: 1,
-                    end: 2,
-                })),
-                Node::Ident(
-                    "y",
-                    Some(Token {
-                        lexigram: Lexigram::Ident("y"),
-                        start: 6,
-                        end: 7,
-                    }),
-                ),
-                Node::Number(
-                    "2",
-                    Some(Token {
-                        lexigram: Lexigram::Number("2"),
-                        start: 9,
-                        end: 10,
-                    }),
-                ),
-                Node::Name(Some(Token {
-                    lexigram: Lexigram::Colon,
-                    start: 7,
-                    end: 8,
-                })),
-                Node::Tuple(Some(Token {
-                    lexigram: Lexigram::Comma,
-                    start: 4,
-                    end: 5,
-                })),
-            ],
-            ..Default::default()
-        },
+        result: expression([
+            ident("x", 0, 1),
+            number("1", 3, 4),
+            name(1, 2),
+            ident("y", 6, 7),
+            number("2", 9, 10),
+            name(7, 8),
+            tuple(4, 5),
+        ]),
         ..Default::default()
     };
     assert_eq!(actual, expected);
@@ -148,67 +116,18 @@ fn block_expression() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            action: Some(
-                Binding {
-                    ident: "x",
-                    ty: None,
-                }
-                .into(),
-            ),
-            expression: Some(Expression {
-                contents: vec![Node::Block(Block {
-                    statements: [Statement {
-                        action: Some(
-                            Binding {
-                                ident: "y",
-                                ty: None,
-                            }
-                            .into(),
-                        ),
-                        expression: Some(Expression {
-                            contents: vec![Node::Number(
-                                "2",
-                                Some(Token {
-                                    lexigram: Lexigram::Number("2"),
-                                    start: 18,
-                                    end: 19,
-                                }),
-                            )],
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    }]
-                    .into(),
-                    result: Expression {
-                        contents: vec![
-                            Node::Ident(
-                                "y",
-                                Some(Token {
-                                    lexigram: Lexigram::Ident("y"),
-                                    start: 21,
-                                    end: 22,
-                                }),
-                            ),
-                            Node::Number(
-                                "3",
-                                Some(Token {
-                                    lexigram: Lexigram::Number("3"),
-                                    start: 25,
-                                    end: 26,
-                                }),
-                            ),
-                            Node::Mul(Some(Token {
-                                lexigram: Lexigram::Star,
-                                start: 23,
-                                end: 24,
-                            })),
-                        ],
-                        ..Default::default()
-                    },
+            action: binding("x"),
+            expression: expression([Node::Block(Block {
+                statements: [Statement {
+                    action: binding("y"),
+                    expression: expression([number("2", 18, 19)]).into(),
                     ..Default::default()
-                })],
+                }]
+                .into(),
+                result: expression([ident("y", 21, 22), number("3", 25, 26), mul(23, 24)]),
                 ..Default::default()
-            }),
+            })])
+            .into(),
             ..Default::default()
         }],
         ..Default::default()
@@ -222,58 +141,20 @@ fn if_expression() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            action: Some(
-                Binding {
-                    ident: "x",
-                    ty: None,
-                }
-                .into(),
-            ),
-            expression: Some(Expression {
-                contents: vec![Node::If {
-                    condition: Expression {
-                        contents: vec![Node::Ident(
-                            "condition",
-                            Some(Token {
-                                lexigram: Lexigram::Ident("condition"),
-                                start: 11,
-                                end: 20,
-                            }),
-                        )],
-                        ..Default::default()
-                    },
-                    first: Block {
-                        result: Expression {
-                            contents: vec![Node::Number(
-                                "1",
-                                Some(Token {
-                                    lexigram: Lexigram::Number("1"),
-                                    start: 26,
-                                    end: 27,
-                                }),
-                            )],
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    },
-                    second: Block {
-                        result: Expression {
-                            contents: vec![Node::Number(
-                                "2",
-                                Some(Token {
-                                    lexigram: Lexigram::Number("2"),
-                                    start: 38,
-                                    end: 39,
-                                }),
-                            )],
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    },
-                    diagnostics: Diagnostics::default(),
-                }],
-                ..Default::default()
-            }),
+            action: binding("x"),
+            expression: expression([Node::If {
+                condition: expression([ident("condition", 11, 20)]),
+                first: Block {
+                    result: expression([number("1", 26, 27)]),
+                    ..Default::default()
+                },
+                second: Block {
+                    result: expression([number("2", 38, 39)]),
+                    ..Default::default()
+                },
+                diagnostics: Diagnostics::default(),
+            }])
+            .into(),
             ..Default::default()
         }],
         ..Default::default()
@@ -287,92 +168,31 @@ fn if_else() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            action: Some(
-                Binding {
-                    ident: "x",
-                    ty: None,
-                }
-                .into(),
-            ),
-            expression: Some(Expression {
-                contents: vec![Node::If {
-                    condition: Expression {
-                        contents: vec![Node::Ident(
-                            "condition",
-                            Some(Token {
-                                lexigram: Lexigram::Ident("condition"),
-                                start: 11,
-                                end: 20,
-                            }),
-                        )],
-                        ..Default::default()
-                    },
-                    first: Block {
-                        result: Expression {
-                            contents: vec![Node::Number(
-                                "1",
-                                Some(Token {
-                                    lexigram: Lexigram::Number("1"),
-                                    start: 26,
-                                    end: 27,
-                                }),
-                            )],
+            action: binding("x"),
+            expression: expression([Node::If {
+                condition: expression([ident("condition", 11, 20)]),
+                first: Block {
+                    result: expression([number("1", 26, 27)]),
+                    ..Default::default()
+                },
+                second: Block {
+                    result: expression([Node::If {
+                        condition: expression([ident("other", 36, 41)]),
+                        first: Block {
+                            result: expression([number("2", 47, 48)]),
                             ..Default::default()
                         },
-                        ..Default::default()
-                    },
-                    second: Block {
-                        result: Expression {
-                            contents: vec![Node::If {
-                                condition: Expression {
-                                    contents: vec![Node::Ident(
-                                        "other",
-                                        Some(Token {
-                                            lexigram: Lexigram::Ident("other"),
-                                            start: 36,
-                                            end: 41,
-                                        }),
-                                    )],
-                                    ..Default::default()
-                                },
-                                first: Block {
-                                    result: Expression {
-                                        contents: vec![Node::Number(
-                                            "2",
-                                            Some(Token {
-                                                lexigram: Lexigram::Number("2"),
-                                                start: 47,
-                                                end: 48,
-                                            }),
-                                        )],
-                                        ..Default::default()
-                                    },
-                                    ..Default::default()
-                                },
-                                second: Block {
-                                    result: Expression {
-                                        contents: vec![Node::Number(
-                                            "3",
-                                            Some(Token {
-                                                lexigram: Lexigram::Number("3"),
-                                                start: 59,
-                                                end: 60,
-                                            }),
-                                        )],
-                                        ..Default::default()
-                                    },
-                                    ..Default::default()
-                                },
-                                diagnostics: Diagnostics::default(),
-                            }],
+                        second: Block {
+                            result: expression([number("3", 59, 60)]),
                             ..Default::default()
                         },
-                        ..Default::default()
-                    },
-                    diagnostics: Diagnostics::default(),
-                }],
-                ..Default::default()
-            }),
+                        diagnostics: Diagnostics::default(),
+                    }]),
+                    ..Default::default()
+                },
+                diagnostics: Diagnostics::default(),
+            }])
+            .into(),
             ..Default::default()
         }],
         ..Default::default()
@@ -386,29 +206,7 @@ fn incomplete_expression() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         result: Expression {
-            contents: vec![
-                Node::Number(
-                    "1",
-                    Some(Token {
-                        lexigram: Lexigram::Number("1"),
-                        start: 0,
-                        end: 1,
-                    }),
-                ),
-                Node::Number(
-                    "2",
-                    Some(Token {
-                        lexigram: Lexigram::Number("2"),
-                        start: 4,
-                        end: 5,
-                    }),
-                ),
-                Node::Mul(Some(Token {
-                    lexigram: Lexigram::Star,
-                    start: 2,
-                    end: 3,
-                })),
-            ],
+            contents: vec![number("1", 0, 1), number("2", 4, 5), mul(2, 3)],
             diagnostics: Diagnostics {
                 contents: vec![Diagnostic::Error(Error::IncompleteExpression)],
             },
@@ -424,13 +222,7 @@ fn forgotten_semicolon() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            action: Some(
-                Binding {
-                    ident: "x",
-                    ty: None,
-                }
-                .into(),
-            ),
+            action: binding("x"),
             expression: None,
             diagnostics: Diagnostics {
                 contents: vec![Diagnostic::Error(Error::MissingToken {
@@ -443,17 +235,7 @@ fn forgotten_semicolon() {
                 })],
             },
         }],
-        result: Expression {
-            contents: vec![Node::Number(
-                "2",
-                Some(Token {
-                    lexigram: Lexigram::Number("2"),
-                    start: 6,
-                    end: 7,
-                }),
-            )],
-            ..Default::default()
-        },
+        result: expression([number("2", 6, 7)]),
         ..Default::default()
     };
     assert_eq!(actual, expected);
@@ -466,54 +248,25 @@ fn for_loop() {
     let expected = Block {
         statements: vec![Statement {
             action: None,
-            expression: Some(Expression {
-                contents: vec![Node::For {
-                    binding: Some("i"),
-                    iterator: Expression {
-                        contents: vec![Node::Ident(
-                            "iter",
-                            Some(Token {
-                                lexigram: Lexigram::Ident("iter"),
-                                start: 9,
-                                end: 13,
-                            }),
-                        )],
-                        ..Default::default()
-                    },
-                    first: Block {
-                        result: Expression {
-                            contents: vec![
-                                Node::Ident(
-                                    "print",
-                                    Some(Token {
-                                        lexigram: Lexigram::Ident("print"),
-                                        start: 19,
-                                        end: 24,
-                                    }),
-                                ),
-                                Node::Ident(
-                                    "i",
-                                    Some(Token {
-                                        lexigram: Lexigram::Ident("i"),
-                                        start: 25,
-                                        end: 26,
-                                    }),
-                                ),
-                                Node::Call(Some(Token {
-                                    lexigram: Lexigram::Ident("i"),
-                                    start: 25,
-                                    end: 26,
-                                })),
-                            ],
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    },
-                    second: Block::default(),
-                    diagnostics: Diagnostics::default(),
-                }],
-                ..Default::default()
-            }),
+            expression: expression([Node::For {
+                binding: Some("i"),
+                iterator: expression([ident("iter", 9, 13)]),
+                first: Block {
+                    result: expression([
+                        ident("print", 19, 24),
+                        ident("i", 25, 26),
+                        Node::Call(Some(Token {
+                            lexigram: Lexigram::Ident("i"),
+                            start: 25,
+                            end: 26,
+                        })),
+                    ]),
+                    ..Default::default()
+                },
+                second: Block::default(),
+                diagnostics: Diagnostics::default(),
+            }])
+            .into(),
             ..Default::default()
         }],
         ..Default::default()
@@ -527,114 +280,46 @@ fn for_expression() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            action: Some(
-                Binding {
-                    ident: "x",
-                    ty: None,
-                }
-                .into(),
-            ),
-            expression: Some(Expression {
-                contents: vec![Node::For {
-                    binding: Some("i"),
-                    iterator: Expression {
-                        contents: vec![Node::Ident(
-                            "iter",
-                            Some(Token {
-                                lexigram: Lexigram::Ident("iter"),
-                                start: 17,
-                                end: 21,
-                            }),
-                        )],
-                        ..Default::default()
-                    },
-                    first: Block {
-                        result: Expression {
-                            contents: vec![Node::If {
-                                condition: Expression {
-                                    contents: vec![
-                                        Node::Ident(
-                                            "i",
-                                            Some(Token {
-                                                lexigram: Lexigram::Ident("i"),
-                                                start: 30,
-                                                end: 31,
-                                            }),
-                                        ),
-                                        Node::Ident(
-                                            "needle",
-                                            Some(Token {
-                                                lexigram: Lexigram::Ident("needle"),
-                                                start: 35,
-                                                end: 41,
-                                            }),
-                                        ),
-                                        Node::EqualTo(Some(Token {
-                                            lexigram: Lexigram::EqualTo,
-                                            start: 32,
-                                            end: 34,
-                                        })),
-                                    ],
-                                    ..Default::default()
-                                },
-                                first: Block {
-                                    statements: vec![Statement {
-                                        action: Some(Action::Break),
-                                        expression: Some(Expression {
-                                            contents: vec![
-                                                Node::Ident(
-                                                    "Some",
-                                                    Some(Token {
-                                                        lexigram: Lexigram::Ident("Some"),
-                                                        start: 53,
-                                                        end: 57,
-                                                    }),
-                                                ),
-                                                Node::Ident(
-                                                    "i",
-                                                    Some(Token {
-                                                        lexigram: Lexigram::Ident("i"),
-                                                        start: 58,
-                                                        end: 59,
-                                                    }),
-                                                ),
-                                                Node::Call(Some(Token {
-                                                    lexigram: Lexigram::Ident("i"),
-                                                    start: 58,
-                                                    end: 59,
-                                                })),
-                                            ],
-                                            ..Default::default()
-                                        }),
-                                        ..Default::default()
-                                    }],
-                                    ..Default::default()
-                                },
-                                second: Block::default(),
-                                diagnostics: Diagnostics::default(),
+            action: binding("x"),
+            expression: expression([Node::For {
+                binding: Some("i"),
+                iterator: expression([ident("iter", 17, 21)]),
+                first: Block {
+                    result: expression([Node::If {
+                        condition: expression([
+                            ident("i", 30, 31),
+                            ident("needle", 35, 41),
+                            equal_to(32, 34),
+                        ]),
+                        first: Block {
+                            statements: vec![Statement {
+                                action: Some(Action::Break),
+                                expression: expression([
+                                    ident("Some", 53, 57),
+                                    ident("i", 58, 59),
+                                    Node::Call(Some(Token {
+                                        lexigram: Lexigram::Ident("i"),
+                                        start: 58,
+                                        end: 59,
+                                    })),
+                                ])
+                                .into(),
+                                ..Default::default()
                             }],
                             ..Default::default()
                         },
-                        ..Default::default()
-                    },
-                    second: Block {
-                        result: Expression {
-                            contents: vec![Node::Ident(
-                                "None",
-                                Some(Token {
-                                    lexigram: Lexigram::Ident("None"),
-                                    start: 70,
-                                    end: 74,
-                                }),
-                            )],
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    },
-                    diagnostics: Diagnostics::default(),
-                }],
-                ..Default::default()
-            }),
+                        second: Block::default(),
+                        diagnostics: Diagnostics::default(),
+                    }]),
+                    ..Default::default()
+                },
+                second: Block {
+                    result: expression([ident("None", 70, 74)]),
+                    ..Default::default()
+                },
+                diagnostics: Diagnostics::default(),
+            }])
+            .into(),
             ..Default::default()
         }],
         ..Default::default()
@@ -650,24 +335,8 @@ fn reserved_symbol() {
         statements: vec![Statement {
             // Note that this is an invalid identifier,
             // but we still know the *intent* and can smooth things over for diagnostics.
-            action: Some(
-                Binding {
-                    ident: "class",
-                    ty: None,
-                }
-                .into(),
-            ),
-            expression: Some(Expression {
-                contents: vec![Node::Number(
-                    "1",
-                    Some(Token {
-                        lexigram: Lexigram::Number("1"),
-                        start: 12,
-                        end: 13,
-                    }),
-                )],
-                ..Default::default()
-            }),
+            action: binding("class"),
+            expression: expression([number("1", 12, 13)]).into(),
             diagnostics: Diagnostics {
                 contents: vec![Diagnostic::Error(Error::Lexer(lexer::Error {
                     kind: lexer::ErrorKind::ReservedSymbol("class"),
@@ -688,177 +357,45 @@ fn comparison_operators() {
     let expected = Block {
         statements: vec![
             Statement {
-                expression: Some(Expression {
-                    contents: vec![
-                        Node::Number(
-                            "1",
-                            Some(Token {
-                                lexigram: Lexigram::Number("1"),
-                                start: 0,
-                                end: 1,
-                            }),
-                        ),
-                        Node::Number(
-                            "1",
-                            Some(Token {
-                                lexigram: Lexigram::Number("1"),
-                                start: 5,
-                                end: 6,
-                            }),
-                        ),
-                        Node::EqualTo(Some(Token {
-                            lexigram: Lexigram::EqualTo,
-                            start: 2,
-                            end: 4,
-                        })),
-                    ],
-                    ..Default::default()
-                }),
+                expression: expression([number("1", 0, 1), number("1", 5, 6), equal_to(2, 4)])
+                    .into(),
                 ..Default::default()
             },
             Statement {
-                expression: Some(Expression {
-                    contents: vec![
-                        Node::Number(
-                            "1",
-                            Some(Token {
-                                lexigram: Lexigram::Number("1"),
-                                start: 8,
-                                end: 9,
-                            }),
-                        ),
-                        Node::Number(
-                            "1",
-                            Some(Token {
-                                lexigram: Lexigram::Number("1"),
-                                start: 13,
-                                end: 14,
-                            }),
-                        ),
-                        Node::NotEqualTo(Some(Token {
-                            lexigram: Lexigram::NotEqualTo,
-                            start: 10,
-                            end: 12,
-                        })),
-                    ],
-                    ..Default::default()
-                }),
+                expression: expression([
+                    number("1", 8, 9),
+                    number("1", 13, 14),
+                    not_equal_to(10, 12),
+                ])
+                .into(),
                 ..Default::default()
             },
             Statement {
-                expression: Some(Expression {
-                    contents: vec![
-                        Node::Number(
-                            "1",
-                            Some(Token {
-                                lexigram: Lexigram::Number("1"),
-                                start: 16,
-                                end: 17,
-                            }),
-                        ),
-                        Node::Number(
-                            "1",
-                            Some(Token {
-                                lexigram: Lexigram::Number("1"),
-                                start: 20,
-                                end: 21,
-                            }),
-                        ),
-                        Node::Greater(Some(Token {
-                            lexigram: Lexigram::Greater,
-                            start: 18,
-                            end: 19,
-                        })),
-                    ],
-                    ..Default::default()
-                }),
+                expression: expression([number("1", 16, 17), number("1", 20, 21), greater(18, 19)])
+                    .into(),
                 ..Default::default()
             },
             Statement {
-                expression: Some(Expression {
-                    contents: vec![
-                        Node::Number(
-                            "1",
-                            Some(Token {
-                                lexigram: Lexigram::Number("1"),
-                                start: 23,
-                                end: 24,
-                            }),
-                        ),
-                        Node::Number(
-                            "1",
-                            Some(Token {
-                                lexigram: Lexigram::Number("1"),
-                                start: 28,
-                                end: 29,
-                            }),
-                        ),
-                        Node::GreaterEqual(Some(Token {
-                            lexigram: Lexigram::GreaterEqual,
-                            start: 25,
-                            end: 27,
-                        })),
-                    ],
-                    ..Default::default()
-                }),
+                expression: expression([
+                    number("1", 23, 24),
+                    number("1", 28, 29),
+                    greater_equal(25, 27),
+                ])
+                .into(),
                 ..Default::default()
             },
             Statement {
-                expression: Some(Expression {
-                    contents: vec![
-                        Node::Number(
-                            "1",
-                            Some(Token {
-                                lexigram: Lexigram::Number("1"),
-                                start: 31,
-                                end: 32,
-                            }),
-                        ),
-                        Node::Number(
-                            "1",
-                            Some(Token {
-                                lexigram: Lexigram::Number("1"),
-                                start: 35,
-                                end: 36,
-                            }),
-                        ),
-                        Node::Lesser(Some(Token {
-                            lexigram: Lexigram::Lesser,
-                            start: 33,
-                            end: 34,
-                        })),
-                    ],
-                    ..Default::default()
-                }),
+                expression: expression([number("1", 31, 32), number("1", 35, 36), lesser(33, 34)])
+                    .into(),
                 ..Default::default()
             },
             Statement {
-                expression: Some(Expression {
-                    contents: vec![
-                        Node::Number(
-                            "1",
-                            Some(Token {
-                                lexigram: Lexigram::Number("1"),
-                                start: 38,
-                                end: 39,
-                            }),
-                        ),
-                        Node::Number(
-                            "1",
-                            Some(Token {
-                                lexigram: Lexigram::Number("1"),
-                                start: 42,
-                                end: 43,
-                            }),
-                        ),
-                        Node::LesserEqual(Some(Token {
-                            lexigram: Lexigram::LesserEqual,
-                            start: 39,
-                            end: 41,
-                        })),
-                    ],
-                    ..Default::default()
-                }),
+                expression: expression([
+                    number("1", 38, 39),
+                    number("1", 42, 43),
+                    lesser_equal(39, 41),
+                ])
+                .into(),
                 ..Default::default()
             },
         ],
@@ -872,58 +409,15 @@ fn bitwise_operators() {
     let source = "1 | 2 & 3 ^ 4";
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
-        result: Expression {
-            contents: vec![
-                Node::Number(
-                    "1",
-                    Some(Token {
-                        lexigram: Lexigram::Number("1"),
-                        start: 0,
-                        end: 1,
-                    }),
-                ),
-                Node::Number(
-                    "2",
-                    Some(Token {
-                        lexigram: Lexigram::Number("2"),
-                        start: 4,
-                        end: 5,
-                    }),
-                ),
-                Node::Number(
-                    "3",
-                    Some(Token {
-                        lexigram: Lexigram::Number("3"),
-                        start: 8,
-                        end: 9,
-                    }),
-                ),
-                Node::BitwiseAnd(Some(Token {
-                    lexigram: Lexigram::Ampersand,
-                    start: 6,
-                    end: 7,
-                })),
-                Node::Number(
-                    "4",
-                    Some(Token {
-                        lexigram: Lexigram::Number("4"),
-                        start: 12,
-                        end: 13,
-                    }),
-                ),
-                Node::BitwiseXor(Some(Token {
-                    lexigram: Lexigram::Caret,
-                    start: 10,
-                    end: 11,
-                })),
-                Node::BitwiseOr(Some(Token {
-                    lexigram: Lexigram::Pipe,
-                    start: 2,
-                    end: 3,
-                })),
-            ],
-            ..Default::default()
-        },
+        result: expression([
+            number("1", 0, 1),
+            number("2", 4, 5),
+            number("3", 8, 9),
+            bitwise_and(6, 7),
+            number("4", 12, 13),
+            bitwise_xor(10, 11),
+            bitwise_or(2, 3),
+        ]),
         ..Default::default()
     };
     assert_eq!(actual, expected);
@@ -934,120 +428,38 @@ fn nested_parens() {
     let source = "1 | (2 & (3 ^ 4))";
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
-        result: Expression {
-            contents: vec![
-                Node::Number(
-                    "1",
-                    Some(Token {
-                        lexigram: Lexigram::Number("1"),
-                        start: 0,
-                        end: 1,
-                    }),
-                ),
-                Node::Number(
-                    "2",
-                    Some(Token {
-                        lexigram: Lexigram::Number("2"),
-                        start: 5,
-                        end: 6,
-                    }),
-                ),
-                Node::Number(
-                    "3",
-                    Some(Token {
-                        lexigram: Lexigram::Number("3"),
-                        start: 10,
-                        end: 11,
-                    }),
-                ),
-                Node::Number(
-                    "4",
-                    Some(Token {
-                        lexigram: Lexigram::Number("4"),
-                        start: 14,
-                        end: 15,
-                    }),
-                ),
-                Node::BitwiseXor(Some(Token {
-                    lexigram: Lexigram::Caret,
-                    start: 12,
-                    end: 13,
-                })),
-                Node::BitwiseAnd(Some(Token {
-                    lexigram: Lexigram::Ampersand,
-                    start: 7,
-                    end: 8,
-                })),
-                Node::BitwiseOr(Some(Token {
-                    lexigram: Lexigram::Pipe,
-                    start: 2,
-                    end: 3,
-                })),
-            ],
-            ..Default::default()
-        },
+        result: expression([
+            number("1", 0, 1),
+            number("2", 5, 6),
+            number("3", 10, 11),
+            number("4", 14, 15),
+            bitwise_xor(12, 13),
+            bitwise_and(7, 8),
+            bitwise_or(2, 3),
+        ]),
         ..Default::default()
     };
     assert_eq!(actual, expected);
 }
 
 #[test]
-fn pipe() {
+fn pipe_operator() {
     let source = "1 |> 2 |> f x";
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
-        result: Expression {
-            contents: vec![
-                Node::Number(
-                    "1",
-                    Some(Token {
-                        lexigram: Lexigram::Number("1"),
-                        start: 0,
-                        end: 1,
-                    }),
-                ),
-                Node::Number(
-                    "2",
-                    Some(Token {
-                        lexigram: Lexigram::Number("2"),
-                        start: 5,
-                        end: 6,
-                    }),
-                ),
-                Node::Ident(
-                    "f",
-                    Some(Token {
-                        lexigram: Lexigram::Ident("f"),
-                        start: 10,
-                        end: 11,
-                    }),
-                ),
-                Node::Pipe(Some(Token {
-                    lexigram: Lexigram::Triangle,
-                    start: 7,
-                    end: 9,
-                })),
-                Node::Pipe(Some(Token {
-                    lexigram: Lexigram::Triangle,
-                    start: 2,
-                    end: 4,
-                })),
-                Node::Ident(
-                    "x",
-                    Some(Token {
-                        lexigram: Lexigram::Ident("x"),
-                        start: 12,
-                        end: 13,
-                    }),
-                ),
-                Node::Call(Some(Token {
-                    lexigram: Lexigram::Ident("x"),
-                    start: 12,
-                    end: 13,
-                })),
-            ],
-            ..Default::default()
-        },
+        result: expression([
+            number("1", 0, 1),
+            number("2", 5, 6),
+            ident("f", 10, 11),
+            pipe(7, 9),
+            pipe(2, 4),
+            ident("x", 12, 13),
+            Node::Call(Some(Token {
+                lexigram: Lexigram::Ident("x"),
+                start: 12,
+                end: 13,
+            })),
+        ]),
         ..Default::default()
     };
     assert_eq!(actual, expected);
