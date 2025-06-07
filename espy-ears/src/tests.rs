@@ -1,25 +1,5 @@
 use crate::*;
 
-fn number<'source>(origin: &'source str) -> Node<'source> {
-    Node::Number(
-        origin,
-        Some(Token {
-            origin,
-            lexigram: Lexigram::Number,
-        }),
-    )
-}
-
-fn ident<'source>(origin: &'source str) -> Node<'source> {
-    Node::Ident(
-        origin,
-        Some(Token {
-            origin,
-            lexigram: Lexigram::Ident,
-        }),
-    )
-}
-
 macro_rules! token {
     ($name:ident: $lexigram:ident = $origin:literal) => {
         const $name: Token = Token {
@@ -27,6 +7,20 @@ macro_rules! token {
             lexigram: Lexigram::$lexigram,
         };
     };
+}
+
+token!(FOR: For = "for");
+token!(IN: In = "in");
+token!(THEN: Then = "then");
+token!(ELSE: Else = "else");
+token!(END: End = "end");
+token!(SEMICOLON: Semicolon = ";");
+
+fn ident<'source>(origin: &'source str) -> Token<'source> {
+    Token {
+        origin,
+        lexigram: Lexigram::Ident,
+    }
 }
 
 macro_rules! node {
@@ -38,7 +32,20 @@ macro_rules! node {
     };
 }
 
-token!(SEMICOLON: Semicolon = ";");
+fn number_node<'source>(origin: &'source str) -> Node<'source> {
+    Node::Number(
+        origin,
+        Some(Token {
+            origin,
+            lexigram: Lexigram::Number,
+        }),
+    )
+}
+
+fn ident_node<'source>(origin: &'source str) -> Node<'source> {
+    Node::Ident(origin, Some(ident(origin)))
+}
+
 node!(PIPE: Pipe = "|>" as Triangle);
 node!(MUL: Mul = "*" as Star);
 node!(BITWISE_AND: BitwiseAnd = "&" as Ampersand);
@@ -59,10 +66,7 @@ fn binding<'source>(origin: &'source str) -> Option<Action<'source>> {
             origin: "let",
             lexigram: Lexigram::Let,
         }),
-        ident_token: Some(Token {
-            origin,
-            lexigram: Lexigram::Ident,
-        }),
+        ident_token: Some(ident(origin)),
         colon_token: None,
         ty_token: None,
         equals_token: Some(Token {
@@ -86,7 +90,7 @@ fn assignment() {
     let expected = Block {
         statements: vec![Statement {
             action: binding("x"),
-            expression: expression([number("1")]).into(),
+            expression: expression([number_node("1")]).into(),
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
         }],
@@ -100,7 +104,13 @@ fn tuples() {
     let source = "1 * 2, 3";
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
-        result: expression([number("1"), number("2"), MUL, number("3"), TUPLE]),
+        result: expression([
+            number_node("1"),
+            number_node("2"),
+            MUL,
+            number_node("3"),
+            TUPLE,
+        ]),
         ..Default::default()
     };
     assert_eq!(actual, expected);
@@ -112,11 +122,11 @@ fn named_tuple() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         result: expression([
-            ident("x"),
-            number("1"),
+            ident_node("x"),
+            number_node("1"),
             NAME,
-            ident("y"),
-            number("2"),
+            ident_node("y"),
+            number_node("2"),
             NAME,
             TUPLE,
         ]),
@@ -135,12 +145,12 @@ fn block_expression() {
             expression: expression([Node::Block(Block {
                 statements: [Statement {
                     action: binding("y"),
-                    expression: expression([number("2")]).into(),
+                    expression: expression([number_node("2")]).into(),
                     semicolon_token: Some(SEMICOLON),
                     diagnostics: Diagnostics::default(),
                 }]
                 .into(),
-                result: expression([ident("y"), number("3"), MUL]),
+                result: expression([ident_node("y"), number_node("3"), MUL]),
                 ..Default::default()
             })])
             .into(),
@@ -160,13 +170,13 @@ fn if_expression() {
         statements: vec![Statement {
             action: binding("x"),
             expression: expression([Node::If {
-                condition: expression([ident("condition")]),
+                condition: expression([ident_node("condition")]),
                 first: Block {
-                    result: expression([number("1")]),
+                    result: expression([number_node("1")]),
                     ..Default::default()
                 },
                 second: Block {
-                    result: expression([number("2")]),
+                    result: expression([number_node("2")]),
                     ..Default::default()
                 },
                 diagnostics: Diagnostics::default(),
@@ -188,20 +198,20 @@ fn if_else() {
         statements: vec![Statement {
             action: binding("x"),
             expression: expression([Node::If {
-                condition: expression([ident("condition")]),
+                condition: expression([ident_node("condition")]),
                 first: Block {
-                    result: expression([number("1")]),
+                    result: expression([number_node("1")]),
                     ..Default::default()
                 },
                 second: Block {
                     result: expression([Node::If {
-                        condition: expression([ident("other")]),
+                        condition: expression([ident_node("other")]),
                         first: Block {
-                            result: expression([number("2")]),
+                            result: expression([number_node("2")]),
                             ..Default::default()
                         },
                         second: Block {
-                            result: expression([number("3")]),
+                            result: expression([number_node("3")]),
                             ..Default::default()
                         },
                         diagnostics: Diagnostics::default(),
@@ -225,7 +235,7 @@ fn incomplete_expression() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         result: Expression {
-            contents: vec![number("1"), number("2"), MUL],
+            contents: vec![number_node("1"), number_node("2"), MUL],
             diagnostics: Diagnostics {
                 contents: vec![Diagnostic::Error(Error::IncompleteExpression)],
             },
@@ -247,10 +257,7 @@ fn forgotten_semicolon() {
                         origin: "let",
                         lexigram: Lexigram::Let,
                     }),
-                    ident_token: Some(Token {
-                        origin: "x",
-                        lexigram: Lexigram::Ident,
-                    }),
+                    ident_token: Some(ident("x")),
                     colon_token: None,
                     ty_token: None,
                     equals_token: None,
@@ -269,7 +276,7 @@ fn forgotten_semicolon() {
                 })],
             },
         }],
-        result: expression([number("2")]),
+        result: expression([number_node("2")]),
         ..Default::default()
     };
     assert_eq!(actual, expected);
@@ -283,20 +290,22 @@ fn for_loop() {
         statements: vec![Statement {
             action: None,
             expression: expression([Node::For {
-                binding: Some("i"),
-                iterator: expression([ident("iter")]),
+                for_token: Some(FOR),
+                binding: Some(ident("i")),
+                in_token: Some(IN),
+                iterator: expression([ident_node("iter")]),
+                then_token: Some(THEN),
                 first: Block {
                     result: expression([
-                        ident("print"),
-                        ident("i"),
-                        Node::Call(Some(Token {
-                            origin: "i",
-                            lexigram: Lexigram::Ident,
-                        })),
+                        ident_node("print"),
+                        ident_node("i"),
+                        Node::Call(Some(ident("i"))),
                     ]),
                     ..Default::default()
                 },
+                else_token: None,
                 second: Block::default(),
+                end_token: Some(END),
                 diagnostics: Diagnostics::default(),
             }])
             .into(),
@@ -316,11 +325,14 @@ fn for_expression() {
         statements: vec![Statement {
             action: binding("x"),
             expression: expression([Node::For {
-                binding: Some("i"),
-                iterator: expression([ident("iter")]),
+                for_token: Some(FOR),
+                binding: Some(ident("i")),
+                in_token: Some(IN),
+                iterator: expression([ident_node("iter")]),
+                then_token: Some(THEN),
                 first: Block {
                     result: expression([Node::If {
-                        condition: expression([ident("i"), ident("needle"), EQUAL_TO]),
+                        condition: expression([ident_node("i"), ident_node("needle"), EQUAL_TO]),
                         first: Block {
                             statements: vec![Statement {
                                 action: Some(Action::Break(Some(Token {
@@ -328,12 +340,9 @@ fn for_expression() {
                                     lexigram: Lexigram::Break,
                                 }))),
                                 expression: expression([
-                                    ident("Some"),
-                                    ident("i"),
-                                    Node::Call(Some(Token {
-                                        origin: "i",
-                                        lexigram: Lexigram::Ident,
-                                    })),
+                                    ident_node("Some"),
+                                    ident_node("i"),
+                                    Node::Call(Some(ident("i"))),
                                 ])
                                 .into(),
                                 semicolon_token: Some(SEMICOLON),
@@ -346,10 +355,12 @@ fn for_expression() {
                     }]),
                     ..Default::default()
                 },
+                else_token: Some(ELSE),
                 second: Block {
-                    result: expression([ident("None")]),
+                    result: expression([ident_node("None")]),
                     ..Default::default()
                 },
+                end_token: Some(END),
                 diagnostics: Diagnostics::default(),
             }])
             .into(),
@@ -370,7 +381,7 @@ fn reserved_symbol() {
             // Note that this is an invalid identifier,
             // but we still know the *intent* and can smooth things over for diagnostics.
             action: binding("class"),
-            expression: expression([number("1")]).into(),
+            expression: expression([number_node("1")]).into(),
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics {
                 contents: vec![Diagnostic::Error(Error::Lexer(lexer::Error {
@@ -391,32 +402,32 @@ fn comparison_operators() {
     let expected = Block {
         statements: vec![
             Statement {
-                expression: expression([number("1"), number("1"), EQUAL_TO]).into(),
+                expression: expression([number_node("1"), number_node("1"), EQUAL_TO]).into(),
                 semicolon_token: Some(SEMICOLON),
                 ..Default::default()
             },
             Statement {
-                expression: expression([number("1"), number("1"), NOT_EQUAL_TO]).into(),
+                expression: expression([number_node("1"), number_node("1"), NOT_EQUAL_TO]).into(),
                 semicolon_token: Some(SEMICOLON),
                 ..Default::default()
             },
             Statement {
-                expression: expression([number("1"), number("1"), GREATER]).into(),
+                expression: expression([number_node("1"), number_node("1"), GREATER]).into(),
                 semicolon_token: Some(SEMICOLON),
                 ..Default::default()
             },
             Statement {
-                expression: expression([number("1"), number("1"), GREATER_EQUAL]).into(),
+                expression: expression([number_node("1"), number_node("1"), GREATER_EQUAL]).into(),
                 semicolon_token: Some(SEMICOLON),
                 ..Default::default()
             },
             Statement {
-                expression: expression([number("1"), number("1"), LESSER]).into(),
+                expression: expression([number_node("1"), number_node("1"), LESSER]).into(),
                 semicolon_token: Some(SEMICOLON),
                 ..Default::default()
             },
             Statement {
-                expression: expression([number("1"), number("1"), LESSER_EQUAL]).into(),
+                expression: expression([number_node("1"), number_node("1"), LESSER_EQUAL]).into(),
                 semicolon_token: Some(SEMICOLON),
                 ..Default::default()
             },
@@ -432,11 +443,11 @@ fn bitwise_operators() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         result: expression([
-            number("1"),
-            number("2"),
-            number("3"),
+            number_node("1"),
+            number_node("2"),
+            number_node("3"),
             BITWISE_AND,
-            number("4"),
+            number_node("4"),
             BITWISE_XOR,
             BITWISE_OR,
         ]),
@@ -451,10 +462,10 @@ fn nested_parens() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         result: expression([
-            number("1"),
-            number("2"),
-            number("3"),
-            number("4"),
+            number_node("1"),
+            number_node("2"),
+            number_node("3"),
+            number_node("4"),
             BITWISE_XOR,
             BITWISE_AND,
             BITWISE_OR,
@@ -470,16 +481,13 @@ fn pipe_operator() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         result: expression([
-            number("1"),
-            number("2"),
-            ident("f"),
+            number_node("1"),
+            number_node("2"),
+            ident_node("f"),
             PIPE,
             PIPE,
-            ident("x"),
-            Node::Call(Some(Token {
-                origin: "x",
-                lexigram: Lexigram::Ident,
-            })),
+            ident_node("x"),
+            Node::Call(Some(ident("x"))),
         ]),
         ..Default::default()
     };

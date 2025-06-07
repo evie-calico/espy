@@ -76,10 +76,15 @@ pub enum Node<'source> {
         diagnostics: Diagnostics<'source>,
     },
     For {
-        binding: Option<&'source str>,
+        for_token: Option<Token<'source>>,
+        binding: Option<Token<'source>>,
+        in_token: Option<Token<'source>>,
         iterator: Expression<'source>,
+        then_token: Option<Token<'source>>,
         first: Block<'source>,
+        else_token: Option<Token<'source>>,
         second: Block<'source>,
+        end_token: Option<Token<'source>>,
         diagnostics: Diagnostics<'source>,
     },
 
@@ -426,71 +431,59 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 lexi!(If) => {
                     contents.push(conditional(lexer));
                 }
-                lexi!(For) => {
+                for_token @ lexi!(For) => {
                     lexer.next();
                     let mut diagnostics = Diagnostics::default();
 
-                    let binding = match diagnostics.wrap(lexer.peek().copied()) {
-                        Some(Token {
-                            origin,
-                            lexigram: Lexigram::Ident,
-                            ..
-                        }) => {
-                            lexer.next();
-                            Some(origin)
-                        }
-                        Some(Token {
-                            lexigram: Lexigram::Discard,
-                            ..
-                        }) => {
-                            lexer.next();
-                            None
-                        }
-                        _ => {
-                            diagnostics.expect(
-                                lexer.peek().copied(),
-                                &[Lexigram::Ident, Lexigram::Discard],
-                            );
-                            None
-                        }
-                    };
-                    if diagnostics
-                        .expect(lexer.peek().copied(), &[Lexigram::In])
-                        .is_some()
-                    {
+                    let binding = diagnostics
+                        .expect(lexer.peek().copied(), &[Lexigram::Ident, Lexigram::Discard]);
+                    if binding.is_some() {
+                        lexer.next();
+                    }
+                    let in_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::In]);
+                    if in_token.is_some() {
                         lexer.next();
                     }
                     let iterator = Expression::from(&mut *lexer);
-                    if diagnostics
-                        .expect(lexer.peek().copied(), &[Lexigram::Then])
-                        .is_some()
-                    {
+                    let then_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::Then]);
+                    if then_token.is_some() {
                         lexer.next();
                     }
                     let first = Block::from(Ast::from(&mut *lexer));
                     let result = match diagnostics.wrap(lexer.peek().copied()) {
-                        Some(Token {
+                        end_token @ Some(Token {
                             lexigram: Lexigram::End,
                             ..
                         }) => Node::For {
+                            for_token,
                             binding,
+                            in_token,
                             iterator,
+                            then_token,
                             first,
+                            else_token: None,
                             second: Block::default(),
+                            end_token,
                             diagnostics,
                         },
-                        Some(Token {
+                        else_token @ Some(Token {
                             lexigram: Lexigram::Else,
                             ..
                         }) => {
                             lexer.next();
                             let second = Block::from(Ast::from(&mut *lexer));
-                            diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
+                            let end_token =
+                                diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
                             Node::For {
+                                for_token,
                                 binding,
+                                in_token,
                                 iterator,
+                                then_token,
                                 first,
+                                else_token,
                                 second,
+                                end_token,
                                 diagnostics,
                             }
                         }
@@ -498,10 +491,15 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                             diagnostics
                                 .expect(lexer.peek().copied(), &[Lexigram::End, Lexigram::Else]);
                             Node::For {
+                                for_token,
                                 binding,
+                                in_token,
                                 iterator,
+                                then_token,
                                 first,
+                                else_token: None,
                                 second: Block::default(),
+                                end_token: None,
                                 diagnostics,
                             }
                         }
