@@ -59,15 +59,26 @@ pub enum Lexigram<'source> {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct UnexpectedCharacter {
-    c: char,
-    index: usize,
+pub enum ErrorKind<'source> {
+    UnexpectedCharacter(char),
+    ReservedSymbol(&'source str),
+}
+
+impl<'source> ErrorKind<'source> {
+    fn at(self, start: usize, end: usize) -> Error<'source> {
+        Error {
+            kind: self,
+            start,
+            end,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Error<'source> {
-    UnexpectedCharacter(UnexpectedCharacter),
-    ReservedSymbol(&'source str),
+pub struct Error<'source> {
+    pub kind: ErrorKind<'source>,
+    pub start: usize,
+    pub end: usize,
 }
 
 pub type Result<'source, T = Token<'source>, E = Error<'source>> = std::result::Result<T, E>;
@@ -147,7 +158,7 @@ impl<'source> Iterator for Lexer<'source> {
                     | "static" | "string" | "struct" | "super" | "switch" | "table" | "trait"
                     | "true" | "try" | "tuple" | "type" | "union" | "unit" | "unsafe"
                     | "unsigned" | "use" | "where" | "while" | "yield" => {
-                        return Some(Err(Error::ReservedSymbol(ident)));
+                        return Some(Err(ErrorKind::ReservedSymbol(ident).at(start, self.index)));
                     }
                     "and" => Lexigram::And,
                     "break" => Lexigram::Break,
@@ -212,10 +223,7 @@ impl<'source> Iterator for Lexer<'source> {
             ':' => Lexigram::Colon,
             ';' => Lexigram::Semicolon,
             c => {
-                return Some(Err(Error::UnexpectedCharacter(UnexpectedCharacter {
-                    c,
-                    index: start,
-                })));
+                return Some(Err(ErrorKind::UnexpectedCharacter(c).at(start, self.index)));
             }
         };
         Some(Ok(Token {

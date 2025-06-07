@@ -45,9 +45,17 @@ impl<'source> Diagnostics<'source> {
         match t? {
             Ok(t) => Some(t),
             Err(e) => {
-                // TODO: If `lexer::Error` carried a position we could convert `lexer::Error::ReservedSymbol` to `Lexigram::Ident` for fault-tolerance.
+                let t = if let lexer::ErrorKind::ReservedSymbol(ident) = e.kind {
+                    Some(Token {
+                        lexigram: Lexigram::Ident(ident),
+                        start: e.start,
+                        end: e.end,
+                    })
+                } else {
+                    None
+                };
                 self.contents.push(Diagnostic::Error(Error::Lexer(e)));
-                None
+                t
             }
         }
     }

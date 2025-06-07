@@ -379,16 +379,25 @@ fn reserved_symbol() {
     let actual = Block::from(Ast::from(&mut Lexer::from(source).peekable()));
     let expected = Block {
         statements: vec![Statement {
-            action: None,
-            expression: None,
+            // Note that this is an invalid identifier,
+            // but we still know the *intent* and can smooth things over for diagnostics.
+            action: Some(
+                Binding {
+                    ident: "class",
+                    ty: None,
+                }
+                .into(),
+            ),
+            expression: Some(Expression {
+                contents: vec![Node::Number("1")],
+                ..Default::default()
+            }),
             diagnostics: Diagnostics {
-                contents: vec![
-                    Diagnostic::Error(Error::Lexer(lexer::Error::ReservedSymbol("class"))),
-                    Diagnostic::Error(Error::MissingToken {
-                        expected: &[Lexigram::Ident("")],
-                        actual: None,
-                    }),
-                ],
+                contents: vec![Diagnostic::Error(Error::Lexer(lexer::Error {
+                    kind: lexer::ErrorKind::ReservedSymbol("class"),
+                    start: 4,
+                    end: 9,
+                }))],
             },
         }],
         ..Default::default()
