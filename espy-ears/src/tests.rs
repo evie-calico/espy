@@ -170,7 +170,7 @@ fn if_expression() {
     let expected = Block {
         statements: vec![Statement {
             action: binding("x"),
-            expression: expression([Node::If {
+            expression: expression([If {
                 if_token: Some(IF),
                 condition: expression([ident_node("condition")]),
                 then_token: Some(THEN),
@@ -179,13 +179,15 @@ fn if_expression() {
                     ..Default::default()
                 },
                 else_token: Some(ELSE),
+                else_kind: Some(THEN),
                 second: Block {
                     result: expression([number_node("2")]),
                     ..Default::default()
                 },
                 end_token: Some(END),
                 diagnostics: Diagnostics::default(),
-            }])
+            }
+            .into()])
             .into(),
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
@@ -202,7 +204,7 @@ fn if_else() {
     let expected = Block {
         statements: vec![Statement {
             action: binding("x"),
-            expression: expression([Node::If {
+            expression: expression([If {
                 if_token: Some(IF),
                 condition: expression([ident_node("condition")]),
                 then_token: Some(THEN),
@@ -211,8 +213,9 @@ fn if_else() {
                     ..Default::default()
                 },
                 else_token: Some(ELSE),
+                else_kind: Some(IF),
                 second: Block {
-                    result: expression([Node::If {
+                    result: expression([If {
                         if_token: Some(IF),
                         condition: expression([ident_node("other")]),
                         then_token: Some(THEN),
@@ -221,18 +224,21 @@ fn if_else() {
                             ..Default::default()
                         },
                         else_token: Some(ELSE),
+                        else_kind: Some(THEN),
                         second: Block {
                             result: expression([number_node("3")]),
                             ..Default::default()
                         },
                         end_token: Some(END),
                         diagnostics: Diagnostics::default(),
-                    }]),
+                    }
+                    .into()]),
                     ..Default::default()
                 },
                 end_token: Some(END),
                 diagnostics: Diagnostics::default(),
-            }])
+            }
+            .into()])
             .into(),
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
@@ -344,7 +350,7 @@ fn for_expression() {
                 iterator: expression([ident_node("iter")]),
                 then_token: Some(THEN),
                 first: Block {
-                    result: expression([Node::If {
+                    result: expression([If {
                         if_token: Some(IF),
                         condition: expression([ident_node("i"), ident_node("needle"), EQUAL_TO]),
                         then_token: Some(THEN),
@@ -366,10 +372,12 @@ fn for_expression() {
                             ..Default::default()
                         },
                         else_token: None,
+                        else_kind: None,
                         second: Block::default(),
                         end_token: Some(END),
                         diagnostics: Diagnostics::default(),
-                    }]),
+                    }
+                    .into()]),
                     ..Default::default()
                 },
                 else_token: Some(ELSE),
