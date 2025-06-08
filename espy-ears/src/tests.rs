@@ -35,17 +35,14 @@ macro_rules! node {
 }
 
 fn number_node<'source>(origin: &'source str) -> Node<'source> {
-    Node::Number(
+    Node::Number(Token {
         origin,
-        Some(Token {
-            origin,
-            lexigram: Lexigram::Number,
-        }),
-    )
+        lexigram: Lexigram::Number,
+    })
 }
 
 fn ident_node<'source>(origin: &'source str) -> Node<'source> {
-    Node::Ident(origin, Some(ident(origin)))
+    Node::Ident(ident(origin))
 }
 
 node!(PIPE: Pipe = "|>" as Triangle);
@@ -53,8 +50,8 @@ node!(MUL: Mul = "*" as Star);
 node!(BITWISE_AND: BitwiseAnd = "&" as Ampersand);
 node!(BITWISE_XOR: BitwiseXor = "^" as Caret);
 node!(BITWISE_OR: BitwiseOr = "|" as Pipe);
-node!(EQUAL_TO: EqualTo = "==" as EqualTo);
-node!(NOT_EQUAL_TO: NotEqualTo = "!=" as NotEqualTo);
+node!(EQUAL_TO: EqualTo = "==" as DoubleEqual);
+node!(NOT_EQUAL_TO: NotEqualTo = "!=" as BangEqual);
 node!(GREATER: Greater = ">" as Greater);
 node!(GREATER_EQUAL: GreaterEqual = ">=" as GreaterEqual);
 node!(LESSER: Lesser = "<" as Lesser);
@@ -73,7 +70,7 @@ fn binding<'source>(origin: &'source str) -> Option<Action<'source>> {
         ty_token: None,
         equals_token: Some(Token {
             origin: "=",
-            lexigram: Lexigram::Equals,
+            lexigram: Lexigram::SingleEqual,
         }),
     }))
 }
@@ -292,7 +289,7 @@ fn forgotten_semicolon() {
             semicolon_token: None,
             diagnostics: Diagnostics {
                 contents: vec![Diagnostic::Error(Error::MissingToken {
-                    expected: &[Lexigram::Equals, Lexigram::Semicolon],
+                    expected: &[Lexigram::SingleEqual, Lexigram::Semicolon],
                     actual: Some(Token {
                         origin: "2",
                         lexigram: Lexigram::Number,

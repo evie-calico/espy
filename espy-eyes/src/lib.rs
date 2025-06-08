@@ -1,10 +1,36 @@
-/// The position of a token may be derived by comparing the pointer of the origin string to the pointer of the source string.
+/// A unit of espyscript source code.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Token<'source> {
+    /// Tracks the string slice that this token originated from.
+    ///
+    /// Pointer arithmetic may be used to derive the range of the source string that the represents;
+    /// use the `origin_range` function for this purpose.
     pub origin: &'source str,
+    /// The semantic meaning of the token.
+    ///
+    /// This is usually called the token's "type",
+    /// but "lexigram" is used to avoid conflict with Rust's `type` keyword.
     pub lexigram: Lexigram,
 }
 
+impl Token<'_> {
+    /// # Panics
+    ///
+    /// Panics if provided a string slice that does not contain the token's `origin`.
+    pub fn origin_range(&self, source: &str) -> (usize, usize) {
+        let start = self.origin.as_ptr() as isize - source.as_ptr() as isize;
+        let end = start + self.origin.len() as isize;
+        if start < 0 || end - start > source.len() as isize {
+            panic!("source string does not contain token origin");
+        }
+        (start as usize, end as usize)
+    }
+}
+
+/// The semantic meaning of a token.
+///
+/// This is usually called the "token type",
+/// but "lexigram" is used to avoid conflict with Rust's `type` keyword.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Lexigram {
     // Keywords
@@ -23,6 +49,8 @@ pub enum Lexigram {
 
     // Symbols
     Ampersand,
+    Bang,
+    BangEqual,
     Caret,
     CloseBrace,
     CloseParen,
@@ -30,26 +58,24 @@ pub enum Lexigram {
     Colon,
     Comma,
     Dot,
+    DotDot,
+    DotDotEqual,
     DoubleArrow,
+    DoubleEqual,
     Ellipses,
-    Equals,
-    EqualTo,
     Greater,
     GreaterEqual,
     Lesser,
     LesserEqual,
     Minus,
-    Not,
-    NotEqualTo,
     OpenBrace,
     OpenParen,
     OpenSquare,
     Pipe,
     Plus,
-    RangeExclusive,
-    RangeInclusive,
     Semicolon,
     SingleArrow,
+    SingleEqual,
     Slash,
     Star,
     Triangle,
@@ -67,12 +93,23 @@ pub struct Error<'source> {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ErrorKind {
+    /// A character with no meaning to the lexer.
+    ///
+    /// This is mostly ASCII control characters,
+    /// unused symbols,
+    /// and Unicode codepoints outside of the ASCII range.
     UnexpectedCharacter,
+    /// An otherwise-valid identifier that is reserved for future keywords.
+    ///
+    /// Parsers are free to reinterpret this as an identifier for diagnostic purposes.
     ReservedSymbol,
 }
 
 pub type Result<'source, T = Token<'source>, E = Error<'source>> = std::result::Result<T, E>;
 
+/// An iterator that produces tokens.
+///
+/// This should be made [`Peekable`](std::iter::Peekable) using the [`Iterator::peekable`] function prior to parsing.
 #[derive(Copy, Clone, Default)]
 pub struct Lexer<'source> {
     cursor: &'source str,
@@ -84,9 +121,9 @@ impl<'source> From<&'source str> for Lexer<'source> {
     }
 }
 
-/// These methods combine the `Chars` iterator and the `Peekable` trait without making the cursor innaccessible.
-/// `Peekable<Chars>` renders `Chars`'s `as_str` inaccessible,
-/// and since `peek` relies on buffering the result of `next` the resulting slice would be useless anyways.
+// These methods combine the `Chars` iterator and the `Peekable` trait without making the cursor innaccessible.
+// `Peekable<Chars>` renders `Chars`'s `as_str` inaccessible,
+// and since `peek` relies on buffering the result of `next` the resulting slice would be useless anyways.
 impl<'source> Lexer<'source> {
     fn next(&mut self) -> Option<char> {
         let mut chars = self.cursor.char_indices();
@@ -167,11 +204,11 @@ impl<'source> Iterator for Lexer<'source> {
                 while self.next_if(|c| matches!(c, '0'..='9' | '.')).is_some() {}
                 Lexigram::Number
             }
-            '=' if self.next_if(|c| c == '=').is_some() => Lexigram::EqualTo,
+            '=' if self.next_if(|c| c == '=').is_some() => Lexigram::DoubleEqual,
             '=' if self.next_if(|c| c == '>').is_some() => Lexigram::DoubleArrow,
-            '=' => Lexigram::Equals,
-            '!' if self.next_if(|c| c == '=').is_some() => Lexigram::NotEqualTo,
-            '!' => Lexigram::Not,
+            '=' => Lexigram::SingleEqual,
+            '!' if self.next_if(|c| c == '=').is_some() => Lexigram::BangEqual,
+            '!' => Lexigram::Bang,
             '>' if self.next_if(|c| c == '=').is_some() => Lexigram::GreaterEqual,
             '>' => Lexigram::Greater,
             '<' if self.next_if(|c| c == '=').is_some() => Lexigram::LesserEqual,
@@ -184,11 +221,11 @@ impl<'source> Iterator for Lexer<'source> {
             '.' => {
                 if self.next_if(|c| c == '.').is_some() {
                     if self.next_if(|c| c == '=').is_some() {
-                        Lexigram::RangeInclusive
+                        Lexigram::DotDotEqual
                     } else if self.next_if(|c| c == '.').is_some() {
                         Lexigram::Ellipses
                     } else {
-                        Lexigram::RangeExclusive
+                        Lexigram::DotDot
                     }
                 } else {
                     Lexigram::Dot

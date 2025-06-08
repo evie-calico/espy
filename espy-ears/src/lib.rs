@@ -66,8 +66,8 @@ impl<'source> Diagnostics<'source> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Node<'source> {
-    Number(&'source str, Option<Token<'source>>),
-    Ident(&'source str, Option<Token<'source>>),
+    Number(Token<'source>),
+    Ident(Token<'source>),
     Block(Block<'source>),
     If(If<'source>),
     For(For<'source>),
@@ -231,8 +231,8 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         | Lexigram::Ampersand
                         | Lexigram::Caret
                         | Lexigram::Pipe
-                        | Lexigram::EqualTo
-                        | Lexigram::NotEqualTo
+                        | Lexigram::DoubleEqual
+                        | Lexigram::BangEqual
                         | Lexigram::Greater
                         | Lexigram::GreaterEqual
                         | Lexigram::Lesser
@@ -289,25 +289,27 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 //
                 // A terminal value outside of unary position implies a function call,
                 // so flush the operator stack in this case.
-                Some(Token {
-                    origin,
-                    lexigram: Lexigram::Number,
-                    ..
-                }) => {
+                Some(
+                    number @ Token {
+                        lexigram: Lexigram::Number,
+                        ..
+                    },
+                ) => {
                     if !unary_position {
                         push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
-                    contents.push(Node::Number(origin, t));
+                    contents.push(Node::Number(number));
                 }
-                Some(Token {
-                    origin,
-                    lexigram: Lexigram::Ident,
-                    ..
-                }) => {
+                Some(
+                    ident @ Token {
+                        lexigram: Lexigram::Ident,
+                        ..
+                    },
+                ) => {
                     if !unary_position {
                         push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
-                    contents.push(Node::Ident(origin, t));
+                    contents.push(Node::Ident(ident));
                 }
                 lexi!(OpenParen) => {
                     if !unary_position {
@@ -334,8 +336,8 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 lexi!(Ampersand) if !unary_position => op!(BitwiseAnd),
                 lexi!(Caret) if !unary_position => op!(BitwiseXor),
                 lexi!(Pipe) if !unary_position => op!(BitwiseOr),
-                lexi!(EqualTo) if !unary_position => op!(EqualTo),
-                lexi!(NotEqualTo) if !unary_position => op!(NotEqualTo),
+                lexi!(DoubleEqual) if !unary_position => op!(EqualTo),
+                lexi!(BangEqual) if !unary_position => op!(NotEqualTo),
                 lexi!(Greater) if !unary_position => op!(Greater),
                 lexi!(GreaterEqual) if !unary_position => op!(GreaterEqual),
                 lexi!(Lesser) if !unary_position => op!(Lesser),
@@ -667,7 +669,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
                         let ident_token = token;
                         match st_diagnostics.wrap(lexer.peek().copied()) {
                             equals_token @ Some(Token {
-                                lexigram: Lexigram::Equals,
+                                lexigram: Lexigram::SingleEqual,
                                 ..
                             }) => {
                                 lexer.next();
@@ -717,7 +719,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
                             _ => {
                                 st_diagnostics.expect(
                                     lexer.peek().copied(),
-                                    &[Lexigram::Equals, Lexigram::Semicolon],
+                                    &[Lexigram::SingleEqual, Lexigram::Semicolon],
                                 );
                                 Statement {
                                     action: Some(
