@@ -22,7 +22,7 @@ pub enum Diagnostic<'source> {
 
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Diagnostics<'source> {
-    contents: Vec<Diagnostic<'source>>,
+    pub errors: Vec<Diagnostic<'source>>,
 }
 
 impl<'source> Diagnostics<'source> {
@@ -35,7 +35,7 @@ impl<'source> Diagnostics<'source> {
         if actual.is_some_and(|actual| expected.contains(&actual.lexigram)) {
             actual
         } else {
-            self.contents
+            self.errors
                 .push(Diagnostic::Error(Error::MissingToken { expected, actual }));
             None
         }
@@ -57,7 +57,7 @@ impl<'source> Diagnostics<'source> {
                 } else {
                     None
                 };
-                self.contents.push(Diagnostic::Error(Error::Lexer(e)));
+                self.errors.push(Diagnostic::Error(Error::Lexer(e)));
                 t
             }
         }
@@ -66,6 +66,7 @@ impl<'source> Diagnostics<'source> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Node<'source> {
+    Unit,
     Number(Token<'source>),
     Ident(Token<'source>),
     Block(Block<'source>),
@@ -348,14 +349,25 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 lexi!(Colon) if !unary_position => op!(Name),
                 lexi!(Comma) if !unary_position => op!(Tuple),
                 lexi!(CloseParen) if !unary_position => {
-                    while let Some(op) = stack.pop_if(|x| !matches!(x, Operation::SubExpression(_)))
-                    {
-                        contents.push(op.into());
-                    }
-                    if !matches!(stack.pop(), Some(Operation::SubExpression(_))) {
-                        diagnostics
-                            .contents
-                            .push(Diagnostic::Error(Error::UnexpectedCloseParen(t)))
+                    if matches!(
+                        last_token,
+                        Some(Token {
+                            lexigram: Lexigram::OpenParen,
+                            ..
+                        })
+                    ) {
+                        contents.push(Node::Unit);
+                    } else {
+                        while let Some(op) =
+                            stack.pop_if(|x| !matches!(x, Operation::SubExpression(_)))
+                        {
+                            contents.push(op.into());
+                        }
+                        if !matches!(stack.pop(), Some(Operation::SubExpression(_))) {
+                            diagnostics
+                                .errors
+                                .push(Diagnostic::Error(Error::UnexpectedCloseParen(t)))
+                        }
                     }
                 }
                 lexi!(If) => {
@@ -378,7 +390,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     if unary_position {
                         if !contents.is_empty() || !stack.is_empty() {
                             diagnostics
-                                .contents
+                                .errors
                                 .push(Diagnostic::Error(Error::IncompleteExpression));
                         }
                     } else {
@@ -624,9 +636,9 @@ impl<'source> From<Function<'source>> for BlockResult<'source> {
 
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Block<'source> {
-    statements: Vec<Statement<'source>>,
-    result: BlockResult<'source>,
-    diagnostics: Diagnostics<'source>,
+    pub statements: Vec<Statement<'source>>,
+    pub result: BlockResult<'source>,
+    pub diagnostics: Diagnostics<'source>,
 }
 
 impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
@@ -742,7 +754,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
                         // The ident field of Binding is optional,
                         // so we could potentially keep parsing if the equal sign or semicolon is present.
                         st_diagnostics
-                            .contents
+                            .errors
                             .push(Diagnostic::Error(Error::MissingToken {
                                 expected: &[Lexigram::Ident],
                                 actual: token,
