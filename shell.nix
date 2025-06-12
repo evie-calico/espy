@@ -9,6 +9,7 @@ in
     buildInputs = with pkgs; [
       clang
       llvmPackages_20.bintools
+      llvmPackages_20.lldb
       rustup
     ];
     RUSTC_VERSION = overrides.toolchain.channel;
