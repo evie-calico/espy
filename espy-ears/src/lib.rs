@@ -348,7 +348,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 lexi!(Triangle) if !unary_position => op!(Pipe),
                 lexi!(Colon) if !unary_position => op!(Name),
                 lexi!(Comma) if !unary_position => op!(Tuple),
-                lexi!(CloseParen) if !unary_position => {
+                lexi!(CloseParen) if unary_position => {
                     if matches!(
                         last_token,
                         Some(Token {
@@ -358,16 +358,25 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     ) {
                         contents.push(Node::Unit);
                     } else {
-                        while let Some(op) =
-                            stack.pop_if(|x| !matches!(x, Operation::SubExpression(_)))
-                        {
-                            contents.push(op.into());
-                        }
-                        if !matches!(stack.pop(), Some(Operation::SubExpression(_))) {
-                            diagnostics
-                                .errors
-                                .push(Diagnostic::Error(Error::UnexpectedCloseParen(t)))
-                        }
+                        diagnostics
+                            .errors
+                            .push(Diagnostic::Error(Error::IncompleteExpression));
+                    }
+                    if !matches!(stack.pop(), Some(Operation::SubExpression(_))) {
+                        diagnostics
+                            .errors
+                            .push(Diagnostic::Error(Error::UnexpectedCloseParen(t)))
+                    }
+                }
+                lexi!(CloseParen) if !unary_position => {
+                    while let Some(op) = stack.pop_if(|x| !matches!(x, Operation::SubExpression(_)))
+                    {
+                        contents.push(op.into());
+                    }
+                    if !matches!(stack.pop(), Some(Operation::SubExpression(_))) {
+                        diagnostics
+                            .errors
+                            .push(Diagnostic::Error(Error::UnexpectedCloseParen(t)))
                     }
                 }
                 lexi!(If) => {
