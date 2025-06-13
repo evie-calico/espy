@@ -120,17 +120,16 @@ impl Program {
         output
     }
 
-    fn add_block<'source>(&mut self, block: Block<'source>) {
+    fn add_block<'source>(&mut self, block: Block<'source>, scope: &mut Scope<'source>) {
         let block_id = self.blocks.len();
         self.blocks.push(Vec::new());
-        let mut scope = Scope::default();
         for i in block.statements {
-            let statement = self.add_statement(i, &mut scope);
+            let statement = self.add_statement(i, scope);
             self.blocks[block_id].extend(statement);
         }
         match block.result {
             espy_ears::BlockResult::Expression(i) => {
-                let expression = self.add_expression(i, &scope);
+                let expression = self.add_expression(i, scope);
                 self.blocks[block_id].extend(expression);
             }
             espy_ears::BlockResult::Function(_) => todo!(),
@@ -146,24 +145,28 @@ impl Program {
         statement: Statement<'source>,
         scope: &mut Scope<'source>,
     ) -> Vec<Instruction> {
+        let instructions = self.add_expression(statement.expression.unwrap_or_default(), scope);
         match statement.action {
             Some(Action::Binding(Binding { ident_token, .. })) => {
-                // Expressions always put *one* item on the stack, so protect it by advancing sp.
                 scope.bindings.insert(
                     ident_token.expect("invalid statement structure").origin,
                     Value {
-                        index: scope.stack_pointer,
+                        // The expressions's result is under the stack pointer right now.
+                        index: scope.stack_pointer - 1,
                     },
                 );
-                scope.stack_pointer += 1;
             }
             Some(Action::Break(_)) => todo!(),
             None => todo!(),
         }
-        self.add_expression(statement.expression.unwrap_or_default(), scope)
+        instructions
     }
 
-    fn add_expression(&mut self, expression: Expression, scope: &Scope) -> Vec<Instruction> {
+    fn add_expression<'source>(
+        &mut self,
+        expression: Expression<'source>,
+        scope: &mut Scope<'source>,
+    ) -> Vec<Instruction> {
         if expression.contents.is_empty() {
             return vec![Instruction::PushUnit];
         }
@@ -176,20 +179,38 @@ impl Program {
                     Node::Number(Token { origin, .. }) => {
                         // TODO: Must be handled.
                         let integer = origin.parse().expect("invalid i64");
+                        scope.stack_pointer += 1;
                         Instruction::PushI64(integer)
                     }
                     Node::Ident(Token { origin, .. }) => {
                         // TODO: Must be handled.
                         let value = scope.bindings.get(origin).expect("undefined symbol");
+                        scope.stack_pointer += 1;
                         Instruction::Clone(value.index)
                     }
-                    Node::Add(_) => Instruction::Add,
-                    Node::Sub(_) => Instruction::Sub,
-                    Node::Mul(_) => Instruction::Mul,
-                    Node::Div(_) => Instruction::Div,
+                    Node::Add(_) => {
+                        scope.stack_pointer -= 1;
+                        Instruction::Add
+                    }
+                    Node::Sub(_) => {
+                        scope.stack_pointer -= 1;
+                        Instruction::Sub
+                    }
+                    Node::Mul(_) => {
+                        scope.stack_pointer -= 1;
+                        Instruction::Mul
+                    }
+                    Node::Div(_) => {
+                        scope.stack_pointer -= 1;
+                        Instruction::Div
+                    }
                     Node::Block(block) => {
                         let new_block = self.blocks.len();
-                        self.add_block(block);
+                        self.add_block(block, scope);
+                        println!("{scope:?}");
+                        scope.free();
+                        println!("{scope:?}");
+                        scope.stack_pointer += 1;
                         // TODO: Must be handled.
                         Instruction::Jump(new_block.try_into().expect("block limit reached"))
                     }
@@ -203,19 +224,27 @@ impl Program {
 impl<'source> From<Block<'source>> for Program {
     fn from(block: Block<'source>) -> Self {
         let mut this = Self::default();
-        this.add_block(block);
+        this.add_block(block, &mut Scope::default());
         this
     }
 }
 
+#[derive(Debug)]
 pub struct Value {
     index: StackPointer,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Scope<'source> {
     stack_pointer: StackPointer,
     bindings: HashMap<&'source str, Value>,
+}
+
+impl Scope<'_> {
+    fn free(&mut self) {
+        self.bindings
+            .retain(|_, binding| binding.index < self.stack_pointer);
+    }
 }
 
 #[cfg(test)]
@@ -240,7 +269,7 @@ mod tests {
         let program = Program::from(block);
         let actual = program.compile();
         let expected = program![
-            4u32,
+            4 as BlockId,
             // block 0
             instruction::PUSH_I64,
             1i64,
@@ -248,14 +277,14 @@ mod tests {
             2i64,
             instruction::ADD,
             instruction::CLONE,
-            0u32,
+            0 as StackPointer,
             instruction::PUSH_I64,
             3i64,
             instruction::MUL,
             instruction::CLONE,
-            0u32,
+            0 as StackPointer,
             instruction::CLONE,
-            1u32,
+            1 as StackPointer,
             instruction::SUB,
         ];
         assert_eq!(actual, expected);
@@ -263,22 +292,29 @@ mod tests {
 
     #[test]
     fn simple_blocks() {
-        let mut lexer = Lexer::from("{ 1 + 2 }").peekable();
+        let mut lexer = Lexer::from("let x = 2; 1 + { let y = 3; x * y }").peekable();
         let block = Block::from(&mut lexer);
         let program = Program::from(block);
         let actual = program.compile();
         let expected = program![
             8u32,
-            13u32,
+            32u32,
             // block 0
-            instruction::JUMP,
-            1 as BlockId,
-            // block 1
-            instruction::PUSH_I64,
-            1i64,
             instruction::PUSH_I64,
             2i64,
+            instruction::PUSH_I64,
+            1i64,
+            instruction::JUMP,
+            1 as BlockId,
             instruction::ADD,
+            // block 1
+            instruction::PUSH_I64,
+            3i64,
+            instruction::CLONE,
+            0 as StackPointer,
+            instruction::CLONE,
+            2 as StackPointer,
+            instruction::MUL,
         ];
         assert_eq!(actual, expected);
     }
