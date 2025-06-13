@@ -144,6 +144,15 @@ impl Program {
             let statement = self.add_statement(i, &mut scope);
             self.blocks[block_id].extend(statement);
         }
+        // Collapse the scope if any additional values are left the stack.
+        // This occurs when statements bind variables.
+        // We have to check this here because BlockResult::Function is about to move the scope,
+        // but the instruction is not emitted until after the result is pushed to the stack.
+        // This is fine because block results must push one and only one value.
+        let collapse_point = scope
+            .parent
+            .filter(|parent| parent.stack_pointer < scope.stack_pointer)
+            .map(|parent| parent.stack_pointer);
         match block.result {
             espy_ears::BlockResult::Expression(i) => {
                 let expression = self.add_expression(i, &mut scope);
@@ -161,6 +170,9 @@ impl Program {
                 let function = self.add_block(function.block, scope);
                 self.blocks[block_id].push(Instruction::PushFunction { captures, function })
             }
+        }
+        if let Some(collapse_point) = collapse_point {
+            self.blocks[block_id].push(Instruction::Collapse(collapse_point));
         }
         // TODO: Must be handled.
         block_id.try_into().expect("block limit reached")
@@ -368,6 +380,8 @@ mod tests {
             instruction::CLONE,
             2 as StackPointer,
             instruction::MUL,
+            instruction::COLLAPSE,
+            2 as StackPointer,
         ];
         assert_eq!(actual, expected);
     }
