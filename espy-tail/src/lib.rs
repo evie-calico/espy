@@ -15,11 +15,12 @@ pub mod instruction {
     pub const PUSH_I64: u8 = 0x11;
     pub const PUSH_FUNCTION: u8 = 0x12;
 
-    // Arithmatic ops: 0x30-0x4F
+    // Operations: 0x30-0x4F
     pub const ADD: u8 = 0x30;
     pub const SUB: u8 = 0x31;
     pub const MUL: u8 = 0x32;
     pub const DIV: u8 = 0x33;
+    pub const CALL: u8 = 0x34;
 }
 
 pub type StackPointer = u32;
@@ -37,6 +38,9 @@ pub enum Instruction {
     /// Using the current stack,
     /// jump to the given block id and execute it.
     Jump(BlockId),
+
+    PushUnit,
+    PushI64(i64),
     /// Pop the top `captures` values off the stack and onto a new stack,
     /// and then push a function containing the new stack and the proceeding block id to the current stack.
     PushFunction {
@@ -44,13 +48,15 @@ pub enum Instruction {
         function: BlockId,
     },
 
-    PushUnit,
-    PushI64(i64),
-
     Add,
     Sub,
     Mul,
     Div,
+    /// Pop the top value off the stack and push it to the function's stack.
+    /// The next value is the function to be called.
+    /// After pushing the value, jump to the function's block id.
+    /// It will return a single value which is placed to the stack in its place.
+    Call,
 }
 
 pub struct InstructionIter {
@@ -89,6 +95,7 @@ impl Iterator for InstructionIter {
             Instruction::Sub => decompose!(instruction::SUB,),
             Instruction::Mul => decompose!(instruction::MUL,),
             Instruction::Div => decompose!(instruction::DIV,),
+            Instruction::Call => decompose!(instruction::CALL,),
         };
         self.index += 1;
         Some(byte)
@@ -155,6 +162,7 @@ impl Program {
                 self.blocks[block_id].push(Instruction::PushFunction { captures, function })
             }
         }
+        // TODO: Must be handled.
         block_id.try_into().expect("block limit reached")
     }
 
@@ -220,10 +228,13 @@ impl Program {
                         scope.stack_pointer -= 1;
                         Instruction::Div
                     }
+                    Node::Call(_) => {
+                        scope.stack_pointer -= 1;
+                        Instruction::Call
+                    }
                     Node::Block(block) => {
                         let new_block = self.add_block(block, scope.child());
                         scope.stack_pointer += 1;
-                        // TODO: Must be handled.
                         Instruction::Jump(new_block)
                     }
                     _ => todo!(),
@@ -381,6 +392,38 @@ mod tests {
             0 as StackPointer,
             instruction::CLONE,
             1 as StackPointer,
+            instruction::MUL,
+        ];
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn function_usage() {
+        let mut lexer = Lexer::from("let f = {with x; x * x}; f 2").peekable();
+        let block = Block::from(&mut lexer);
+        let program = Program::from(block);
+        let actual = program.compile();
+        let expected = program![
+            12u32,
+            32u32,
+            41u32,
+            // block 0
+            instruction::JUMP,
+            1 as BlockId,
+            instruction::CLONE,
+            0 as StackPointer, // f
+            instruction::PUSH_I64,
+            2i64,
+            instruction::CALL,
+            // block 1 (f's captures)
+            instruction::PUSH_FUNCTION,
+            0 as StackPointer,
+            2 as BlockId,
+            // block 2 (f)
+            instruction::CLONE,
+            0 as StackPointer, // x
+            instruction::CLONE,
+            0 as StackPointer, // x
             instruction::MUL,
         ];
         assert_eq!(actual, expected);
