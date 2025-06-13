@@ -137,12 +137,22 @@ impl Program {
         output
     }
 
-    fn add_block<'source>(&mut self, block: Block<'source>, mut scope: Scope<'source>) -> BlockId {
-        let block_id = self.blocks.len();
+    fn create_block(&mut self) -> BlockId {
         self.blocks.push(Vec::new());
+        // TODO: Must be handled.
+        (self.blocks.len() - 1)
+            .try_into()
+            .expect("block limit reached")
+    }
+
+    fn add_block<'source>(
+        &mut self,
+        block_id: BlockId,
+        block: Block<'source>,
+        mut scope: Scope<'source>,
+    ) {
         for i in block.statements {
-            let statement = self.add_statement(i, &mut scope);
-            self.blocks[block_id].extend(statement);
+            self.add_statement(block_id, i, &mut scope);
         }
         // Collapse the scope if any additional values are left the stack.
         // This occurs when statements bind variables.
@@ -155,8 +165,7 @@ impl Program {
             .map(|parent| parent.stack_pointer);
         match block.result {
             espy_ears::BlockResult::Expression(i) => {
-                let expression = self.add_expression(i, &mut scope);
-                self.blocks[block_id].extend(expression);
+                self.add_expression(block_id, i, &mut scope);
             }
             espy_ears::BlockResult::Function(function) => {
                 let mut scope = scope.promote();
@@ -167,15 +176,17 @@ impl Program {
                     scope.stack_pointer += 1;
                     scope.insert(argument.origin);
                 }
-                let function = self.add_block(function.block, scope);
-                self.blocks[block_id].push(Instruction::PushFunction { captures, function })
+                let function_id = self.create_block();
+                self.add_block(function_id, function.block, scope);
+                self.blocks[block_id as usize].push(Instruction::PushFunction {
+                    captures,
+                    function: function_id,
+                })
             }
         }
         if let Some(collapse_point) = collapse_point {
-            self.blocks[block_id].push(Instruction::Collapse(collapse_point));
+            self.blocks[block_id as usize].push(Instruction::Collapse(collapse_point));
         }
-        // TODO: Must be handled.
-        block_id.try_into().expect("block limit reached")
     }
 
     /// # Panic
@@ -184,10 +195,11 @@ impl Program {
     /// Statements should be validated beforehand by checking the `diagnostics.errors` field.
     fn add_statement<'source>(
         &mut self,
+        block_id: BlockId,
         statement: Statement<'source>,
         scope: &mut Scope<'source>,
-    ) -> Vec<Instruction> {
-        let instructions = self.add_expression(statement.expression.unwrap_or_default(), scope);
+    ) {
+        self.add_expression(block_id, statement.expression.unwrap_or_default(), scope);
         match statement.action {
             Some(Action::Binding(Binding { ident_token, .. })) => {
                 scope.insert(ident_token.expect("invalid statement structure").origin);
@@ -195,22 +207,19 @@ impl Program {
             Some(Action::Break(_)) => todo!(),
             None => todo!(),
         }
-        instructions
     }
 
     fn add_expression<'source>(
         &mut self,
+        block_id: BlockId,
         expression: Expression<'source>,
         scope: &mut Scope<'source>,
-    ) -> Vec<Instruction> {
+    ) {
         if expression.contents.is_empty() {
-            return vec![Instruction::PushUnit];
-        }
-        expression
-            .contents
-            .into_iter()
-            .map(|node| {
-                match node {
+            self.blocks[block_id as usize].push(Instruction::PushUnit);
+        } else {
+            for node in expression.contents {
+                let instruction = match node {
                     Node::Unit => Instruction::PushUnit,
                     Node::Number(Token { origin, .. }) => {
                         // TODO: Must be handled.
@@ -245,21 +254,23 @@ impl Program {
                         Instruction::Call
                     }
                     Node::Block(block) => {
-                        let new_block = self.add_block(block, scope.child());
+                        self.add_block(block_id, block, scope.child());
                         scope.stack_pointer += 1;
-                        Instruction::Jump(new_block)
+                        continue;
                     }
                     _ => todo!(),
-                }
-            })
-            .collect()
+                };
+                self.blocks[block_id as usize].push(instruction);
+            }
+        }
     }
 }
 
 impl<'source> From<Block<'source>> for Program {
     fn from(block: Block<'source>) -> Self {
         let mut this = Self::default();
-        this.add_block(block, Scope::default());
+        let block_id = this.create_block();
+        this.add_block(block_id, block, Scope::default());
         this
     }
 }
@@ -362,17 +373,12 @@ mod tests {
         let program = Program::from(block);
         let actual = program.compile();
         let expected = program![
-            8u32,
-            32u32,
+            4u32,
             // block 0
             instruction::PUSH_I64,
             2i64,
             instruction::PUSH_I64,
             1i64,
-            instruction::JUMP,
-            1 as BlockId,
-            instruction::ADD,
-            // block 1
             instruction::PUSH_I64,
             3i64,
             instruction::CLONE,
@@ -382,6 +388,7 @@ mod tests {
             instruction::MUL,
             instruction::COLLAPSE,
             2 as StackPointer,
+            instruction::ADD,
         ];
         assert_eq!(actual, expected);
     }
@@ -418,22 +425,18 @@ mod tests {
         let program = Program::from(block);
         let actual = program.compile();
         let expected = program![
-            12u32,
+            8u32,
             32u32,
-            41u32,
             // block 0
-            instruction::JUMP,
+            instruction::PUSH_FUNCTION,
+            0 as StackPointer,
             1 as BlockId,
             instruction::CLONE,
             0 as StackPointer, // f
             instruction::PUSH_I64,
             2i64,
             instruction::CALL,
-            // block 1 (f's captures)
-            instruction::PUSH_FUNCTION,
-            0 as StackPointer,
-            2 as BlockId,
-            // block 2 (f)
+            // block 1 (f)
             instruction::CLONE,
             0 as StackPointer, // x
             instruction::CLONE,
