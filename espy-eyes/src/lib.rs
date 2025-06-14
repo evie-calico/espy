@@ -39,12 +39,14 @@ pub enum Lexigram {
     Discard,
     Else,
     End,
+    False,
     For,
     If,
     In,
     Let,
     Or,
     Then,
+    True,
     With,
 
     // Symbols
@@ -172,13 +174,13 @@ impl<'source> Iterator for Lexer<'source> {
                 let ident = &root[0..length];
                 match ident {
                     "any" | "array" | "as" | "async" | "await" | "case" | "char" | "class"
-                    | "const" | "continue" | "do" | "dyn" | "enum" | "false" | "fixed"
-                    | "float" | "fn" | "impl" | "import" | "include" | "integer" | "iterator"
-                    | "loop" | "macro" | "match" | "mod" | "move" | "mut" | "never" | "priv"
-                    | "pub" | "ref" | "require" | "return" | "safe" | "self" | "Self"
-                    | "static" | "string" | "struct" | "super" | "switch" | "table" | "trait"
-                    | "true" | "try" | "tuple" | "type" | "union" | "unit" | "unsafe"
-                    | "unsigned" | "use" | "where" | "while" | "yield" => {
+                    | "const" | "continue" | "do" | "dyn" | "enum" | "fixed" | "float" | "fn"
+                    | "impl" | "import" | "include" | "integer" | "iterator" | "loop" | "macro"
+                    | "match" | "mod" | "move" | "mut" | "never" | "priv" | "pub" | "ref"
+                    | "require" | "return" | "safe" | "self" | "Self" | "static" | "string"
+                    | "struct" | "super" | "switch" | "table" | "trait" | "try" | "tuple"
+                    | "type" | "union" | "unit" | "unsafe" | "unsigned" | "use" | "where"
+                    | "while" | "yield" => {
                         return Some(Err(Error {
                             origin: ident,
                             kind: ErrorKind::ReservedSymbol,
@@ -188,11 +190,13 @@ impl<'source> Iterator for Lexer<'source> {
                     "break" => Lexigram::Break,
                     "else" => Lexigram::Else,
                     "end" => Lexigram::End,
+                    "false" => Lexigram::False,
                     "for" => Lexigram::For,
                     "if" => Lexigram::If,
                     "in" => Lexigram::In,
                     "let" => Lexigram::Let,
                     "or" => Lexigram::Or,
+                    "true" => Lexigram::True,
                     "then" => Lexigram::Then,
                     "with" => Lexigram::With,
                     "_" => Lexigram::Discard,

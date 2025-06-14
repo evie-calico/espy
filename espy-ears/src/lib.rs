@@ -69,6 +69,7 @@ pub enum Node<'source> {
     Unit,
     Number(Token<'source>),
     Ident(Token<'source>),
+    Bool(bool, Option<Token<'source>>),
     Block(Block<'source>),
     If(If<'source>),
     For(For<'source>),
@@ -311,6 +312,24 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
                     contents.push(Node::Ident(ident));
+                }
+                Some(Token {
+                    lexigram: Lexigram::True,
+                    ..
+                }) => {
+                    if !unary_position {
+                        push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
+                    }
+                    contents.push(Node::Bool(true, t));
+                }
+                Some(Token {
+                    lexigram: Lexigram::False,
+                    ..
+                }) => {
+                    if !unary_position {
+                        push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
+                    }
+                    contents.push(Node::Bool(false, t));
                 }
                 lexi!(OpenParen) => {
                     if !unary_position {
