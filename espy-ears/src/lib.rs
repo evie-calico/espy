@@ -644,6 +644,15 @@ pub enum BlockResult<'source> {
     Function(Box<Function<'source>>),
 }
 
+impl BlockResult<'_> {
+    pub fn is_empty(&self) -> bool {
+        match self {
+            BlockResult::Expression(expression) => expression.contents.is_empty(),
+            BlockResult::Function(_) => false,
+        }
+    }
+}
+
 impl Default for BlockResult<'_> {
     fn default() -> Self {
         Self::Expression(Expression::default())
@@ -667,6 +676,12 @@ pub struct Block<'source> {
     pub statements: Vec<Statement<'source>>,
     pub result: BlockResult<'source>,
     pub diagnostics: Diagnostics<'source>,
+}
+
+impl Block<'_> {
+    pub fn is_empty(&self) -> bool {
+        self.statements.is_empty() && self.result.is_empty()
+    }
 }
 
 impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {

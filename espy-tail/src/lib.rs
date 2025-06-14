@@ -1,4 +1,4 @@
-use espy_ears::{Action, Binding, Block, Expression, Node, Statement};
+use espy_ears::{Action, Binding, Block, Expression, If, Node, Statement};
 use espy_eyes::Token;
 use std::collections::HashMap;
 use std::iter;
@@ -9,11 +9,14 @@ pub mod instruction {
     pub const WRITE: u8 = 0x01;
     pub const COLLAPSE: u8 = 0x02;
     pub const JUMP: u8 = 0x03;
+    pub const IF: u8 = 0x04;
 
     // Push ops: 0x10-0x2F
     pub const PUSH_UNIT: u8 = 0x10;
     pub const PUSH_I64: u8 = 0x11;
     pub const PUSH_FUNCTION: u8 = 0x12;
+    pub const PUSH_TRUE: u8 = 0x13;
+    pub const PUSH_FALSE: u8 = 0x14;
 
     // Operations: 0x30-0x4F
     pub const ADD: u8 = 0x30;
@@ -23,9 +26,14 @@ pub mod instruction {
     pub const CALL: u8 = 0x34;
 }
 
-pub type StackPointer = u32;
-pub type BlockId = u32;
+pub type ArchWidth = u32;
+pub type ProgramCounter = ArchWidth;
+pub type StackPointer = ArchWidth;
+pub type BlockId = ArchWidth;
 
+// These are practically used as functions which return iterators over bytes at this point.
+// There isn't a good reason for this other than that they used to be stored for a little while,
+// so if true functions make more sense for any reason this type can be removed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Instruction {
     /// Copy a value from the given position and put it on the top of the stack.
@@ -35,9 +43,11 @@ pub enum Instruction {
     /// Pop a value off the stack and write it to the given position.
     /// Then, pop each value above this position and discard it.
     Collapse(StackPointer),
-    /// Using the current stack,
-    /// jump to the given block id and execute it.
-    Jump(BlockId),
+    /// Set the program counter.
+    Jump(ProgramCounter),
+    /// Pop a boolean value off the stack.
+    /// If it is *false*, set the program counter.
+    If(ProgramCounter),
 
     PushUnit,
     PushI64(i64),
@@ -47,6 +57,8 @@ pub enum Instruction {
         captures: StackPointer,
         function: BlockId,
     },
+    PushTrue,
+    PushFalse,
 
     Add,
     Sub,
@@ -83,13 +95,16 @@ impl Iterator for InstructionIter {
             Instruction::Clone(from) => decompose!(instruction::CLONE, from as 1..=4),
             Instruction::Write(to) => decompose!(instruction::WRITE, to as 1..=4),
             Instruction::Collapse(to) => decompose!(instruction::COLLAPSE, to as 1..=4),
-            Instruction::Jump(block_id) => decompose!(instruction::JUMP, block_id as 1..=4),
+            Instruction::Jump(pc) => decompose!(instruction::JUMP, pc as 1..=4),
+            Instruction::If(pc) => decompose!(instruction::IF, pc as 1..=4),
 
             Instruction::PushUnit => decompose!(instruction::PUSH_UNIT,),
             Instruction::PushI64(literal) => decompose!(instruction::PUSH_I64, literal as 1..=8),
             Instruction::PushFunction { captures, function } => {
                 decompose!(instruction::PUSH_FUNCTION, captures as 1..=4, function as 5..=8)
             }
+            Instruction::PushTrue => decompose!(instruction::PUSH_TRUE,),
+            Instruction::PushFalse => decompose!(instruction::PUSH_FALSE,),
 
             Instruction::Add => decompose!(instruction::ADD,),
             Instruction::Sub => decompose!(instruction::SUB,),
@@ -115,7 +130,7 @@ impl IntoIterator for Instruction {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Program {
-    blocks: Vec<Vec<Instruction>>,
+    blocks: Vec<Vec<u8>>,
 }
 
 impl Program {
@@ -132,7 +147,7 @@ impl Program {
             let offset = output.len();
             output[(block_id * 4)..(block_id * 4 + 4)]
                 .copy_from_slice(&(offset as u32).to_le_bytes());
-            output.extend(block.into_iter().flatten());
+            output.extend(block);
         }
         output
     }
@@ -178,14 +193,14 @@ impl Program {
                 }
                 let function_id = self.create_block();
                 self.add_block(function_id, function.block, scope);
-                self.blocks[block_id as usize].push(Instruction::PushFunction {
+                self.blocks[block_id as usize].extend(Instruction::PushFunction {
                     captures,
                     function: function_id,
                 })
             }
         }
         if let Some(collapse_point) = collapse_point {
-            self.blocks[block_id as usize].push(Instruction::Collapse(collapse_point));
+            self.blocks[block_id as usize].extend(Instruction::Collapse(collapse_point));
         }
     }
 
@@ -215,52 +230,115 @@ impl Program {
         expression: Expression<'source>,
         scope: &mut Scope<'source>,
     ) {
+        // Shortcut for re-indexing self.blocks.
+        // This is necessary because add_block etc take &mut self.
+        macro_rules! block {
+            () => {
+                self.blocks[block_id as usize]
+            };
+        }
         if expression.contents.is_empty() {
-            self.blocks[block_id as usize].push(Instruction::PushUnit);
+            block!().extend(Instruction::PushUnit);
         } else {
             for node in expression.contents {
-                let instruction = match node {
-                    Node::Unit => Instruction::PushUnit,
+                match node {
+                    Node::Unit => block!().extend(Instruction::PushUnit),
                     Node::Number(Token { origin, .. }) => {
                         // TODO: Must be handled.
                         let integer = origin.parse().expect("invalid i64");
                         scope.stack_pointer += 1;
-                        Instruction::PushI64(integer)
+                        block!().extend(Instruction::PushI64(integer))
                     }
                     Node::Ident(Token { origin, .. }) => {
                         // TODO: Must be handled.
                         let value = scope.get(origin).expect("undefined symbol");
                         scope.stack_pointer += 1;
-                        Instruction::Clone(value.index)
+                        block!().extend(Instruction::Clone(value.index))
                     }
                     Node::Add(_) => {
                         scope.stack_pointer -= 1;
-                        Instruction::Add
+                        block!().extend(Instruction::Add)
                     }
                     Node::Sub(_) => {
                         scope.stack_pointer -= 1;
-                        Instruction::Sub
+                        block!().extend(Instruction::Sub)
                     }
                     Node::Mul(_) => {
                         scope.stack_pointer -= 1;
-                        Instruction::Mul
+                        block!().extend(Instruction::Mul)
                     }
                     Node::Div(_) => {
                         scope.stack_pointer -= 1;
-                        Instruction::Div
+                        block!().extend(Instruction::Div)
                     }
                     Node::Call(_) => {
                         scope.stack_pointer -= 1;
-                        Instruction::Call
+                        block!().extend(Instruction::Call)
                     }
                     Node::Block(block) => {
                         self.add_block(block_id, block, scope.child());
                         scope.stack_pointer += 1;
-                        continue;
                     }
-                    _ => todo!(),
+                    Node::Bool(true, _) => {
+                        scope.stack_pointer += 1;
+                        block!().extend(Instruction::PushTrue)
+                    }
+                    Node::Bool(false, _) => {
+                        scope.stack_pointer += 1;
+                        block!().extend(Instruction::PushFalse)
+                    }
+                    Node::If(If {
+                        condition,
+                        first,
+                        second,
+                        ..
+                    }) => {
+                        // For retroactively filling in the jump instructions.
+                        fn fill(block: &mut [u8], at: usize) {
+                            let pc = block.len() as ProgramCounter;
+                            block[at..(at + size_of::<ProgramCounter>())]
+                                .copy_from_slice(&pc.to_le_bytes());
+                        }
+
+                        self.add_expression(block_id, condition, scope);
+                        block!().extend(Instruction::If(0));
+                        let if_destination = block!().len() - size_of::<ProgramCounter>();
+                        self.add_block(block_id, first, scope.child());
+
+                        // the first block always returns a value (though it may be implicit unit)
+                        // so there always needs to be an else block with some value as well,
+                        // but an empty else block will merely return unit.
+
+                        // This jump is the last instruction of the first block--
+                        // it skips over else.
+                        block!().extend(Instruction::Jump(0));
+                        let jump_destination = block!().len() - size_of::<ProgramCounter>();
+
+                        // Now that the first block is complete,
+                        // we can fill in the conditional jump's destination.
+                        fill(&mut block!(), if_destination);
+                        self.add_block(block_id, second, scope.child());
+
+                        fill(&mut block!(), jump_destination);
+                    }
+                    Node::For(_) => todo!(),
+                    Node::Pipe(_) => todo!(),
+                    Node::Positive(_) => todo!(),
+                    Node::Negative(_) => todo!(),
+                    Node::BitwiseAnd(_) => todo!(),
+                    Node::BitwiseOr(_) => todo!(),
+                    Node::BitwiseXor(_) => todo!(),
+                    Node::EqualTo(_) => todo!(),
+                    Node::NotEqualTo(_) => todo!(),
+                    Node::Greater(_) => todo!(),
+                    Node::GreaterEqual(_) => todo!(),
+                    Node::Lesser(_) => todo!(),
+                    Node::LesserEqual(_) => todo!(),
+                    Node::LogicalAnd(_) => todo!(),
+                    Node::LogicalOr(_) => todo!(),
+                    Node::Name(_) => todo!(),
+                    Node::Tuple(_) => todo!(),
                 };
-                self.blocks[block_id as usize].push(instruction);
             }
         }
     }
@@ -442,6 +520,28 @@ mod tests {
             instruction::CLONE,
             0 as StackPointer, // x
             instruction::MUL,
+        ];
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn if_expression() {
+        let mut lexer = Lexer::from("if true then 1 else then 2 end").peekable();
+        let block = Block::from(&mut lexer);
+        let program = Program::from(block);
+        let actual = program.compile();
+        let expected = program![
+            4u32,
+            // block 0
+            instruction::PUSH_TRUE,
+            instruction::IF,
+            20 as ProgramCounter,
+            instruction::PUSH_I64,
+            1i64,
+            instruction::JUMP,
+            29 as ProgramCounter,
+            instruction::PUSH_I64,
+            2i64,
         ];
         assert_eq!(actual, expected);
     }
