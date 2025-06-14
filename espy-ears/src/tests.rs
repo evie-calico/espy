@@ -14,6 +14,7 @@ token!(END: End = "end");
 token!(FOR: For = "for");
 token!(IF: If = "if");
 token!(IN: In = "in");
+token!(STRUCT: Struct = "struct");
 token!(THEN: Then = "then");
 token!(WITH: With = "with");
 token!(SEMICOLON: Semicolon = ";");
@@ -539,7 +540,7 @@ fn function() {
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
         }],
-        result: BlockResult::Function(Box::new(Function {
+        result: Function {
             with_token: Some(WITH),
             arguments: vec![ident("x")],
             semicolon_token: Some(SEMICOLON),
@@ -548,7 +549,63 @@ fn function() {
                 ..Default::default()
             },
             diagnostics: Diagnostics::default(),
-        })),
+        }
+        .into(),
+        ..Default::default()
+    };
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn structure() {
+    let source = "let Coord = struct x: u32, y: u32 then let new = {with x, y; x, y}; end;";
+    let actual = Block::from(&mut Lexer::from(source).peekable());
+    let expected = Block {
+        statements: vec![Statement {
+            action: binding("Coord"),
+            expression: expression([Node::Struct(Struct {
+                struct_token: Some(STRUCT),
+                inner: expression([
+                    ident_node("x"),
+                    ident_node("u32"),
+                    NAME,
+                    ident_node("y"),
+                    ident_node("u32"),
+                    NAME,
+                    TUPLE,
+                ]),
+                then_token: Some(THEN),
+                block: Block {
+                    statements: vec![Statement {
+                        action: binding("new"),
+                        expression: expression([Node::Block(Block {
+                            result: Function {
+                                with_token: Some(WITH),
+                                arguments: vec![ident("x"), ident("y")],
+                                semicolon_token: Some(SEMICOLON),
+                                block: Block {
+                                    result: expression([ident_node("x"), ident_node("y"), TUPLE])
+                                        .into(),
+                                    ..Default::default()
+                                },
+                                diagnostics: Diagnostics::default(),
+                            }
+                            .into(),
+                            ..Default::default()
+                        })])
+                        .into(),
+                        semicolon_token: Some(SEMICOLON),
+                        diagnostics: Diagnostics::default(),
+                    }],
+                    ..Default::default()
+                },
+                end_token: Some(END),
+                diagnostics: Diagnostics::default(),
+            })])
+            .into(),
+            semicolon_token: Some(SEMICOLON),
+            diagnostics: Diagnostics::default(),
+        }],
         ..Default::default()
     };
     assert_eq!(actual, expected);

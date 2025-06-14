@@ -46,20 +46,37 @@ tile_at_coord tuple
 // This flexibility is useful, but sometimes *inflexibility* is even more useful.
 // For this, use the struct:
 
-let Coord = struct ( x = u32, y = u32 ) {
+let Coord = struct x: u32, y: u32 then
 	// Within this block the struct defines its interface,
 	// returning a named tuple of the functions it exposes.
 	// These functions are the only functions able to access its inner fields,
-	// via the `self` parameter or `Self` type.
+	// via the `self` parameter or return-type coercion.
 
-	// The `Self` seen below is put in a block to make clear that it is the function's return type.
-	// The tuple `( x, y )` is coerced into the `Self` type by the function.
-	// You could, however, write this function as `fn x, y Self x, y`
-	new = |x, y| -> Self ( x, y ),
-	tile = |self| map[y + x * width],
-	// impl <op> can be used to implement certain special behaviors, like making Coord act like a function in this case.
-	impl fn = |self| self.tile,
-}
+	// bindings in this scope are exposed as static members of the struct's type.
+	let new = {
+		with x, y;
+		x, y
+	};
+
+	// the return value of this block is exposed as members of instances of this struct.
+	// this must be a tuple of functions.
+	// function members always recieve the struct instance as their first parameter,
+	// which is conventionally named "self".
+	tile: {
+		with self;
+		map[self.y + self.x * width]
+	}
+end;
+
+// For now, operator overloads are the only available "traits".
+// General traits are trickier because you need some way to specify which traits' methods are in-scope
+// (`use` keywork, (x as Trait).method() syntax (gross)).
+impl fn for Coord {
+	call = {
+		with self;
+		self.tile
+	}
+};
 
 // `Coord` names only the type of the structure, similar to `u32` and `string`.
 // To instantiate it, call the provided `new` function.

@@ -73,6 +73,7 @@ pub enum Node<'source> {
     Block(Block<'source>),
     If(If<'source>),
     For(For<'source>),
+    Struct(Struct<'source>),
 
     Pipe(Option<Token<'source>>),
     Call(Option<Token<'source>>),
@@ -404,6 +405,9 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 lexi!(For) => {
                     contents.push(For::from(&mut *lexer).into());
                 }
+                lexi!(Struct) => {
+                    contents.push(Struct::from(&mut *lexer).into());
+                }
                 _ if !unary_position => {
                     flush(&mut contents, &mut stack);
                     if !stack.is_empty() {
@@ -592,6 +596,45 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for For<'source> {
             first,
             else_token,
             second,
+            end_token,
+            diagnostics,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct Struct<'source> {
+    struct_token: Option<Token<'source>>,
+    inner: Expression<'source>,
+    then_token: Option<Token<'source>>,
+    block: Block<'source>,
+    end_token: Option<Token<'source>>,
+    diagnostics: Diagnostics<'source>,
+}
+
+impl<'source> From<Struct<'source>> for Node<'source> {
+    fn from(struct_block: Struct<'source>) -> Self {
+        Self::Struct(struct_block)
+    }
+}
+
+impl<'source> From<&mut Peekable<Lexer<'source>>> for Struct<'source> {
+    fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
+        let struct_token = lexer.next().transpose().ok().flatten();
+        let mut diagnostics = Diagnostics::default();
+
+        let inner = Expression::from(&mut *lexer);
+        let then_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::Then]);
+        if then_token.is_some() {
+            lexer.next();
+        }
+        let block = Block::from(&mut *lexer);
+        let end_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
+        Self {
+            struct_token,
+            inner,
+            then_token,
+            block,
             end_token,
             diagnostics,
         }
@@ -827,25 +870,31 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
                     let mut st_diagnostics = Diagnostics::default();
                     let mut arguments = Vec::new();
                     let semicolon_token = loop {
-                        match st_diagnostics.wrap(lexer.peek().copied()) {
-                            Some(
-                                arg @ Token {
-                                    lexigram: Lexigram::Ident,
+                        if let Some(arg) =
+                            st_diagnostics.expect(lexer.peek().copied(), &[Lexigram::Ident])
+                        {
+                            lexer.next();
+                            arguments.push(arg);
+                            match st_diagnostics.wrap(lexer.peek().copied()) {
+                                Some(Token {
+                                    lexigram: Lexigram::Comma,
                                     ..
-                                },
-                            ) => {
-                                lexer.next();
-                                arguments.push(arg);
-                            }
-                            semicolon_token @ Some(Token {
-                                lexigram: Lexigram::Semicolon,
-                                ..
-                            }) => {
-                                lexer.next();
-                                break semicolon_token;
-                            }
-                            _ => {
-                                break None;
+                                }) => {
+                                    lexer.next();
+                                }
+                                semicolon_token @ Some(Token {
+                                    lexigram: Lexigram::Semicolon,
+                                    ..
+                                }) => {
+                                    lexer.next();
+                                    break semicolon_token;
+                                }
+                                _ => {
+                                    break st_diagnostics.expect(
+                                        lexer.peek().copied(),
+                                        &[Lexigram::Comma, Lexigram::Semicolon],
+                                    );
+                                }
                             }
                         }
                     };

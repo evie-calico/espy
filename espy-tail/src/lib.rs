@@ -338,6 +338,7 @@ impl Program {
                     Node::LogicalOr(_) => todo!(),
                     Node::Name(_) => todo!(),
                     Node::Tuple(_) => todo!(),
+                    Node::Struct(_) => todo!(),
                 };
             }
         }
