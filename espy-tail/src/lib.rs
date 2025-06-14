@@ -7,9 +7,10 @@ pub mod instruction {
     // Stack primatives: 0x00-0x0F
     pub const CLONE: u8 = 0x00;
     pub const WRITE: u8 = 0x01;
-    pub const COLLAPSE: u8 = 0x02;
-    pub const JUMP: u8 = 0x03;
-    pub const IF: u8 = 0x04;
+    pub const POP: u8 = 0x02;
+    pub const COLLAPSE: u8 = 0x03;
+    pub const JUMP: u8 = 0x04;
+    pub const IF: u8 = 0x05;
 
     // Push ops: 0x10-0x2F
     pub const PUSH_UNIT: u8 = 0x10;
@@ -40,6 +41,8 @@ pub enum Instruction {
     Clone(StackPointer),
     /// Pop a value off the stack and write it to the given position.
     Write(StackPointer),
+    /// Pop a value off the stack.
+    Pop,
     /// Pop a value off the stack and write it to the given position.
     /// Then, pop each value above this position and discard it.
     Collapse(StackPointer),
@@ -94,6 +97,7 @@ impl Iterator for InstructionIter {
         let byte = match self.instruction {
             Instruction::Clone(from) => decompose!(instruction::CLONE, from as 1..=4),
             Instruction::Write(to) => decompose!(instruction::WRITE, to as 1..=4),
+            Instruction::Pop => decompose!(instruction::POP,),
             Instruction::Collapse(to) => decompose!(instruction::COLLAPSE, to as 1..=4),
             Instruction::Jump(pc) => decompose!(instruction::JUMP, pc as 1..=4),
             Instruction::If(pc) => decompose!(instruction::IF, pc as 1..=4),
@@ -220,7 +224,7 @@ impl Program {
                 scope.insert(ident_token.expect("invalid statement structure").origin);
             }
             Some(Action::Break(_)) => todo!(),
-            None => todo!(),
+            None => self.blocks[block_id as usize].extend(Instruction::Pop),
         }
     }
 
