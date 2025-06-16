@@ -138,6 +138,8 @@ struct Program {
 }
 
 impl Program {
+    // Remove this when defining the public API.
+    #[allow(dead_code, reason = "currently only used for tests")]
     fn compile(self) -> Vec<u8> {
         // Reserve space for block offsets.
         // Blocks are referred to by index so this is the only backfilling required.
@@ -343,6 +345,7 @@ impl Program {
                     Node::Name(_) => todo!(),
                     Node::Tuple(_) => todo!(),
                     Node::Struct(_) => todo!(),
+                    Node::Enum(_) => todo!(),
                 };
             }
         }

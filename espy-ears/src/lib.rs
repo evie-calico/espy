@@ -74,6 +74,7 @@ pub enum Node<'source> {
     If(If<'source>),
     For(For<'source>),
     Struct(Struct<'source>),
+    Enum(Enum<'source>),
 
     Pipe(Option<Token<'source>>),
     Call(Option<Token<'source>>),
@@ -633,6 +634,44 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Struct<'source> {
         Self {
             struct_token,
             inner,
+            then_token,
+            block,
+            end_token,
+            diagnostics,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct Enum<'source> {
+    enum_token: Option<Token<'source>>,
+    then_token: Option<Token<'source>>,
+    block: Block<'source>,
+    end_token: Option<Token<'source>>,
+    diagnostics: Diagnostics<'source>,
+}
+
+impl<'source> From<Enum<'source>> for Node<'source> {
+    fn from(struct_block: Enum<'source>) -> Self {
+        Self::Enum(struct_block)
+    }
+}
+
+impl<'source> From<&mut Peekable<Lexer<'source>>> for Enum<'source> {
+    fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
+        let enum_token = lexer.next().transpose().ok().flatten();
+        let mut diagnostics = Diagnostics::default();
+        let then_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::Then]);
+        if then_token.is_some() {
+            lexer.next();
+        }
+        let block = Block::from(&mut *lexer);
+        let end_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
+        if end_token.is_some() {
+            lexer.next();
+        }
+        Self {
+            enum_token,
             then_token,
             block,
             end_token,
