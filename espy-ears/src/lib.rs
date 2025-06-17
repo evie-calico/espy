@@ -775,20 +775,13 @@ pub struct Binding<'source> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Action<'source> {
-    Binding(Binding<'source>),
-    Break(Option<Token<'source>>),
+    Evaluate(Option<Binding<'source>>, Option<Expression<'source>>),
+    Break(Token<'source>, Option<Expression<'source>>),
 }
 
-impl<'source> From<Binding<'source>> for Action<'source> {
-    fn from(binding: Binding<'source>) -> Self {
-        Action::Binding(binding)
-    }
-}
-
-#[derive(Debug, Default, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Statement<'source> {
-    pub action: Option<Action<'source>>,
-    pub expression: Option<Expression<'source>>,
+    pub action: Action<'source>,
     pub semicolon_token: Option<Token<'source>>,
     pub diagnostics: Diagnostics<'source>,
 }
@@ -856,17 +849,18 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
         let mut statements = Vec::new();
         loop {
             let statement = match diagnostics.wrap(lexer.peek().copied()) {
-                break_token @ Some(Token {
-                    lexigram: Lexigram::Break,
-                    ..
-                }) => {
+                Some(
+                    break_token @ Token {
+                        lexigram: Lexigram::Break,
+                        ..
+                    },
+                ) => {
                     lexer.next();
                     let expression = Expression::from(&mut *lexer);
                     let mut diagnostics = Diagnostics::default();
                     let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
                     Statement {
-                        action: Some(Action::Break(break_token)),
-                        expression: Some(expression),
+                        action: Action::Break(break_token, Some(expression)),
                         semicolon_token,
                         diagnostics,
                     }
@@ -894,17 +888,16 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
                                 let semicolon_token =
                                     st_diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
                                 Statement {
-                                    action: Some(
-                                        Binding {
+                                    action: Action::Evaluate(
+                                        Some(Binding {
                                             let_token,
                                             ident_token,
                                             colon_token: None,
                                             ty_token: None,
                                             equals_token,
-                                        }
-                                        .into(),
+                                        }),
+                                        Some(expression),
                                     ),
-                                    expression: Some(expression),
                                     semicolon_token,
                                     diagnostics: st_diagnostics,
                                 }
@@ -915,17 +908,16 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
                             }) => {
                                 lexer.next();
                                 Statement {
-                                    action: Some(
-                                        Binding {
+                                    action: Action::Evaluate(
+                                        Some(Binding {
                                             let_token,
                                             ident_token,
                                             colon_token: None,
                                             ty_token: None,
                                             equals_token: None,
-                                        }
-                                        .into(),
+                                        }),
+                                        None,
                                     ),
-                                    expression: None,
                                     semicolon_token,
                                     diagnostics: st_diagnostics,
                                 }
@@ -936,17 +928,16 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
                                     &[Lexigram::SingleEqual, Lexigram::Semicolon],
                                 );
                                 Statement {
-                                    action: Some(
-                                        Binding {
+                                    action: Action::Evaluate(
+                                        Some(Binding {
                                             let_token,
                                             ident_token,
                                             colon_token: None,
                                             ty_token: None,
                                             equals_token: None,
-                                        }
-                                        .into(),
+                                        }),
+                                        None,
                                     ),
-                                    expression: None,
                                     semicolon_token: None,
                                     diagnostics: st_diagnostics,
                                 }
@@ -962,17 +953,16 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
                                 actual: token,
                             }));
                         Statement {
-                            action: Some(
-                                Binding {
+                            action: Action::Evaluate(
+                                Some(Binding {
                                     let_token,
                                     ident_token: None,
                                     colon_token: None,
                                     ty_token: None,
                                     equals_token: None,
-                                }
-                                .into(),
+                                }),
+                                None,
                             ),
-                            expression: None,
                             diagnostics: st_diagnostics,
                             semicolon_token: None,
                         }
@@ -1041,8 +1031,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
                     {
                         lexer.next();
                         Statement {
-                            action: None,
-                            expression: Some(expression),
+                            action: Action::Evaluate(None, Some(expression)),
                             diagnostics: st_diagnostics,
                             semicolon_token,
                         }

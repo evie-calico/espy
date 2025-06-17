@@ -9,6 +9,7 @@ macro_rules! token {
     };
 }
 
+token!(BREAK: Break = "break");
 token!(ELSE: Else = "else");
 token!(END: End = "end");
 token!(FOR: For = "for");
@@ -19,7 +20,6 @@ token!(MATCH: Match = "match");
 token!(STRUCT: Struct = "struct");
 token!(THEN: Then = "then");
 token!(WITH: With = "with");
-token!(COMMA: Comma = ",");
 token!(DOUBLE_ARROW: DoubleArrow = "=>");
 token!(SEMICOLON: Semicolon = ";");
 token!(SINGLE_EQUAL: SingleEqual = "=");
@@ -65,14 +65,24 @@ node!(LESSER_EQUAL: LesserEqual = "<=" as LesserEqual);
 node!(TUPLE: Tuple = "," as Comma);
 node!(NAME: Name = ":" as Colon);
 
-fn binding<'source>(origin: &'source str) -> Option<Action<'source>> {
-    Some(Action::Binding(Binding {
-        let_token: Some(LET),
-        ident_token: Some(ident(origin)),
-        colon_token: None,
-        ty_token: None,
-        equals_token: Some(SINGLE_EQUAL),
-    }))
+fn binding<'source>(
+    origin: &'source str,
+    contents: impl Into<Vec<Node<'source>>>,
+) -> Action<'source> {
+    Action::Evaluate(
+        Some(Binding {
+            let_token: Some(LET),
+            ident_token: Some(ident(origin)),
+            colon_token: None,
+            ty_token: None,
+            equals_token: Some(SINGLE_EQUAL),
+        }),
+        Some(expression(contents)),
+    )
+}
+
+fn evaluate<'source>(contents: impl Into<Vec<Node<'source>>>) -> Action<'source> {
+    Action::Evaluate(None, Some(expression(contents)))
 }
 
 fn expression<'source>(contents: impl Into<Vec<Node<'source>>>) -> Expression<'source> {
@@ -88,8 +98,7 @@ fn assignment() {
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
         statements: vec![Statement {
-            action: binding("x"),
-            expression: expression([number_node("1")]).into(),
+            action: binding("x", [number_node("1")]),
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
         }],
@@ -142,19 +151,19 @@ fn block_expression() {
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
         statements: vec![Statement {
-            action: binding("x"),
-            expression: expression([Node::Block(Block {
-                statements: [Statement {
-                    action: binding("y"),
-                    expression: expression([number_node("2")]).into(),
-                    semicolon_token: Some(SEMICOLON),
-                    diagnostics: Diagnostics::default(),
-                }]
-                .into(),
-                result: expression([ident_node("y"), number_node("3"), MUL]).into(),
-                ..Default::default()
-            })])
-            .into(),
+            action: binding(
+                "x",
+                [Node::Block(Block {
+                    statements: [Statement {
+                        action: binding("y", [number_node("2")]),
+                        semicolon_token: Some(SEMICOLON),
+                        diagnostics: Diagnostics::default(),
+                    }]
+                    .into(),
+                    result: expression([ident_node("y"), number_node("3"), MUL]).into(),
+                    ..Default::default()
+                })],
+            ),
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
         }],
@@ -169,26 +178,27 @@ fn if_expression() {
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
         statements: vec![Statement {
-            action: binding("x"),
-            expression: expression([If {
-                if_token: Some(IF),
-                condition: expression([ident_node("condition")]),
-                then_token: Some(THEN),
-                first: Block {
-                    result: expression([number_node("1")]).into(),
-                    ..Default::default()
-                },
-                else_token: Some(ELSE),
-                else_kind: Some(THEN),
-                second: Block {
-                    result: expression([number_node("2")]).into(),
-                    ..Default::default()
-                },
-                end_token: Some(END),
-                diagnostics: Diagnostics::default(),
-            }
-            .into()])
-            .into(),
+            action: binding(
+                "x",
+                [If {
+                    if_token: Some(IF),
+                    condition: expression([ident_node("condition")]),
+                    then_token: Some(THEN),
+                    first: Block {
+                        result: expression([number_node("1")]).into(),
+                        ..Default::default()
+                    },
+                    else_token: Some(ELSE),
+                    else_kind: Some(THEN),
+                    second: Block {
+                        result: expression([number_node("2")]).into(),
+                        ..Default::default()
+                    },
+                    end_token: Some(END),
+                    diagnostics: Diagnostics::default(),
+                }
+                .into()],
+            ),
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
         }],
@@ -203,44 +213,45 @@ fn if_else() {
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
         statements: vec![Statement {
-            action: binding("x"),
-            expression: expression([If {
-                if_token: Some(IF),
-                condition: expression([ident_node("condition")]),
-                then_token: Some(THEN),
-                first: Block {
-                    result: expression([number_node("1")]).into(),
-                    ..Default::default()
-                },
-                else_token: Some(ELSE),
-                else_kind: Some(IF),
-                second: Block {
-                    result: expression([If {
-                        if_token: Some(IF),
-                        condition: expression([ident_node("other")]),
-                        then_token: Some(THEN),
-                        first: Block {
-                            result: expression([number_node("2")]).into(),
-                            ..Default::default()
-                        },
-                        else_token: Some(ELSE),
-                        else_kind: Some(THEN),
-                        second: Block {
-                            result: expression([number_node("3")]).into(),
-                            ..Default::default()
-                        },
-                        end_token: Some(END),
-                        diagnostics: Diagnostics::default(),
-                    }
-                    .into()])
-                    .into(),
-                    ..Default::default()
-                },
-                end_token: Some(END),
-                diagnostics: Diagnostics::default(),
-            }
-            .into()])
-            .into(),
+            action: binding(
+                "x",
+                [If {
+                    if_token: Some(IF),
+                    condition: expression([ident_node("condition")]),
+                    then_token: Some(THEN),
+                    first: Block {
+                        result: expression([number_node("1")]).into(),
+                        ..Default::default()
+                    },
+                    else_token: Some(ELSE),
+                    else_kind: Some(IF),
+                    second: Block {
+                        result: expression([If {
+                            if_token: Some(IF),
+                            condition: expression([ident_node("other")]),
+                            then_token: Some(THEN),
+                            first: Block {
+                                result: expression([number_node("2")]).into(),
+                                ..Default::default()
+                            },
+                            else_token: Some(ELSE),
+                            else_kind: Some(THEN),
+                            second: Block {
+                                result: expression([number_node("3")]).into(),
+                                ..Default::default()
+                            },
+                            end_token: Some(END),
+                            diagnostics: Diagnostics::default(),
+                        }
+                        .into()])
+                        .into(),
+                        ..Default::default()
+                    },
+                    end_token: Some(END),
+                    diagnostics: Diagnostics::default(),
+                }
+                .into()],
+            ),
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
         }],
@@ -272,8 +283,8 @@ fn forgotten_semicolon() {
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
         statements: vec![Statement {
-            action: Some(
-                Binding {
+            action: Action::Evaluate(
+                Some(Binding {
                     let_token: Some(Token {
                         origin: "let",
                         lexigram: Lexigram::Let,
@@ -282,10 +293,9 @@ fn forgotten_semicolon() {
                     colon_token: None,
                     ty_token: None,
                     equals_token: None,
-                }
-                .into(),
+                }),
+                None,
             ),
-            expression: None,
             semicolon_token: None,
             diagnostics: Diagnostics {
                 errors: vec![Diagnostic::Error(Error::MissingToken {
@@ -309,8 +319,7 @@ fn for_loop() {
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
         statements: vec![Statement {
-            action: None,
-            expression: expression([For {
+            action: evaluate([For {
                 for_token: Some(FOR),
                 binding: Some(ident("i")),
                 in_token: Some(IN),
@@ -330,8 +339,7 @@ fn for_loop() {
                 end_token: Some(END),
                 diagnostics: Diagnostics::default(),
             }
-            .into()])
-            .into(),
+            .into()]),
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
         }],
@@ -346,55 +354,58 @@ fn for_expression() {
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
         statements: vec![Statement {
-            action: binding("x"),
-            expression: expression([For {
-                for_token: Some(FOR),
-                binding: Some(ident("i")),
-                in_token: Some(IN),
-                iterator: expression([ident_node("iter")]),
-                then_token: Some(THEN),
-                first: Block {
-                    result: expression([If {
-                        if_token: Some(IF),
-                        condition: expression([ident_node("i"), ident_node("needle"), EQUAL_TO]),
-                        then_token: Some(THEN),
-                        first: Block {
-                            statements: vec![Statement {
-                                action: Some(Action::Break(Some(Token {
-                                    origin: "break",
-                                    lexigram: Lexigram::Break,
-                                }))),
-                                expression: expression([
-                                    ident_node("Some"),
-                                    ident_node("i"),
-                                    Node::Call(Some(ident("i"))),
-                                ])
-                                .into(),
-                                semicolon_token: Some(SEMICOLON),
-                                diagnostics: Diagnostics::default(),
-                            }],
-                            ..Default::default()
-                        },
-                        else_token: None,
-                        else_kind: None,
-                        second: Block::default(),
-                        end_token: Some(END),
-                        diagnostics: Diagnostics::default(),
-                    }
-                    .into()])
-                    .into(),
-                    ..Default::default()
-                },
-                else_token: Some(ELSE),
-                second: Block {
-                    result: expression([ident_node("None")]).into(),
-                    ..Default::default()
-                },
-                end_token: Some(END),
-                diagnostics: Diagnostics::default(),
-            }
-            .into()])
-            .into(),
+            action: binding(
+                "x",
+                [For {
+                    for_token: Some(FOR),
+                    binding: Some(ident("i")),
+                    in_token: Some(IN),
+                    iterator: expression([ident_node("iter")]),
+                    then_token: Some(THEN),
+                    first: Block {
+                        result: expression([If {
+                            if_token: Some(IF),
+                            condition: expression([
+                                ident_node("i"),
+                                ident_node("needle"),
+                                EQUAL_TO,
+                            ]),
+                            then_token: Some(THEN),
+                            first: Block {
+                                statements: vec![Statement {
+                                    action: Action::Break(
+                                        BREAK,
+                                        Some(expression([
+                                            ident_node("Some"),
+                                            ident_node("i"),
+                                            Node::Call(Some(ident("i"))),
+                                        ])),
+                                    ),
+                                    semicolon_token: Some(SEMICOLON),
+                                    diagnostics: Diagnostics::default(),
+                                }],
+                                ..Default::default()
+                            },
+                            else_token: None,
+                            else_kind: None,
+                            second: Block::default(),
+                            end_token: Some(END),
+                            diagnostics: Diagnostics::default(),
+                        }
+                        .into()])
+                        .into(),
+                        ..Default::default()
+                    },
+                    else_token: Some(ELSE),
+                    second: Block {
+                        result: expression([ident_node("None")]).into(),
+                        ..Default::default()
+                    },
+                    end_token: Some(END),
+                    diagnostics: Diagnostics::default(),
+                }
+                .into()],
+            ),
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
         }],
@@ -411,8 +422,7 @@ fn reserved_symbol() {
         statements: vec![Statement {
             // Note that this is an invalid identifier,
             // but we still know the *intent* and can smooth things over for diagnostics.
-            action: binding("class"),
-            expression: expression([number_node("1")]).into(),
+            action: binding("class", [number_node("1")]),
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics {
                 errors: vec![Diagnostic::Error(Error::Lexer(lexer::Error {
@@ -433,34 +443,34 @@ fn comparison_operators() {
     let expected = Block {
         statements: vec![
             Statement {
-                expression: expression([number_node("1"), number_node("1"), EQUAL_TO]).into(),
+                action: evaluate([number_node("1"), number_node("1"), EQUAL_TO]),
                 semicolon_token: Some(SEMICOLON),
-                ..Default::default()
+                diagnostics: Diagnostics::default(),
             },
             Statement {
-                expression: expression([number_node("1"), number_node("1"), NOT_EQUAL_TO]).into(),
+                action: evaluate([number_node("1"), number_node("1"), NOT_EQUAL_TO]),
                 semicolon_token: Some(SEMICOLON),
-                ..Default::default()
+                diagnostics: Diagnostics::default(),
             },
             Statement {
-                expression: expression([number_node("1"), number_node("1"), GREATER]).into(),
+                action: evaluate([number_node("1"), number_node("1"), GREATER]),
                 semicolon_token: Some(SEMICOLON),
-                ..Default::default()
+                diagnostics: Diagnostics::default(),
             },
             Statement {
-                expression: expression([number_node("1"), number_node("1"), GREATER_EQUAL]).into(),
+                action: evaluate([number_node("1"), number_node("1"), GREATER_EQUAL]),
                 semicolon_token: Some(SEMICOLON),
-                ..Default::default()
+                diagnostics: Diagnostics::default(),
             },
             Statement {
-                expression: expression([number_node("1"), number_node("1"), LESSER]).into(),
+                action: evaluate([number_node("1"), number_node("1"), LESSER]),
                 semicolon_token: Some(SEMICOLON),
-                ..Default::default()
+                diagnostics: Diagnostics::default(),
             },
             Statement {
-                expression: expression([number_node("1"), number_node("1"), LESSER_EQUAL]).into(),
+                action: evaluate([number_node("1"), number_node("1"), LESSER_EQUAL]),
                 semicolon_token: Some(SEMICOLON),
-                ..Default::default()
+                diagnostics: Diagnostics::default(),
             },
         ],
         ..Default::default()
@@ -534,8 +544,7 @@ fn function() {
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
         statements: vec![Statement {
-            action: binding("captured"),
-            expression: expression([number_node("1")]).into(),
+            action: binding("captured", [number_node("1")]),
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
         }],
@@ -561,47 +570,53 @@ fn structure() {
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
         statements: vec![Statement {
-            action: binding("Coord"),
-            expression: expression([Node::Struct(Struct {
-                struct_token: Some(STRUCT),
-                inner: expression([
-                    ident_node("x"),
-                    ident_node("u32"),
-                    NAME,
-                    ident_node("y"),
-                    ident_node("u32"),
-                    NAME,
-                    TUPLE,
-                ]),
-                then_token: Some(THEN),
-                block: Block {
-                    statements: vec![Statement {
-                        action: binding("new"),
-                        expression: expression([Node::Block(Block {
-                            result: Function {
-                                with_token: Some(WITH),
-                                arguments: vec![ident("x"), ident("y")],
-                                semicolon_token: Some(SEMICOLON),
-                                block: Block {
-                                    result: expression([ident_node("x"), ident_node("y"), TUPLE])
-                                        .into(),
+            action: binding(
+                "Coord",
+                [Node::Struct(Struct {
+                    struct_token: Some(STRUCT),
+                    inner: expression([
+                        ident_node("x"),
+                        ident_node("u32"),
+                        NAME,
+                        ident_node("y"),
+                        ident_node("u32"),
+                        NAME,
+                        TUPLE,
+                    ]),
+                    then_token: Some(THEN),
+                    block: Block {
+                        statements: vec![Statement {
+                            action: binding(
+                                "new",
+                                [Node::Block(Block {
+                                    result: Function {
+                                        with_token: Some(WITH),
+                                        arguments: vec![ident("x"), ident("y")],
+                                        semicolon_token: Some(SEMICOLON),
+                                        block: Block {
+                                            result: expression([
+                                                ident_node("x"),
+                                                ident_node("y"),
+                                                TUPLE,
+                                            ])
+                                            .into(),
+                                            ..Default::default()
+                                        },
+                                        diagnostics: Diagnostics::default(),
+                                    }
+                                    .into(),
                                     ..Default::default()
-                                },
-                                diagnostics: Diagnostics::default(),
-                            }
-                            .into(),
-                            ..Default::default()
-                        })])
-                        .into(),
-                        semicolon_token: Some(SEMICOLON),
-                        diagnostics: Diagnostics::default(),
-                    }],
-                    ..Default::default()
-                },
-                end_token: Some(END),
-                diagnostics: Diagnostics::default(),
-            })])
-            .into(),
+                                })],
+                            ),
+                            semicolon_token: Some(SEMICOLON),
+                            diagnostics: Diagnostics::default(),
+                        }],
+                        ..Default::default()
+                    },
+                    end_token: Some(END),
+                    diagnostics: Diagnostics::default(),
+                })],
+            ),
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
         }],

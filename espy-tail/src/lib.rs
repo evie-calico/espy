@@ -1,4 +1,4 @@
-use espy_ears::{Action, Binding, Block, Expression, If, Node, Statement};
+use espy_ears::{Action, Block, Expression, If, Node, Statement};
 use espy_eyes::Token;
 use std::collections::HashMap;
 use std::iter;
@@ -220,13 +220,24 @@ impl Program {
         statement: Statement<'source>,
         scope: &mut Scope<'source>,
     ) {
-        self.add_expression(block_id, statement.expression.unwrap_or_default(), scope);
         match statement.action {
-            Some(Action::Binding(Binding { ident_token, .. })) => {
-                scope.insert(ident_token.expect("invalid statement structure").origin);
+            Action::Evaluate(binding, expression) => {
+                // If the binding exists but not an expression, we need to generate a unit value.
+                if expression.is_some() || binding.is_some() {
+                    self.add_expression(block_id, expression.unwrap_or_default(), scope);
+                }
+                if let Some(binding) = binding {
+                    scope.insert(
+                        binding
+                            .ident_token
+                            .expect("invalid statement structure")
+                            .origin,
+                    );
+                } else {
+                    self.blocks[block_id as usize].extend(Instruction::Pop)
+                }
             }
-            Some(Action::Break(_)) => todo!(),
-            None => self.blocks[block_id as usize].extend(Instruction::Pop),
+            Action::Break(_, _expression) => todo!(),
         }
     }
 
