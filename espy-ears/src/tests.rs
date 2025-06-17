@@ -14,10 +14,15 @@ token!(END: End = "end");
 token!(FOR: For = "for");
 token!(IF: If = "if");
 token!(IN: In = "in");
+token!(LET: Let = "let");
+token!(MATCH: Match = "match");
 token!(STRUCT: Struct = "struct");
 token!(THEN: Then = "then");
 token!(WITH: With = "with");
+token!(COMMA: Comma = ",");
+token!(DOUBLE_ARROW: DoubleArrow = "=>");
 token!(SEMICOLON: Semicolon = ";");
+token!(SINGLE_EQUAL: SingleEqual = "=");
 
 fn ident<'source>(origin: &'source str) -> Token<'source> {
     Token {
@@ -62,17 +67,11 @@ node!(NAME: Name = ":" as Colon);
 
 fn binding<'source>(origin: &'source str) -> Option<Action<'source>> {
     Some(Action::Binding(Binding {
-        let_token: Some(Token {
-            origin: "let",
-            lexigram: Lexigram::Let,
-        }),
+        let_token: Some(LET),
         ident_token: Some(ident(origin)),
         colon_token: None,
         ty_token: None,
-        equals_token: Some(Token {
-            origin: "=",
-            lexigram: Lexigram::SingleEqual,
-        }),
+        equals_token: Some(SINGLE_EQUAL),
     }))
 }
 
@@ -606,6 +605,45 @@ fn structure() {
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
         }],
+        ..Default::default()
+    };
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn match_expression() {
+    let source = "match 0 then let x = 1 => x * 2; 3 => 4; end";
+    let actual = Block::from(&mut Lexer::from(source).peekable());
+    let expected = Block {
+        result: expression([Match {
+            match_token: Some(MATCH),
+            expression: expression([number_node("0")]),
+            then_token: Some(THEN),
+            cases: vec![
+                MatchCase {
+                    let_token: Some(LET),
+                    binding: Some(ident("x")),
+                    equals_token: Some(SINGLE_EQUAL),
+                    case: expression([number_node("1")]).into(),
+                    arrow_token: Some(DOUBLE_ARROW),
+                    expression: expression([ident_node("x"), number_node("2"), MUL]),
+                    semicolon_token: Some(SEMICOLON),
+                },
+                MatchCase {
+                    let_token: None,
+                    binding: None,
+                    equals_token: None,
+                    case: expression([number_node("3")]).into(),
+                    arrow_token: Some(DOUBLE_ARROW),
+                    expression: expression([number_node("4")]),
+                    semicolon_token: Some(SEMICOLON),
+                },
+            ],
+            end_token: Some(END),
+            diagnostics: Diagnostics::default(),
+        }
+        .into()])
+        .into(),
         ..Default::default()
     };
     assert_eq!(actual, expected);

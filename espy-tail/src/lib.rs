@@ -346,6 +346,7 @@ impl Program {
                     Node::Tuple(_) => todo!(),
                     Node::Struct(_) => todo!(),
                     Node::Enum(_) => todo!(),
+                    Node::Match(_) => todo!(),
                 };
             }
         }
