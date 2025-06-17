@@ -14,6 +14,7 @@ token!(ELSE: Else = "else");
 token!(END: End = "end");
 token!(FOR: For = "for");
 token!(IF: If = "if");
+token!(IMPL: Impl = "impl");
 token!(IN: In = "in");
 token!(LET: Let = "let");
 token!(MATCH: Match = "match");
@@ -71,7 +72,7 @@ fn binding<'source>(
 ) -> Action<'source> {
     Action::Evaluate(
         Some(Binding {
-            let_token: Some(LET),
+            let_token: LET,
             ident_token: Some(ident(origin)),
             colon_token: None,
             ty_token: None,
@@ -285,10 +286,7 @@ fn forgotten_semicolon() {
         statements: vec![Statement {
             action: Action::Evaluate(
                 Some(Binding {
-                    let_token: Some(Token {
-                        origin: "let",
-                        lexigram: Lexigram::Let,
-                    }),
+                    let_token: LET,
                     ident_token: Some(ident("x")),
                     colon_token: None,
                     ty_token: None,
@@ -659,6 +657,51 @@ fn match_expression() {
         }
         .into()])
         .into(),
+        ..Default::default()
+    };
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn implementation() {
+    let source = "impl Iterator => Array then next: {with self; next} end;";
+    let actual = Block::from(&mut Lexer::from(source).peekable());
+    let expected = Block {
+        statements: vec![Statement {
+            action: Action::Implementation(Implementation {
+                impl_token: IMPL,
+                trait_expression: expression([ident_node("Iterator")]),
+                arrow_token: Some(DOUBLE_ARROW),
+                struct_expression: expression([ident_node("Array")]),
+                then_token: Some(THEN),
+                block: Block {
+                    result: expression([
+                        ident_node("next"),
+                        Node::Block(Block {
+                            result: Function {
+                                with_token: Some(WITH),
+                                arguments: vec![ident("self")],
+                                semicolon_token: Some(SEMICOLON),
+                                block: Block {
+                                    result: expression([ident_node("next")]).into(),
+                                    ..Default::default()
+                                },
+                                diagnostics: Diagnostics::default(),
+                            }
+                            .into(),
+                            ..Default::default()
+                        }),
+                        NAME,
+                    ])
+                    .into(),
+                    ..Default::default()
+                },
+                end_token: Some(END),
+                diagnostics: Diagnostics::default(),
+            }),
+            semicolon_token: Some(SEMICOLON),
+            diagnostics: Diagnostics::default(),
+        }],
         ..Default::default()
     };
     assert_eq!(actual, expected);

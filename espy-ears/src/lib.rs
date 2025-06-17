@@ -764,9 +764,9 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Enum<'source> {
     }
 }
 
-#[derive(Debug, Default, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Binding<'source> {
-    pub let_token: Option<Token<'source>>,
+    pub let_token: Token<'source>,
     pub ident_token: Option<Token<'source>>,
     pub colon_token: Option<Token<'source>>,
     pub ty_token: Option<Token<'source>>,
@@ -774,9 +774,48 @@ pub struct Binding<'source> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
+pub struct Implementation<'source> {
+    pub impl_token: Token<'source>,
+    pub trait_expression: Expression<'source>,
+    pub arrow_token: Option<Token<'source>>,
+    pub struct_expression: Expression<'source>,
+    pub then_token: Option<Token<'source>>,
+    pub block: Block<'source>,
+    pub end_token: Option<Token<'source>>,
+    pub diagnostics: Diagnostics<'source>,
+}
+
+impl<'source> From<&mut Peekable<Lexer<'source>>> for Implementation<'source> {
+    fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
+        let mut diagnostics = Diagnostics::default();
+        let impl_token = lexer
+            .next()
+            .expect("caller must have peeked a token")
+            .expect("caller must have peeked a non-error");
+        let trait_expression = Expression::from(&mut *lexer);
+        let arrow_token = diagnostics.next_if(lexer, &[Lexigram::DoubleArrow]);
+        let struct_expression = Expression::from(&mut *lexer);
+        let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
+        let block = Block::from(&mut *lexer);
+        let end_token = diagnostics.next_if(lexer, &[Lexigram::End]);
+        Self {
+            impl_token,
+            trait_expression,
+            arrow_token,
+            struct_expression,
+            then_token,
+            block,
+            end_token,
+            diagnostics,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
 pub enum Action<'source> {
     Evaluate(Option<Binding<'source>>, Option<Expression<'source>>),
     Break(Token<'source>, Option<Expression<'source>>),
+    Implementation(Implementation<'source>),
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -865,10 +904,26 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
                         diagnostics,
                     }
                 }
-                let_token @ Some(Token {
-                    lexigram: Lexigram::Let,
+                Some(Token {
+                    lexigram: Lexigram::Impl,
                     ..
                 }) => {
+                    // Will consume the impl token
+                    let implementation = Implementation::from(&mut *lexer);
+                    let mut diagnostics = Diagnostics::default();
+                    let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
+                    Statement {
+                        action: Action::Implementation(implementation),
+                        semicolon_token,
+                        diagnostics,
+                    }
+                }
+                Some(
+                    let_token @ Token {
+                        lexigram: Lexigram::Let,
+                        ..
+                    },
+                ) => {
                     lexer.next();
                     let mut st_diagnostics = Diagnostics::default();
                     let token = st_diagnostics.wrap(lexer.next());
