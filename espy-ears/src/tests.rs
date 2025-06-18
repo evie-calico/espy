@@ -663,6 +663,45 @@ fn match_expression() {
 }
 
 #[test]
+fn enum_creation() {
+    let source = "let Option = enum then let Some = (); let None = (); end;";
+    let actual = Block::from(&mut Lexer::from(source).peekable());
+    let expected = Block {
+        result: expression([Match {
+            match_token: Some(MATCH),
+            expression: expression([number_node("0")]),
+            then_token: Some(THEN),
+            cases: vec![
+                MatchCase {
+                    let_token: Some(LET),
+                    binding: Some(ident("x")),
+                    equals_token: Some(SINGLE_EQUAL),
+                    case: expression([number_node("1")]).into(),
+                    arrow_token: Some(DOUBLE_ARROW),
+                    expression: expression([ident_node("x"), number_node("2"), MUL]),
+                    semicolon_token: Some(SEMICOLON),
+                },
+                MatchCase {
+                    let_token: None,
+                    binding: None,
+                    equals_token: None,
+                    case: expression([number_node("3")]).into(),
+                    arrow_token: Some(DOUBLE_ARROW),
+                    expression: expression([number_node("4")]),
+                    semicolon_token: Some(SEMICOLON),
+                },
+            ],
+            end_token: Some(END),
+            diagnostics: Diagnostics::default(),
+        }
+        .into()])
+        .into(),
+        ..Default::default()
+    };
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn implementation() {
     let source = "impl Iterator => Array then next: {with self; next} end;";
     let actual = Block::from(&mut Lexer::from(source).peekable());

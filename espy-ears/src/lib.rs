@@ -423,6 +423,9 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 lexi!(Struct) => {
                     contents.push(Struct::from(&mut *lexer).into());
                 }
+                lexi!(Enum) => {
+                    contents.push(Enum::from(&mut *lexer).into());
+                }
                 _ if !unary_position => {
                     flush(&mut contents, &mut stack);
                     if !stack.is_empty() {
@@ -734,11 +737,11 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Struct<'source> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Enum<'source> {
-    enum_token: Option<Token<'source>>,
-    then_token: Option<Token<'source>>,
-    block: Block<'source>,
-    end_token: Option<Token<'source>>,
-    diagnostics: Diagnostics<'source>,
+    pub enum_token: Option<Token<'source>>,
+    pub then_token: Option<Token<'source>>,
+    pub block: Block<'source>,
+    pub end_token: Option<Token<'source>>,
+    pub diagnostics: Diagnostics<'source>,
 }
 
 impl<'source> From<Enum<'source>> for Node<'source> {
@@ -753,7 +756,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Enum<'source> {
         let mut diagnostics = Diagnostics::default();
         let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
         let block = Block::from(&mut *lexer);
-        let end_token = diagnostics.next_if(lexer, &[Lexigram::End]);
+        let end_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
         Self {
             enum_token,
             then_token,
