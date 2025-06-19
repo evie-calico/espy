@@ -764,16 +764,42 @@ fn field_precedence() {
             variable("something"),
             Node::Field {
                 dot_token: DOT,
-                name: ident("field"),
+                index: ident("field"),
             },
             variable("Iterator"),
             Node::Field {
                 dot_token: DOT,
-                name: ident("next"),
+                index: ident("next"),
             },
             PIPE,
             Node::Unit,
             Node::Call(Some(OPEN_PAREN)),
+        ])
+        .into(),
+        ..Default::default()
+    };
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn tuple_indexing() {
+    let source = "let x = 1, 2; x.1";
+    let actual = Block::from(&mut Lexer::from(source).peekable());
+    let expected = Block {
+        statements: vec![Statement {
+            action: binding("x", [number_node("1"), number_node("2"), TUPLE]),
+            semicolon_token: Some(SEMICOLON),
+            diagnostics: Diagnostics::default(),
+        }],
+        result: expression([
+            variable("x"),
+            Node::Field {
+                dot_token: DOT,
+                index: Token {
+                    origin: "1",
+                    lexigram: Lexigram::Number,
+                },
+            },
         ])
         .into(),
         ..Default::default()

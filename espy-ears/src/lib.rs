@@ -112,7 +112,7 @@ pub enum Node<'source> {
     },
     Field {
         dot_token: Token<'source>,
-        name: Token<'source>,
+        index: Token<'source>,
     },
     Tuple(Option<Token<'source>>),
 }
@@ -154,7 +154,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
             },
             Field {
                 dot_token: Token<'source>,
-                name: Token<'source>,
+                index: Token<'source>,
             },
             Tuple(Option<Token<'source>>),
             SubExpression(Option<Token<'source>>),
@@ -218,7 +218,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
         impl<'source> From<Operation<'source>> for Node<'source> {
             fn from(op: Operation<'source>) -> Self {
                 match op {
-                    Operation::Field { dot_token, name } => Node::Field { dot_token, name },
+                    Operation::Field { dot_token, index } => Node::Field { dot_token, index },
                     Operation::Pipe(t) => Node::Pipe(t),
                     Operation::Call(t) => Node::Call(t),
                     Operation::Positive(t) => Node::Positive(t),
@@ -371,12 +371,14 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     },
                 ) if !unary_position => {
                     last_token = lexer.next().transpose().ok().flatten();
-                    if let Some(name) = diagnostics.next_if(lexer, &[Lexigram::Ident]) {
-                        last_token = Some(name);
+                    if let Some(index) =
+                        diagnostics.next_if(lexer, &[Lexigram::Ident, Lexigram::Number])
+                    {
+                        last_token = Some(index);
                         push_with_precedence(
                             &mut contents,
                             &mut stack,
-                            Operation::Field { dot_token, name },
+                            Operation::Field { dot_token, index },
                         );
                     }
                     continue;
