@@ -10,14 +10,18 @@ macro_rules! token {
 }
 
 token!(BREAK: Break = "break");
+token!(COLON: Colon = ":");
+token!(DOT: Dot = ".");
 token!(ELSE: Else = "else");
 token!(END: End = "end");
+token!(ENUM: Enum = "enum");
 token!(FOR: For = "for");
 token!(IF: If = "if");
 token!(IMPL: Impl = "impl");
 token!(IN: In = "in");
 token!(LET: Let = "let");
 token!(MATCH: Match = "match");
+token!(OPEN_PAREN: OpenParen = "(");
 token!(STRUCT: Struct = "struct");
 token!(THEN: Then = "then");
 token!(WITH: With = "with");
@@ -48,8 +52,8 @@ fn number_node<'source>(origin: &'source str) -> Node<'source> {
     })
 }
 
-fn ident_node<'source>(origin: &'source str) -> Node<'source> {
-    Node::Ident(ident(origin))
+fn variable<'source>(origin: &'source str) -> Node<'source> {
+    Node::Variable(ident(origin))
 }
 
 node!(PIPE: Pipe = "|>" as Triangle);
@@ -64,7 +68,6 @@ node!(GREATER_EQUAL: GreaterEqual = ">=" as GreaterEqual);
 node!(LESSER: Lesser = "<" as Lesser);
 node!(LESSER_EQUAL: LesserEqual = "<=" as LesserEqual);
 node!(TUPLE: Tuple = "," as Comma);
-node!(NAME: Name = ":" as Colon);
 
 fn binding<'source>(
     origin: &'source str,
@@ -132,12 +135,16 @@ fn named_tuple() {
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
         result: expression([
-            ident_node("x"),
             number_node("1"),
-            NAME,
-            ident_node("y"),
+            Node::Name {
+                name: ident("x"),
+                colon_token: COLON,
+            },
             number_node("2"),
-            NAME,
+            Node::Name {
+                name: ident("y"),
+                colon_token: COLON,
+            },
             TUPLE,
         ])
         .into(),
@@ -161,7 +168,7 @@ fn block_expression() {
                         diagnostics: Diagnostics::default(),
                     }]
                     .into(),
-                    result: expression([ident_node("y"), number_node("3"), MUL]).into(),
+                    result: expression([variable("y"), number_node("3"), MUL]).into(),
                     ..Default::default()
                 })],
             ),
@@ -183,7 +190,7 @@ fn if_expression() {
                 "x",
                 [If {
                     if_token: Some(IF),
-                    condition: expression([ident_node("condition")]),
+                    condition: expression([variable("condition")]),
                     then_token: Some(THEN),
                     first: Block {
                         result: expression([number_node("1")]).into(),
@@ -218,7 +225,7 @@ fn if_else() {
                 "x",
                 [If {
                     if_token: Some(IF),
-                    condition: expression([ident_node("condition")]),
+                    condition: expression([variable("condition")]),
                     then_token: Some(THEN),
                     first: Block {
                         result: expression([number_node("1")]).into(),
@@ -229,7 +236,7 @@ fn if_else() {
                     second: Block {
                         result: expression([If {
                             if_token: Some(IF),
-                            condition: expression([ident_node("other")]),
+                            condition: expression([variable("other")]),
                             then_token: Some(THEN),
                             first: Block {
                                 result: expression([number_node("2")]).into(),
@@ -321,12 +328,12 @@ fn for_loop() {
                 for_token: Some(FOR),
                 binding: Some(ident("i")),
                 in_token: Some(IN),
-                iterator: expression([ident_node("iter")]),
+                iterator: expression([variable("iter")]),
                 then_token: Some(THEN),
                 first: Block {
                     result: expression([
-                        ident_node("print"),
-                        ident_node("i"),
+                        variable("print"),
+                        variable("i"),
                         Node::Call(Some(ident("i"))),
                     ])
                     .into(),
@@ -358,24 +365,20 @@ fn for_expression() {
                     for_token: Some(FOR),
                     binding: Some(ident("i")),
                     in_token: Some(IN),
-                    iterator: expression([ident_node("iter")]),
+                    iterator: expression([variable("iter")]),
                     then_token: Some(THEN),
                     first: Block {
                         result: expression([If {
                             if_token: Some(IF),
-                            condition: expression([
-                                ident_node("i"),
-                                ident_node("needle"),
-                                EQUAL_TO,
-                            ]),
+                            condition: expression([variable("i"), variable("needle"), EQUAL_TO]),
                             then_token: Some(THEN),
                             first: Block {
                                 statements: vec![Statement {
                                     action: Action::Break(
                                         BREAK,
                                         Some(expression([
-                                            ident_node("Some"),
-                                            ident_node("i"),
+                                            variable("Some"),
+                                            variable("i"),
                                             Node::Call(Some(ident("i"))),
                                         ])),
                                     ),
@@ -396,7 +399,7 @@ fn for_expression() {
                     },
                     else_token: Some(ELSE),
                     second: Block {
-                        result: expression([ident_node("None")]).into(),
+                        result: expression([variable("None")]).into(),
                         ..Default::default()
                     },
                     end_token: Some(END),
@@ -524,10 +527,10 @@ fn pipe_operator() {
         result: expression([
             number_node("1"),
             number_node("2"),
-            ident_node("f"),
+            variable("f"),
             PIPE,
             PIPE,
-            ident_node("x"),
+            variable("x"),
             Node::Call(Some(ident("x"))),
         ])
         .into(),
@@ -551,7 +554,7 @@ fn function() {
             arguments: vec![ident("x")],
             semicolon_token: Some(SEMICOLON),
             block: Block {
-                result: expression([ident_node("x"), ident_node("captured"), MUL]).into(),
+                result: expression([variable("x"), variable("captured"), MUL]).into(),
                 ..Default::default()
             },
             diagnostics: Diagnostics::default(),
@@ -573,12 +576,16 @@ fn structure() {
                 [Node::Struct(Struct {
                     struct_token: Some(STRUCT),
                     inner: expression([
-                        ident_node("x"),
-                        ident_node("u32"),
-                        NAME,
-                        ident_node("y"),
-                        ident_node("u32"),
-                        NAME,
+                        variable("u32"),
+                        Node::Name {
+                            name: ident("x"),
+                            colon_token: COLON,
+                        },
+                        variable("u32"),
+                        Node::Name {
+                            name: ident("y"),
+                            colon_token: COLON,
+                        },
                         TUPLE,
                     ]),
                     then_token: Some(THEN),
@@ -593,8 +600,8 @@ fn structure() {
                                         semicolon_token: Some(SEMICOLON),
                                         block: Block {
                                             result: expression([
-                                                ident_node("x"),
-                                                ident_node("y"),
+                                                variable("x"),
+                                                variable("y"),
                                                 TUPLE,
                                             ])
                                             .into(),
@@ -639,7 +646,7 @@ fn match_expression() {
                     equals_token: Some(SINGLE_EQUAL),
                     case: expression([number_node("1")]).into(),
                     arrow_token: Some(DOUBLE_ARROW),
-                    expression: expression([ident_node("x"), number_node("2"), MUL]),
+                    expression: expression([variable("x"), number_node("2"), MUL]),
                     semicolon_token: Some(SEMICOLON),
                 },
                 MatchCase {
@@ -667,35 +674,35 @@ fn enum_creation() {
     let source = "let Option = enum then let Some = (); let None = (); end;";
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
-        result: expression([Match {
-            match_token: Some(MATCH),
-            expression: expression([number_node("0")]),
-            then_token: Some(THEN),
-            cases: vec![
-                MatchCase {
-                    let_token: Some(LET),
-                    binding: Some(ident("x")),
-                    equals_token: Some(SINGLE_EQUAL),
-                    case: expression([number_node("1")]).into(),
-                    arrow_token: Some(DOUBLE_ARROW),
-                    expression: expression([ident_node("x"), number_node("2"), MUL]),
-                    semicolon_token: Some(SEMICOLON),
-                },
-                MatchCase {
-                    let_token: None,
-                    binding: None,
-                    equals_token: None,
-                    case: expression([number_node("3")]).into(),
-                    arrow_token: Some(DOUBLE_ARROW),
-                    expression: expression([number_node("4")]),
-                    semicolon_token: Some(SEMICOLON),
-                },
-            ],
-            end_token: Some(END),
+        statements: vec![Statement {
+            action: binding(
+                "Option",
+                [Node::Enum(Enum {
+                    enum_token: Some(ENUM),
+                    then_token: Some(THEN),
+                    block: Block {
+                        statements: vec![
+                            Statement {
+                                action: binding("Some", [Node::Unit]),
+                                semicolon_token: Some(SEMICOLON),
+                                diagnostics: Diagnostics::default(),
+                            },
+                            Statement {
+                                action: binding("None", [Node::Unit]),
+                                semicolon_token: Some(SEMICOLON),
+                                diagnostics: Diagnostics::default(),
+                            },
+                        ],
+                        result: BlockResult::Expression(expression([])),
+                        diagnostics: Diagnostics::default(),
+                    },
+                    end_token: Some(END),
+                    diagnostics: Diagnostics::default(),
+                })],
+            ),
+            semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
-        }
-        .into()])
-        .into(),
+        }],
         ..Default::default()
     };
     assert_eq!(actual, expected);
@@ -709,20 +716,19 @@ fn implementation() {
         statements: vec![Statement {
             action: Action::Implementation(Implementation {
                 impl_token: IMPL,
-                trait_expression: expression([ident_node("Iterator")]),
+                trait_expression: expression([variable("Iterator")]),
                 arrow_token: Some(DOUBLE_ARROW),
-                struct_expression: expression([ident_node("Array")]),
+                struct_expression: expression([variable("Array")]),
                 then_token: Some(THEN),
                 block: Block {
                     result: expression([
-                        ident_node("next"),
                         Node::Block(Block {
                             result: Function {
                                 with_token: Some(WITH),
                                 arguments: vec![ident("self")],
                                 semicolon_token: Some(SEMICOLON),
                                 block: Block {
-                                    result: expression([ident_node("next")]).into(),
+                                    result: expression([variable("next")]).into(),
                                     ..Default::default()
                                 },
                                 diagnostics: Diagnostics::default(),
@@ -730,7 +736,10 @@ fn implementation() {
                             .into(),
                             ..Default::default()
                         }),
-                        NAME,
+                        Node::Name {
+                            name: ident("next"),
+                            colon_token: COLON,
+                        },
                     ])
                     .into(),
                     ..Default::default()
@@ -741,6 +750,32 @@ fn implementation() {
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
         }],
+        ..Default::default()
+    };
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn field_precedence() {
+    let source = "something.field |> Iterator.next ()";
+    let actual = Block::from(&mut Lexer::from(source).peekable());
+    let expected = Block {
+        result: expression([
+            variable("something"),
+            Node::Field {
+                dot_token: DOT,
+                name: ident("field"),
+            },
+            variable("Iterator"),
+            Node::Field {
+                dot_token: DOT,
+                name: ident("next"),
+            },
+            PIPE,
+            Node::Unit,
+            Node::Call(Some(OPEN_PAREN)),
+        ])
+        .into(),
         ..Default::default()
     };
     assert_eq!(actual, expected);

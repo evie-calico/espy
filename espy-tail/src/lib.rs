@@ -326,7 +326,7 @@ impl<'source> Program<'source> {
                     scope.stack_pointer += 1;
                     block!().extend(Instruction::PushI64(integer))
                 }
-                Node::Ident(Token { origin, .. }) => {
+                Node::Variable(Token { origin, .. }) => {
                     // TODO: Must be handled.
                     let value = scope.get(origin).expect("undefined symbol");
                     scope.stack_pointer += 1;
@@ -413,7 +413,8 @@ impl<'source> Program<'source> {
                 Node::LesserEqual(_) => todo!(),
                 Node::LogicalAnd(_) => todo!(),
                 Node::LogicalOr(_) => todo!(),
-                Node::Name(_) => todo!(),
+                Node::Name { .. } => todo!(),
+                Node::Field { .. } => todo!(),
                 Node::Tuple(_) => todo!(),
                 Node::Struct(_) => todo!(),
                 Node::Enum(enumeration) => {

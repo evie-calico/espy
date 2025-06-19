@@ -78,7 +78,7 @@ impl<'source> Diagnostics<'source> {
 pub enum Node<'source> {
     Unit,
     Number(Token<'source>),
-    Ident(Token<'source>),
+    Variable(Token<'source>),
     Bool(bool, Option<Token<'source>>),
     Block(Block<'source>),
     If(If<'source>),
@@ -106,7 +106,14 @@ pub enum Node<'source> {
     LesserEqual(Option<Token<'source>>),
     LogicalAnd(Option<Token<'source>>),
     LogicalOr(Option<Token<'source>>),
-    Name(Option<Token<'source>>),
+    Name {
+        name: Token<'source>,
+        colon_token: Token<'source>,
+    },
+    Field {
+        dot_token: Token<'source>,
+        name: Token<'source>,
+    },
     Tuple(Option<Token<'source>>),
 }
 
@@ -141,7 +148,14 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
             LesserEqual(Option<Token<'source>>),
             LogicalAnd(Option<Token<'source>>),
             LogicalOr(Option<Token<'source>>),
-            Name(Option<Token<'source>>),
+            Name {
+                name: Token<'source>,
+                colon_token: Token<'source>,
+            },
+            Field {
+                dot_token: Token<'source>,
+                name: Token<'source>,
+            },
             Tuple(Option<Token<'source>>),
             SubExpression(Option<Token<'source>>),
         }
@@ -149,6 +163,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
         impl<'source> Operation<'source> {
             fn precedence(self) -> usize {
                 match self {
+                    Operation::Field { .. } => 14,
                     Operation::Pipe(_) => 13,
                     Operation::Call(_) => 12,
                     Operation::Positive(_) | Operation::Negative(_) => 11,
@@ -165,7 +180,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     | Operation::LesserEqual(_) => 5,
                     Operation::LogicalAnd(_) => 4,
                     Operation::LogicalOr(_) => 3,
-                    Operation::Name(_) => 2,
+                    Operation::Name { .. } => 2,
                     Operation::Tuple(_) => 1,
                     Operation::SubExpression(_) => 0,
                 }
@@ -173,11 +188,13 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
 
             fn left_associative(self) -> bool {
                 match self {
-                    Operation::Call(_)
+                    Operation::Field { .. }
+                    | Operation::Call(_)
                     | Operation::Positive(_)
                     | Operation::Negative(_)
                     | Operation::Mul(_)
                     | Operation::Div(_)
+                    | Operation::Name { .. }
                     | Operation::Add(_)
                     | Operation::Sub(_)
                     | Operation::BitwiseAnd(_)
@@ -193,7 +210,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     | Operation::LogicalOr(_)
                     | Operation::Tuple(_)
                     | Operation::SubExpression(_) => true,
-                    Operation::Name(_) | Operation::Pipe(_) => false,
+                    Operation::Pipe(_) => false,
                 }
             }
         }
@@ -201,6 +218,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
         impl<'source> From<Operation<'source>> for Node<'source> {
             fn from(op: Operation<'source>) -> Self {
                 match op {
+                    Operation::Field { dot_token, name } => Node::Field { dot_token, name },
                     Operation::Pipe(t) => Node::Pipe(t),
                     Operation::Call(t) => Node::Call(t),
                     Operation::Positive(t) => Node::Positive(t),
@@ -220,7 +238,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     Operation::LesserEqual(t) => Node::LesserEqual(t),
                     Operation::LogicalAnd(t) => Node::LogicalAnd(t),
                     Operation::LogicalOr(t) => Node::LogicalOr(t),
-                    Operation::Name(t) => Node::Name(t),
+                    Operation::Name { name, colon_token } => Node::Name { name, colon_token },
                     Operation::Tuple(t) => Node::Tuple(t),
                     Operation::SubExpression(_) => {
                         panic!("sub expressions may not enter the output stack")
@@ -324,7 +342,44 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     if !unary_position {
                         push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
-                    contents.push(Node::Ident(ident));
+                    last_token = lexer.next().transpose().ok().flatten();
+                    if let Some(Ok(
+                        colon_token @ Token {
+                            lexigram: Lexigram::Colon,
+                            ..
+                        },
+                    )) = lexer.peek().copied()
+                    {
+                        last_token = lexer.next().transpose().ok().flatten();
+                        push_with_precedence(
+                            &mut contents,
+                            &mut stack,
+                            Operation::Name {
+                                name: ident,
+                                colon_token,
+                            },
+                        );
+                    } else {
+                        contents.push(Node::Variable(ident));
+                    }
+                    continue;
+                }
+                Some(
+                    dot_token @ Token {
+                        lexigram: Lexigram::Dot,
+                        ..
+                    },
+                ) if !unary_position => {
+                    last_token = lexer.next().transpose().ok().flatten();
+                    if let Some(name) = diagnostics.next_if(lexer, &[Lexigram::Ident]) {
+                        last_token = Some(name);
+                        push_with_precedence(
+                            &mut contents,
+                            &mut stack,
+                            Operation::Field { dot_token, name },
+                        );
+                    }
+                    continue;
                 }
                 Some(Token {
                     lexigram: Lexigram::True,
@@ -378,7 +433,6 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 lexi!(And) if !unary_position => op!(LogicalAnd),
                 lexi!(Or) if !unary_position => op!(LogicalOr),
                 lexi!(Triangle) if !unary_position => op!(Pipe),
-                lexi!(Colon) if !unary_position => op!(Name),
                 lexi!(Comma) if !unary_position => op!(Tuple),
                 lexi!(CloseParen) if unary_position => {
                     if matches!(
@@ -458,6 +512,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     };
                 }
             }
+            // This is sometimes skipped with a continue!
             last_token = lexer.next().transpose().unwrap_or(None);
         }
     }
