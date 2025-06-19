@@ -1,10 +1,11 @@
 use espy_ears::{Action, Block, Expression, If, Node, Statement};
-use espy_eyes::Token;
+use espy_eyes::{Lexigram, Token};
 use std::iter;
 
 #[cfg(test)]
 mod tests;
 
+// TODO: Reorder these before release.
 pub mod instruction {
     // Stack primatives: 0x00-0x0F
     pub const CLONE: u8 = 0x00;
@@ -21,6 +22,7 @@ pub mod instruction {
     pub const PUSH_TRUE: u8 = 0x13;
     pub const PUSH_FALSE: u8 = 0x14;
     pub const PUSH_ENUM: u8 = 0x15;
+    pub const PUSH_STRING: u8 = 0x16;
 
     // Operations: 0x30-0x4F
     pub const ADD: u8 = 0x30;
@@ -28,6 +30,9 @@ pub mod instruction {
     pub const MUL: u8 = 0x32;
     pub const DIV: u8 = 0x33;
     pub const CALL: u8 = 0x34;
+    pub const INDEX: u8 = 0x35;
+    pub const TUPLE: u8 = 0x36;
+    pub const NAME: u8 = 0x37;
 }
 
 pub type ArchWidth = u32;
@@ -82,6 +87,7 @@ pub enum Instruction {
         captures: StackPointer,
         names: BlockId,
     },
+    PushString(StringId),
 
     Add,
     Sub,
@@ -92,6 +98,16 @@ pub enum Instruction {
     /// After pushing the value, jump to the function's block id.
     /// It will return a single value which is placed to the stack in its place.
     Call,
+    /// Pop the first value off the stack, then pop the second and index it using the first.
+    /// Push the result.
+    Index,
+    /// Pop two values off the stack and combine them into a tuple.
+    /// If one of them is already a tuple, concatenate them (always producing a flat tuple).
+    /// The topmost value should be appended to the value underneath it.
+    Tuple,
+    /// Pop a value off the stack and turn it into a named tuple with a single value,
+    /// and a name according to the following string id.
+    Name(StringId),
 }
 
 pub struct InstructionIter {
@@ -132,12 +148,16 @@ impl Iterator for InstructionIter {
             Instruction::PushEnum { captures, names } => {
                 decompose!(instruction::PUSH_ENUM, captures as 1..=4, names as 5..=8)
             }
+            Instruction::PushString(s) => decompose!(instruction::PUSH_STRING, s as 1..=4),
 
             Instruction::Add => decompose!(instruction::ADD,),
             Instruction::Sub => decompose!(instruction::SUB,),
             Instruction::Mul => decompose!(instruction::MUL,),
             Instruction::Div => decompose!(instruction::DIV,),
             Instruction::Call => decompose!(instruction::CALL,),
+            Instruction::Index => decompose!(instruction::INDEX,),
+            Instruction::Tuple => decompose!(instruction::TUPLE,),
+            Instruction::Name(name) => decompose!(instruction::NAME, name as 1..=4),
         };
         self.index += 1;
         Some(byte)
@@ -218,6 +238,15 @@ impl<'source> Program<'source> {
         (self.blocks.len() - 1)
             .try_into()
             .expect("block limit reached")
+    }
+
+    fn create_string(&mut self, s: &'source str) -> StringId {
+        if let Some((i, _)) = self.strings.iter().enumerate().find(|(_, x)| **x == s) {
+            i as StringId
+        } else {
+            self.strings.push(s);
+            self.strings.len() as StringId - 1
+        }
     }
 
     fn add_block(
@@ -348,6 +377,10 @@ impl<'source> Program<'source> {
                     scope.stack_pointer -= 1;
                     block!().extend(Instruction::Div)
                 }
+                Node::Tuple(_) => {
+                    scope.stack_pointer -= 1;
+                    block!().extend(Instruction::Tuple)
+                }
                 Node::Call(_) => {
                     scope.stack_pointer -= 1;
                     block!().extend(Instruction::Call)
@@ -413,9 +446,44 @@ impl<'source> Program<'source> {
                 Node::LesserEqual(_) => todo!(),
                 Node::LogicalAnd(_) => todo!(),
                 Node::LogicalOr(_) => todo!(),
-                Node::Name { .. } => todo!(),
-                Node::Field { .. } => todo!(),
-                Node::Tuple(_) => todo!(),
+                Node::Name {
+                    name,
+                    colon_token: _,
+                } => {
+                    // this is unary and does not move the stack.
+                    scope.stack_pointer += 0;
+                    let s = self.create_string(name.origin);
+                    block!().extend(Instruction::Name(s));
+                }
+                Node::Field {
+                    dot_token: _,
+                    index,
+                } => {
+                    match index {
+                        Token {
+                            lexigram: Lexigram::Ident,
+                            origin,
+                        } => {
+                            let s = self.create_string(origin);
+                            block!().extend(Instruction::PushString(s));
+                        }
+                        Token {
+                            lexigram: Lexigram::Number,
+                            origin,
+                        } => {
+                            // TODO: Must be handled.
+                            let integer = origin.parse().expect("invalid i64");
+                            block!().extend(Instruction::PushI64(integer));
+                        }
+                        _ => {
+                            panic!("expected an identifier or number in field index, got {index:?}")
+                        }
+                    }
+                    // the stack pointer does not move by the end,
+                    // because while Index pops twice, we performed one of the pushes ourselves.
+                    scope.stack_pointer += 0;
+                    block!().extend(Instruction::Index)
+                }
                 Node::Struct(_) => todo!(),
                 Node::Enum(enumeration) => {
                     let mut child = scope.child();
@@ -435,17 +503,11 @@ impl<'source> Program<'source> {
                             panic!("enum block may not result in a function")
                         }
                     }
-                    let mut set = Vec::new();
-                    for (case, _) in child.bindings {
-                        if let Some((i, _)) =
-                            self.strings.iter().enumerate().find(|(_, x)| **x == case)
-                        {
-                            set.push(i as StringId);
-                        } else {
-                            set.push(self.strings.len() as StringId);
-                            self.strings.push(case);
-                        }
-                    }
+                    let set = child
+                        .bindings
+                        .into_iter()
+                        .map(|(case, _)| self.create_string(case))
+                        .collect();
                     let names = self.string_sets.len() as StringSet;
                     self.string_sets.push(set);
                     // -1 to account for the block result (the enum's methods)

@@ -186,3 +186,63 @@ fn option_enum() {
     expected.extend(1u32.to_le_bytes());
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn tuple_indexing() {
+    let mut lexer = Lexer::from("let x = 1, 2; x.1").peekable();
+    let block = Block::from(&mut lexer);
+    let program = Program::from(block);
+    let actual = program.compile();
+    let expected = program![
+        1u32, // block count
+        16 as BlockId,
+        0u32, // string count
+        0u32, // string set count
+        // block 0
+        instruction::PUSH_I64,
+        1i64,
+        instruction::PUSH_I64,
+        2i64,
+        instruction::TUPLE,
+        instruction::CLONE,
+        0 as StackPointer,
+        instruction::PUSH_I64,
+        1i64,
+        instruction::INDEX,
+    ];
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn named_tuple_indexing() {
+    let mut lexer = Lexer::from("let x = first: 1, second: 2; x.second").peekable();
+    let block = Block::from(&mut lexer);
+    let program = Program::from(block);
+    let actual = program.compile();
+    let mut expected = program![
+        1u32, // block count
+        24 as BlockId,
+        2u32,           // string count
+        64 as StringId, // "first"
+        69 as StringId, // "second"
+        0u32,           // string set count
+        // block 0
+        instruction::PUSH_I64,
+        1i64,
+        instruction::NAME,
+        0 as StringId, // "first"
+        instruction::PUSH_I64,
+        2i64,
+        instruction::NAME,
+        1 as StringId, // "second"
+        instruction::TUPLE,
+        instruction::CLONE,
+        0 as StackPointer,
+        instruction::PUSH_STRING,
+        1 as StringId, // "second"
+        instruction::INDEX,
+    ];
+    expected.extend("first".bytes());
+    expected.extend("second".bytes());
+    assert_eq!(actual, expected);
+}
