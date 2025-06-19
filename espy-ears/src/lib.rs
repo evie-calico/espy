@@ -874,7 +874,6 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Implementation<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub enum Action<'source> {
     Evaluate(Option<Binding<'source>>, Option<Expression<'source>>),
-    Break(Token<'source>, Option<Expression<'source>>),
     Implementation(Implementation<'source>),
 }
 
@@ -897,6 +896,10 @@ pub struct Function<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub enum BlockResult<'source> {
     Expression(Expression<'source>),
+    Break {
+        break_token: Token<'source>,
+        expression: Expression<'source>,
+    },
     // This box resolves the recursive relationship between block -> result -> function -> block.
     // You could also put it on `Function`'s `block`, but putting it here shrinks the enum.
     Function(Box<Function<'source>>),
@@ -906,7 +909,7 @@ impl BlockResult<'_> {
     pub fn is_empty(&self) -> bool {
         match self {
             BlockResult::Expression(expression) => expression.contents.is_empty(),
-            BlockResult::Function(_) => false,
+            BlockResult::Break { .. } | BlockResult::Function(_) => false,
         }
     }
 }
@@ -948,22 +951,6 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
         let mut statements = Vec::new();
         loop {
             let statement = match diagnostics.wrap(lexer.peek().copied()) {
-                Some(
-                    break_token @ Token {
-                        lexigram: Lexigram::Break,
-                        ..
-                    },
-                ) => {
-                    lexer.next();
-                    let expression = Expression::from(&mut *lexer);
-                    let mut diagnostics = Diagnostics::default();
-                    let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
-                    Statement {
-                        action: Action::Break(break_token, Some(expression)),
-                        semicolon_token,
-                        diagnostics,
-                    }
-                }
                 Some(Token {
                     lexigram: Lexigram::Impl,
                     ..
@@ -1082,6 +1069,23 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
                             semicolon_token: None,
                         }
                     }
+                }
+                Some(
+                    break_token @ Token {
+                        lexigram: Lexigram::Break,
+                        ..
+                    },
+                ) => {
+                    lexer.next();
+                    let expression = Expression::from(&mut *lexer);
+                    return Self {
+                        statements,
+                        result: BlockResult::Break {
+                            break_token,
+                            expression,
+                        },
+                        diagnostics,
+                    };
                 }
                 with_token @ Some(Token {
                     lexigram: Lexigram::With,

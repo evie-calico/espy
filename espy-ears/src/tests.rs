@@ -355,7 +355,7 @@ fn for_loop() {
 
 #[test]
 fn for_expression() {
-    let source = "let x = for i in iter then if i == needle then break Some i; end else None end;";
+    let source = "let x = for i in iter then if i == needle then break Some i end else None end;";
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
         statements: vec![Statement {
@@ -373,18 +373,14 @@ fn for_expression() {
                             condition: expression([variable("i"), variable("needle"), EQUAL_TO]),
                             then_token: Some(THEN),
                             first: Block {
-                                statements: vec![Statement {
-                                    action: Action::Break(
-                                        BREAK,
-                                        Some(expression([
-                                            variable("Some"),
-                                            variable("i"),
-                                            Node::Call(Some(ident("i"))),
-                                        ])),
-                                    ),
-                                    semicolon_token: Some(SEMICOLON),
-                                    diagnostics: Diagnostics::default(),
-                                }],
+                                result: BlockResult::Break {
+                                    break_token: BREAK,
+                                    expression: expression([
+                                        variable("Some"),
+                                        variable("i"),
+                                        Node::Call(Some(ident("i"))),
+                                    ]),
+                                },
                                 ..Default::default()
                             },
                             else_token: None,

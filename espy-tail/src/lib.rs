@@ -1,6 +1,6 @@
-use espy_ears::{Action, Block, Expression, If, Node, Statement};
+use espy_ears::{Action, Block, BlockResult, Expression, If, Node, Statement};
 use espy_eyes::{Lexigram, Token};
-use std::iter;
+use std::{cell::Cell, iter};
 
 #[cfg(test)]
 mod tests;
@@ -268,10 +268,33 @@ impl<'source> Program<'source> {
             .filter(|parent| parent.stack_pointer < scope.stack_pointer)
             .map(|parent| parent.stack_pointer);
         match block.result {
-            espy_ears::BlockResult::Expression(i) => {
+            BlockResult::Expression(i) => {
                 self.add_expression(block_id, i, &mut scope);
             }
-            espy_ears::BlockResult::Function(function) => {
+            BlockResult::Break {
+                break_token: _,
+                expression,
+            } => {
+                self.add_expression(block_id, expression, &mut scope);
+                let mut candidate = &scope;
+                while !candidate.implicit_break {
+                    if let Some(parent) = candidate.parent {
+                        candidate = parent;
+                    } else {
+                        // TODO: must handle
+                        panic!("invalid break; no parent scope is accepting anonymous breaks");
+                    }
+                }
+                if candidate.stack_pointer < scope.stack_pointer {
+                    self.blocks[block_id as usize].extend(Instruction::Collapse(
+                        scope.stack_pointer - candidate.stack_pointer,
+                    ));
+                }
+                self.blocks[block_id as usize].extend(Instruction::Jump(0));
+                candidate.request_break(self.blocks[block_id as usize].len() as ProgramCounter - 4);
+                return;
+            }
+            BlockResult::Function(function) => {
                 let mut scope = scope.promote();
                 let captures = scope.stack_pointer;
                 // Note that, while a function takes a single argument,
@@ -320,7 +343,6 @@ impl<'source> Program<'source> {
                     self.blocks[block_id as usize].extend(Instruction::Pop)
                 }
             }
-            Action::Break(_, _expression) => todo!(),
             Action::Implementation(_) => todo!(),
         }
     }
@@ -492,15 +514,12 @@ impl<'source> Program<'source> {
                     }
                     match enumeration.block.result {
                         // Eventually this value will be the enum's methods. Force unit for now.
-                        espy_ears::BlockResult::Expression(expression) => {
+                        BlockResult::Expression(expression) => {
                             self.add_expression(block_id, expression, &mut child);
                         }
-                        // This is a semantic error,
-                        // but interestingly enough it's also not possible to move the scope into `promote` here,
-                        // since enums capture locals to use as their field names.
-                        // TODO: must be handled
-                        espy_ears::BlockResult::Function(_) => {
-                            panic!("enum block may not result in a function")
+                        _ => {
+                            // TODO: must be handled
+                            panic!("enum block must result in an expression")
                         }
                     }
                     let set = child
@@ -536,11 +555,22 @@ pub struct Value {
     index: StackPointer,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Scope<'parent, 'source> {
     parent: Option<&'parent Scope<'parent, 'source>>,
+
     stack_pointer: StackPointer,
     bindings: Vec<(&'source str, Value)>,
+
+    name: Option<&'source str>,
+    /// If true, this block is a candidate for unnamed break statements.
+    ///
+    /// This is used to make "for { if { break } }" break out of the for block and not just the if.
+    implicit_break: bool,
+    /// Indexes of 32-bit addresses that are intended to reference the end of this scope.
+    ///
+    /// Used to implement `break`.
+    break_requests: Cell<Vec<ProgramCounter>>,
 }
 
 impl<'parent, 'source> Scope<'parent, 'source> {
@@ -565,11 +595,17 @@ impl<'parent, 'source> Scope<'parent, 'source> {
         ));
     }
 
+    fn request_break(&self, at: ProgramCounter) {
+        let mut break_requests = self.break_requests.take();
+        break_requests.push(at);
+        self.break_requests.set(break_requests);
+    }
+
     fn child(&'parent self) -> Self {
         Self {
             parent: Some(self),
             stack_pointer: self.stack_pointer,
-            bindings: Vec::new(),
+            ..Default::default()
         }
     }
 
@@ -581,5 +617,19 @@ impl<'parent, 'source> Scope<'parent, 'source> {
             binding.1.index -= lost_size;
         }
         self
+    }
+
+    fn named(self, s: &'source str) -> Self {
+        Self {
+            name: Some(s),
+            ..self
+        }
+    }
+
+    fn implicit_break(self) -> Self {
+        Self {
+            implicit_break: true,
+            ..self
+        }
     }
 }
