@@ -33,6 +33,20 @@ pub mod instruction {
     pub const INDEX: u8 = 0x35;
     pub const TUPLE: u8 = 0x36;
     pub const NAME: u8 = 0x37;
+    pub const POSITIVE: u8 = 0x38;
+    pub const NEGATIVE: u8 = 0x39;
+    pub const PIPE: u8 = 0x40;
+    pub const BITWISE_AND: u8 = 0x41;
+    pub const BITWISE_OR: u8 = 0x42;
+    pub const BITWISE_XOR: u8 = 0x43;
+    pub const EQUAL_TO: u8 = 0x44;
+    pub const NOT_EQUAL_TO: u8 = 0x45;
+    pub const GREATER: u8 = 0x46;
+    pub const GREATER_EQUAL: u8 = 0x47;
+    pub const LESSER: u8 = 0x48;
+    pub const LESSER_EQUAL: u8 = 0x49;
+    pub const LOGICAL_AND: u8 = 0x50;
+    pub const LOGICAL_OR: u8 = 0x51;
 }
 
 // TODO: Reorder these before release.
@@ -140,6 +154,20 @@ pub enum Instruction {
     /// Pop a value off the stack and turn it into a named tuple with a single value,
     /// and a name according to the following string id.
     Name(StringId),
+    Positive,
+    Negative,
+    Pipe,
+    BitwiseAnd,
+    BitwiseOr,
+    BitwiseXor,
+    EqualTo,
+    NotEqualTo,
+    Greater,
+    GreaterEqual,
+    Lesser,
+    LesserEqual,
+    LogicalAnd,
+    LogicalOr,
 }
 
 pub struct InstructionIter {
@@ -190,6 +218,20 @@ impl Iterator for InstructionIter {
             Instruction::Index => decompose!(instruction::INDEX,),
             Instruction::Tuple => decompose!(instruction::TUPLE,),
             Instruction::Name(name) => decompose!(instruction::NAME, name as 1..=4),
+            Instruction::Positive => decompose!(instruction::POSITIVE,),
+            Instruction::Negative => decompose!(instruction::NEGATIVE,),
+            Instruction::Pipe => decompose!(instruction::PIPE,),
+            Instruction::BitwiseAnd => decompose!(instruction::BITWISE_AND,),
+            Instruction::BitwiseOr => decompose!(instruction::BITWISE_OR,),
+            Instruction::BitwiseXor => decompose!(instruction::BITWISE_XOR,),
+            Instruction::EqualTo => decompose!(instruction::EQUAL_TO,),
+            Instruction::NotEqualTo => decompose!(instruction::NOT_EQUAL_TO,),
+            Instruction::Greater => decompose!(instruction::GREATER,),
+            Instruction::GreaterEqual => decompose!(instruction::GREATER_EQUAL,),
+            Instruction::Lesser => decompose!(instruction::LESSER,),
+            Instruction::LesserEqual => decompose!(instruction::LESSER_EQUAL,),
+            Instruction::LogicalAnd => decompose!(instruction::LOGICAL_AND,),
+            Instruction::LogicalOr => decompose!(instruction::LOGICAL_OR,),
         };
         self.index += 1;
         Some(byte)
@@ -393,6 +435,12 @@ impl<'source> Program<'source> {
                 self.blocks[block_id as usize]
             };
         }
+        macro_rules! binop {
+            ($instruction:expr) => {{
+                scope.stack_pointer -= 1;
+                block!().extend($instruction)
+            }};
+        }
         if expression.contents.is_empty() {
             scope.stack_pointer += 1;
             block!().extend(Instruction::PushUnit);
@@ -414,30 +462,44 @@ impl<'source> Program<'source> {
                     scope.stack_pointer += 1;
                     block!().extend(Instruction::Clone(value.index))
                 }
-                Node::Add(_) => {
-                    scope.stack_pointer -= 1;
-                    block!().extend(Instruction::Add)
+                Node::Add(_) => binop!(Instruction::Add),
+                Node::Sub(_) => binop!(Instruction::Sub),
+                Node::Mul(_) => binop!(Instruction::Mul),
+                Node::Div(_) => binop!(Instruction::Div),
+                Node::Tuple(_) => binop!(Instruction::Tuple),
+                Node::Call(_) => binop!(Instruction::Call),
+                Node::Pipe(_) => binop!(Instruction::Pipe),
+                Node::BitwiseAnd(_) => binop!(Instruction::BitwiseAnd),
+                Node::BitwiseOr(_) => binop!(Instruction::BitwiseOr),
+                Node::BitwiseXor(_) => binop!(Instruction::BitwiseXor),
+                Node::EqualTo(_) => binop!(Instruction::EqualTo),
+                Node::NotEqualTo(_) => binop!(Instruction::NotEqualTo),
+                Node::Greater(_) => binop!(Instruction::Greater),
+                Node::GreaterEqual(_) => binop!(Instruction::GreaterEqual),
+                Node::Lesser(_) => binop!(Instruction::Lesser),
+                Node::LesserEqual(_) => binop!(Instruction::LesserEqual),
+                Node::LogicalAnd(_) => binop!(Instruction::LogicalAnd),
+                Node::LogicalOr(_) => binop!(Instruction::LogicalOr),
+                // Unaries
+                // These do not move the stack,
+                // and say "+= 0" to make this clear.
+                Node::Positive(_) => {
+                    scope.stack_pointer += 0;
+                    block!().extend(Instruction::Positive);
                 }
-                Node::Sub(_) => {
-                    scope.stack_pointer -= 1;
-                    block!().extend(Instruction::Sub)
+                Node::Negative(_) => {
+                    scope.stack_pointer += 0;
+                    block!().extend(Instruction::Negative);
                 }
-                Node::Mul(_) => {
-                    scope.stack_pointer -= 1;
-                    block!().extend(Instruction::Mul)
+                Node::Name {
+                    name,
+                    colon_token: _,
+                } => {
+                    scope.stack_pointer += 0;
+                    let s = self.create_string(name.origin)?;
+                    block!().extend(Instruction::Name(s));
                 }
-                Node::Div(_) => {
-                    scope.stack_pointer -= 1;
-                    block!().extend(Instruction::Div)
-                }
-                Node::Tuple(_) => {
-                    scope.stack_pointer -= 1;
-                    block!().extend(Instruction::Tuple)
-                }
-                Node::Call(_) => {
-                    scope.stack_pointer -= 1;
-                    block!().extend(Instruction::Call)
-                }
+
                 Node::Block(block) => {
                     self.add_block(block_id, block, scope.child())?;
                     scope.stack_pointer += 1;
@@ -485,29 +547,6 @@ impl<'source> Program<'source> {
                     fill(&mut block!(), jump_destination);
                 }
                 Node::For(_) => todo!(),
-                Node::Pipe(_) => todo!(),
-                Node::Positive(_) => todo!(),
-                Node::Negative(_) => todo!(),
-                Node::BitwiseAnd(_) => todo!(),
-                Node::BitwiseOr(_) => todo!(),
-                Node::BitwiseXor(_) => todo!(),
-                Node::EqualTo(_) => todo!(),
-                Node::NotEqualTo(_) => todo!(),
-                Node::Greater(_) => todo!(),
-                Node::GreaterEqual(_) => todo!(),
-                Node::Lesser(_) => todo!(),
-                Node::LesserEqual(_) => todo!(),
-                Node::LogicalAnd(_) => todo!(),
-                Node::LogicalOr(_) => todo!(),
-                Node::Name {
-                    name,
-                    colon_token: _,
-                } => {
-                    // this is unary and does not move the stack.
-                    scope.stack_pointer += 0;
-                    let s = self.create_string(name.origin)?;
-                    block!().extend(Instruction::Name(s));
-                }
                 Node::Field {
                     dot_token: _,
                     index,
