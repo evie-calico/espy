@@ -1,78 +1,10 @@
 use espy_ears::{Action, Block, BlockResult, Expression, For, If, Node, Statement};
 use espy_eyes::{Lexigram, Token};
+use espy_heart::prelude::*;
 use std::{cell::Cell, iter, mem, num::ParseIntError};
 
 #[cfg(test)]
 mod tests;
-
-// TODO: Reorder these before release.
-pub mod instruction {
-    // Stack and control flow: 0x00-0x0F
-    pub const CLONE: u8 = 0x00;
-    pub const WRITE: u8 = 0x01;
-    pub const POP: u8 = 0x02;
-    pub const COLLAPSE: u8 = 0x03;
-    pub const JUMP: u8 = 0x04;
-    pub const IF: u8 = 0x05;
-    pub const FOR: u8 = 0x06;
-
-    // Push ops: 0x10-0x2F
-    pub const PUSH_UNIT: u8 = 0x10;
-    pub const PUSH_I64: u8 = 0x11;
-    pub const PUSH_FUNCTION: u8 = 0x12;
-    pub const PUSH_TRUE: u8 = 0x13;
-    pub const PUSH_FALSE: u8 = 0x14;
-    pub const PUSH_ENUM: u8 = 0x15;
-    pub const PUSH_STRING: u8 = 0x16;
-
-    // Operations: 0x30..
-    pub const ADD: u8 = 0x30;
-    pub const SUB: u8 = 0x31;
-    pub const MUL: u8 = 0x32;
-    pub const DIV: u8 = 0x33;
-    pub const CALL: u8 = 0x34;
-    pub const INDEX: u8 = 0x35;
-    pub const TUPLE: u8 = 0x36;
-    pub const NAME: u8 = 0x37;
-    pub const POSITIVE: u8 = 0x38;
-    pub const NEGATIVE: u8 = 0x39;
-    pub const PIPE: u8 = 0x40;
-    pub const BITWISE_AND: u8 = 0x41;
-    pub const BITWISE_OR: u8 = 0x42;
-    pub const BITWISE_XOR: u8 = 0x43;
-    pub const EQUAL_TO: u8 = 0x44;
-    pub const NOT_EQUAL_TO: u8 = 0x45;
-    pub const GREATER: u8 = 0x46;
-    pub const GREATER_EQUAL: u8 = 0x47;
-    pub const LESSER: u8 = 0x48;
-    pub const LESSER_EQUAL: u8 = 0x49;
-    pub const LOGICAL_AND: u8 = 0x50;
-    pub const LOGICAL_OR: u8 = 0x51;
-}
-
-// TODO: Reorder these before release.
-pub mod builtins {
-    use crate::StackPointer;
-
-    pub const OPTION: StackPointer = -1;
-    pub const SOME: StackPointer = -2;
-    pub const NONE: StackPointer = -3;
-
-    pub fn from_str(s: &str) -> Option<StackPointer> {
-        match s {
-            "Option" => Some(OPTION),
-            "Some" => Some(SOME),
-            "None" => Some(NONE),
-            _ => None,
-        }
-    }
-}
-
-pub type ProgramCounter = u32;
-pub type StackPointer = i32;
-pub type BlockId = u32;
-pub type StringId = u32;
-pub type StringSet = u32;
 
 #[derive(Debug)]
 pub enum Error<'source> {
@@ -96,8 +28,6 @@ impl From<ParseIntError> for Error<'_> {
 pub enum Instruction {
     /// Copy a value from the given position and put it on the top of the stack.
     Clone(StackPointer),
-    /// Pop a value off the stack and write it to the given position.
-    Write(StackPointer),
     /// Pop a value off the stack.
     Pop,
     /// Pop a value off the stack and write it to the given position.
@@ -198,7 +128,6 @@ impl Iterator for InstructionIter {
         }
         let byte = match self.instruction {
             Instruction::Clone(from) => decompose!(instruction::CLONE, from as 1..=4),
-            Instruction::Write(to) => decompose!(instruction::WRITE, to as 1..=4),
             Instruction::Pop => decompose!(instruction::POP,),
             Instruction::Collapse(to) => decompose!(instruction::COLLAPSE, to as 1..=4),
             Instruction::Jump(pc) => decompose!(instruction::JUMP, pc as 1..=4),
