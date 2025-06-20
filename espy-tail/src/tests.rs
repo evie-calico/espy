@@ -1,11 +1,86 @@
 use super::*;
+use Instruction::*;
 use espy_eyes::Lexer;
 
+// espyscript assembly parser :3
 macro_rules! program {
-    ($($num:expr),* $(,)?) => {
+    [
+        $(
+            let $s:ident = $slit:literal;
+        )*
+        $(
+            enum $e:ident = [$($case:expr),* $(,)?];
+        )*
+        $(fn $block:ident {
+            $($i:expr,)*
+        })*
+    ] => {
         {
             let mut program = Vec::new();
-            $( program.extend($num.to_le_bytes()); )*
+            let mut i: BlockId = 0;
+            $(
+                let $block = i;
+                program.extend([0; 4]);
+                i += 1;
+            )*
+            for b in i.to_le_bytes().into_iter().rev() {
+                program.insert(0, b);
+            }
+
+            let string_count = program.len();
+            #[allow(unused)]
+            let mut i: BlockId = 0;
+            $(
+                let $s = i;
+                program.extend([0; 4]);
+                i += 1;
+            )*
+            for b in i.to_le_bytes().into_iter().rev() {
+                program.insert(string_count, b);
+            }
+
+            let enum_count = program.len();
+            #[allow(unused)]
+            let mut i: BlockId = 0;
+            $(
+                let $e = i;
+                program.extend([0; 4]);
+                i += 1;
+            )*
+            for b in i.to_le_bytes().into_iter().rev() {
+                program.insert(enum_count, b);
+            }
+
+            let mut i = 1;
+            $(
+                let offset = program.len() as u32;
+                $(program.extend($i);)*
+                program[(i * size_of::<u32>())..((i + 1) * size_of::<u32>())]
+                    .copy_from_slice(&offset.to_le_bytes());
+                #[allow(unused_assignments)]
+                { i += 1; }
+            )*
+            #[allow(unused)]
+            let mut i = 1;
+            $(
+                let offset = program.len() as u32;
+                program.extend($slit.bytes());
+                program[(string_count + i * size_of::<u32>())..(string_count + (i + 1) * size_of::<u32>())]
+                    .copy_from_slice(&offset.to_le_bytes());
+                #[allow(unused_assignments)]
+                { i += 1; }
+            )*
+            #[allow(unused)]
+            let mut i = 1;
+            $(
+                let offset = program.len() as u32;
+                $(program.extend($case.to_le_bytes());)*
+                program[(enum_count + i * size_of::<u32>())..(enum_count + (i + 1) * size_of::<u32>())]
+                    .copy_from_slice(&offset.to_le_bytes());
+                #[allow(unused_assignments)]
+                { i += 1; }
+            )*
+
             program
         }
     }
@@ -18,26 +93,17 @@ fn variables_and_arithmetic() {
     let program = Program::from(block);
     let actual = program.compile();
     let expected = program![
-        1u32, // block count
-        16 as BlockId,
-        0u32, // string count
-        0u32, // string set count
-        // block 0
-        instruction::PUSH_I64,
-        1i64,
-        instruction::PUSH_I64,
-        2i64,
-        instruction::ADD,
-        instruction::CLONE,
-        0 as StackPointer,
-        instruction::PUSH_I64,
-        3i64,
-        instruction::MUL,
-        instruction::CLONE,
-        0 as StackPointer,
-        instruction::CLONE,
-        1 as StackPointer,
-        instruction::SUB,
+        fn _main {
+            PushI64(1),
+            PushI64(2),
+            Add,
+            Clone(0),
+            PushI64(3),
+            Mul,
+            Clone(0),
+            Clone(1),
+            Sub,
+        }
     ];
     assert_eq!(actual, expected);
 }
@@ -49,25 +115,16 @@ fn simple_blocks() {
     let program = Program::from(block);
     let actual = program.compile();
     let expected = program![
-        1u32, // block count
-        16 as BlockId,
-        0u32, // string count
-        0u32, // string set count
-        // block 0
-        instruction::PUSH_I64,
-        2i64,
-        instruction::PUSH_I64,
-        1i64,
-        instruction::PUSH_I64,
-        3i64,
-        instruction::CLONE,
-        0 as StackPointer,
-        instruction::CLONE,
-        2 as StackPointer,
-        instruction::MUL,
-        instruction::COLLAPSE,
-        2 as StackPointer,
-        instruction::ADD,
+        fn _main {
+            PushI64(2i64),
+            PushI64(1i64),
+            PushI64(3i64),
+            Clone(0),
+            Clone(2),
+            Mul,
+            Collapse(2),
+            Add,
+        }
     ];
     assert_eq!(actual, expected);
 }
@@ -79,23 +136,18 @@ fn function_creation() {
     let program = Program::from(block);
     let actual = program.compile();
     let expected = program![
-        2u32, // block count
-        20 as BlockId,
-        38 as BlockId,
-        0u32, // string count
-        0u32, // string set count
-        // block 0
-        instruction::PUSH_I64,
-        2i64,
-        instruction::PUSH_FUNCTION,
-        1 as StackPointer,
-        1 as BlockId,
-        // block 1
-        instruction::CLONE,
-        0 as StackPointer,
-        instruction::CLONE,
-        1 as StackPointer,
-        instruction::MUL,
+        fn _main {
+            PushI64(2i64),
+            PushFunction {
+                captures: 1,
+                function: f,
+            },
+        }
+        fn f {
+            Clone(0),
+            Clone(1),
+            Mul,
+        }
     ];
     assert_eq!(actual, expected);
 }
@@ -107,26 +159,20 @@ fn function_usage() {
     let program = Program::from(block);
     let actual = program.compile();
     let expected = program![
-        2u32, // block count
-        20 as BlockId,
-        44 as BlockId,
-        0u32, // string count
-        0u32, // string set count
-        // block 0
-        instruction::PUSH_FUNCTION,
-        0 as StackPointer,
-        1 as BlockId,
-        instruction::CLONE,
-        0 as StackPointer, // f
-        instruction::PUSH_I64,
-        2i64,
-        instruction::CALL,
-        // block 1 (f)
-        instruction::CLONE,
-        0 as StackPointer, // x
-        instruction::CLONE,
-        0 as StackPointer, // x
-        instruction::MUL,
+        fn _main {
+            PushFunction {
+                captures: 0,
+                function: f,
+            },
+            Clone(0),
+            PushI64(2),
+            Call,
+        }
+        fn f {
+            Clone(0),
+            Clone(0),
+            Mul,
+        }
     ];
     assert_eq!(actual, expected);
 }
@@ -138,20 +184,13 @@ fn if_expression() {
     let program = Program::from(block);
     let actual = program.compile();
     let expected = program![
-        1u32, // block count
-        16 as BlockId,
-        0u32, // string count
-        0u32, // string set count
-        // block 0
-        instruction::PUSH_TRUE,
-        instruction::IF,
-        20 as ProgramCounter,
-        instruction::PUSH_I64,
-        1i64,
-        instruction::JUMP,
-        29 as ProgramCounter,
-        instruction::PUSH_I64,
-        2i64,
+        fn _main {
+            PushTrue,
+            If(20),
+            PushI64(1i64),
+            Jump(29),
+            PushI64(2i64),
+        }
     ];
     assert_eq!(actual, expected);
 }
@@ -163,27 +202,21 @@ fn option_enum() {
     let block = Block::from(&mut lexer);
     let program = Program::from(block);
     let actual = program.compile();
-    let mut expected = program![
-        1u32, // block count
-        28 as BlockId,
-        2u32, // string count
-        41 as StringId,
-        45 as StringId,
-        1u32, // string set count
-        49 as StringSet,
-        // block 0
-        instruction::PUSH_UNIT,
-        instruction::PUSH_UNIT,
-        instruction::PUSH_UNIT,
-        instruction::PUSH_ENUM,
-        2 as StackPointer, // two cases
-        0 as StringSet,    // first string set
-        instruction::PUSH_UNIT,
+    let expected = program![
+        let some = "Some";
+        let none = "None";
+        enum option = [some, none];
+        fn _main {
+            PushUnit,
+            PushUnit,
+            PushUnit,
+            PushEnum {
+                captures: 2,
+                names: option,
+            },
+            PushUnit,
+        }
     ];
-    expected.extend("Some".bytes());
-    expected.extend("None".bytes());
-    expected.extend(0u32.to_le_bytes());
-    expected.extend(1u32.to_le_bytes());
     assert_eq!(actual, expected);
 }
 
@@ -194,21 +227,14 @@ fn tuple_indexing() {
     let program = Program::from(block);
     let actual = program.compile();
     let expected = program![
-        1u32, // block count
-        16 as BlockId,
-        0u32, // string count
-        0u32, // string set count
-        // block 0
-        instruction::PUSH_I64,
-        1i64,
-        instruction::PUSH_I64,
-        2i64,
-        instruction::TUPLE,
-        instruction::CLONE,
-        0 as StackPointer,
-        instruction::PUSH_I64,
-        1i64,
-        instruction::INDEX,
+        fn _main {
+            PushI64(1i64),
+            PushI64(2i64),
+            Tuple,
+            Clone(0),
+            PushI64(1i64),
+            Index,
+        }
     ];
     assert_eq!(actual, expected);
 }
@@ -219,30 +245,42 @@ fn named_tuple_indexing() {
     let block = Block::from(&mut lexer);
     let program = Program::from(block);
     let actual = program.compile();
-    let mut expected = program![
-        1u32, // block count
-        24 as BlockId,
-        2u32,           // string count
-        64 as StringId, // "first"
-        69 as StringId, // "second"
-        0u32,           // string set count
-        // block 0
-        instruction::PUSH_I64,
-        1i64,
-        instruction::NAME,
-        0 as StringId, // "first"
-        instruction::PUSH_I64,
-        2i64,
-        instruction::NAME,
-        1 as StringId, // "second"
-        instruction::TUPLE,
-        instruction::CLONE,
-        0 as StackPointer,
-        instruction::PUSH_STRING,
-        1 as StringId, // "second"
-        instruction::INDEX,
+    let expected = program![
+        let first = "first";
+        let second = "second";
+        fn _main {
+            PushI64(1i64),
+            Name(first),
+            PushI64(2i64),
+            Name(second),
+            Tuple,
+            Clone(0),
+            PushString(second),
+            Index,
+        }
     ];
-    expected.extend("first".bytes());
-    expected.extend("second".bytes());
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn builtins() {
+    let mut lexer = Lexer::from("Option.Some 1; None ()").peekable();
+    let block = Block::from(&mut lexer);
+    let program = Program::from(block);
+    let actual = program.compile();
+    let expected = program! {
+        let some = "Some";
+        fn _main {
+            Clone(builtins::OPTION),
+            PushString(some),
+            Index,
+            PushI64(1),
+            Call,
+            Pop,
+            Clone(builtins::NONE),
+            PushUnit,
+            Call,
+        }
+    };
     assert_eq!(actual, expected);
 }

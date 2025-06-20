@@ -35,12 +35,29 @@ pub mod instruction {
     pub const NAME: u8 = 0x37;
 }
 
-pub type ArchWidth = u32;
-pub type ProgramCounter = ArchWidth;
-pub type StackPointer = ArchWidth;
-pub type BlockId = ArchWidth;
-pub type StringId = ArchWidth;
-pub type StringSet = ArchWidth;
+// TODO: Reorder these before release.
+pub mod builtins {
+    use crate::StackPointer;
+
+    pub const OPTION: StackPointer = -1;
+    pub const SOME: StackPointer = -2;
+    pub const NONE: StackPointer = -3;
+
+    pub fn from_str(s: &str) -> Option<StackPointer> {
+        match s {
+            "Option" => Some(OPTION),
+            "Some" => Some(SOME),
+            "None" => Some(NONE),
+            _ => None,
+        }
+    }
+}
+
+pub type ProgramCounter = u32;
+pub type StackPointer = i32;
+pub type BlockId = u32;
+pub type StringId = u32;
+pub type StringSet = u32;
 
 // These are practically used as functions which return iterators over bytes at this point.
 // There isn't a good reason for this other than that they used to be stored for a little while,
@@ -580,7 +597,11 @@ impl<'parent, 'source> Scope<'parent, 'source> {
             .find(|(x, _)| *x == k)
             .copied()
             .map(|(_, x)| x)
-            .or_else(|| self.parent.and_then(|parent| parent.get(k)))
+            .or_else(|| {
+                self.parent
+                    .and_then(|parent| parent.get(k))
+                    .or_else(|| builtins::from_str(k).map(|index| Value { index }))
+            })
     }
 
     fn insert(&mut self, k: &'source str) {
