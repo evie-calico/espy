@@ -805,7 +805,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for For<'source> {
 pub struct Implementation<'source> {
     pub impl_token: Token<'source>,
     pub trait_expression: Expression<'source>,
-    pub arrow_token: Option<Token<'source>>,
+    pub for_token: Option<Token<'source>>,
     pub struct_expression: Expression<'source>,
     pub then_token: Option<Token<'source>>,
     pub block: Block<'source>,
@@ -818,10 +818,12 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Implementation<'source> {
         let mut diagnostics = Diagnostics::default();
         let impl_token = lexer
             .next()
-            .expect("caller must have peeked a token")
-            .expect("caller must have peeked a non-error");
+            .transpose()
+            .ok()
+            .flatten()
+            .expect("caller must have peeked an impl token");
         let trait_expression = Expression::from(&mut *lexer);
-        let arrow_token = diagnostics.next_if(lexer, &[Lexigram::DoubleArrow]);
+        let for_token = diagnostics.next_if(lexer, &[Lexigram::For]);
         let struct_expression = Expression::from(&mut *lexer);
         let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
         let block = Block::from(&mut *lexer);
@@ -829,7 +831,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Implementation<'source> {
         Self {
             impl_token,
             trait_expression,
-            arrow_token,
+            for_token,
             struct_expression,
             then_token,
             block,

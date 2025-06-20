@@ -647,14 +647,14 @@ fn enum_creation() {
 
 #[test]
 fn implementation() {
-    let source = "impl Iterator => Array then next: {with self; next} end;";
+    let source = "impl Iterator for Array then next: {with self; next} end;";
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
         statements: vec![Statement {
             action: Action::Implementation(Implementation {
                 impl_token: IMPL,
                 trait_expression: expression([variable("Iterator")]),
-                arrow_token: Some(DOUBLE_ARROW),
+                for_token: Some(FOR),
                 struct_expression: expression([variable("Array")]),
                 then_token: Some(THEN),
                 block: Block {
