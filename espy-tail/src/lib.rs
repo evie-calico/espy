@@ -1,6 +1,6 @@
 use espy_ears::{Action, Block, BlockResult, Expression, If, Node, Statement};
 use espy_eyes::{Lexigram, Token};
-use std::{cell::Cell, iter};
+use std::{cell::Cell, iter, num::ParseIntError};
 
 #[cfg(test)]
 mod tests;
@@ -58,6 +58,21 @@ pub type StackPointer = i32;
 pub type BlockId = u32;
 pub type StringId = u32;
 pub type StringSet = u32;
+
+#[derive(Debug)]
+pub enum Error<'source> {
+    ProgramLimitExceeded,
+    InvalidBreak(Token<'source>),
+    InvalidInteger(ParseIntError),
+    UndefinedSymbol(&'source str),
+    UnexpectedEnumResult,
+}
+
+impl From<ParseIntError> for Error<'_> {
+    fn from(e: ParseIntError) -> Self {
+        Self::InvalidInteger(e)
+    }
+}
 
 // These are practically used as functions which return iterators over bytes at this point.
 // There isn't a good reason for this other than that they used to be stored for a little while,
@@ -249,21 +264,22 @@ impl<'source> Program<'source> {
         output
     }
 
-    fn create_block(&mut self) -> BlockId {
+    fn create_block(&mut self) -> Result<BlockId, Error<'source>> {
         self.blocks.push(Vec::new());
-        // TODO: Must be handled.
         (self.blocks.len() - 1)
             .try_into()
-            .expect("block limit reached")
+            .map_err(|_| Error::ProgramLimitExceeded)
     }
 
-    fn create_string(&mut self, s: &'source str) -> StringId {
+    fn create_string(&mut self, s: &'source str) -> Result<StringId, Error<'source>> {
         if let Some((i, _)) = self.strings.iter().enumerate().find(|(_, x)| **x == s) {
-            i as StringId
+            i
         } else {
             self.strings.push(s);
-            self.strings.len() as StringId - 1
+            self.strings.len() - 1
         }
+        .try_into()
+        .map_err(|_| Error::ProgramLimitExceeded)
     }
 
     fn add_block(
@@ -271,9 +287,9 @@ impl<'source> Program<'source> {
         block_id: BlockId,
         block: Block<'source>,
         mut scope: Scope<'_, 'source>,
-    ) {
+    ) -> Result<(), Error<'source>> {
         for i in block.statements {
-            self.add_statement(block_id, i, &mut scope);
+            self.add_statement(block_id, i, &mut scope)?;
         }
         // Collapse the scope if any additional values are left the stack.
         // This occurs when statements bind variables.
@@ -286,21 +302,19 @@ impl<'source> Program<'source> {
             .map(|parent| parent.stack_pointer);
         match block.result {
             BlockResult::Expression(i) => {
-                self.add_expression(block_id, i, &mut scope);
+                self.add_expression(block_id, i, &mut scope)?;
             }
             BlockResult::Break {
-                break_token: _,
+                break_token,
                 expression,
             } => {
-                self.add_expression(block_id, expression, &mut scope);
+                self.add_expression(block_id, expression, &mut scope)?;
                 let mut candidate = &scope;
                 while !candidate.implicit_break {
-                    if let Some(parent) = candidate.parent {
-                        candidate = parent;
-                    } else {
-                        // TODO: must handle
-                        panic!("invalid break; no parent scope is accepting anonymous breaks");
-                    }
+                    let Some(parent) = candidate.parent else {
+                        return Err(Error::InvalidBreak(break_token));
+                    };
+                    candidate = parent;
                 }
                 if candidate.stack_pointer < scope.stack_pointer {
                     self.blocks[block_id as usize].extend(Instruction::Collapse(
@@ -309,7 +323,7 @@ impl<'source> Program<'source> {
                 }
                 self.blocks[block_id as usize].extend(Instruction::Jump(0));
                 candidate.request_break(self.blocks[block_id as usize].len() as ProgramCounter - 4);
-                return;
+                return Ok(());
             }
             BlockResult::Function(function) => {
                 let mut scope = scope.promote();
@@ -320,8 +334,8 @@ impl<'source> Program<'source> {
                     scope.stack_pointer += 1;
                     scope.insert(argument.origin);
                 }
-                let function_id = self.create_block();
-                self.add_block(function_id, function.block, scope);
+                let function_id = self.create_block()?;
+                self.add_block(function_id, function.block, scope)?;
                 self.blocks[block_id as usize].extend(Instruction::PushFunction {
                     captures,
                     function: function_id,
@@ -331,6 +345,7 @@ impl<'source> Program<'source> {
         if let Some(collapse_point) = collapse_point {
             self.blocks[block_id as usize].extend(Instruction::Collapse(collapse_point));
         }
+        Ok(())
     }
 
     /// # Panic
@@ -342,12 +357,12 @@ impl<'source> Program<'source> {
         block_id: BlockId,
         statement: Statement<'source>,
         scope: &mut Scope<'_, 'source>,
-    ) {
+    ) -> Result<(), Error<'source>> {
         match statement.action {
             Action::Evaluate(binding, expression) => {
                 // If the binding exists but not an expression, we need to generate a unit value.
                 if expression.is_some() || binding.is_some() {
-                    self.add_expression(block_id, expression.unwrap_or_default(), scope);
+                    self.add_expression(block_id, expression.unwrap_or_default(), scope)?;
                 }
                 if let Some(binding) = binding {
                     scope.insert(
@@ -362,6 +377,7 @@ impl<'source> Program<'source> {
             }
             Action::Implementation(_) => todo!(),
         }
+        Ok(())
     }
 
     fn add_expression(
@@ -369,7 +385,7 @@ impl<'source> Program<'source> {
         block_id: BlockId,
         expression: Expression<'source>,
         scope: &mut Scope<'_, 'source>,
-    ) {
+    ) -> Result<(), Error<'source>> {
         // Shortcut for re-indexing self.blocks.
         // This is necessary because add_block etc take &mut self.
         macro_rules! block {
@@ -380,7 +396,7 @@ impl<'source> Program<'source> {
         if expression.contents.is_empty() {
             scope.stack_pointer += 1;
             block!().extend(Instruction::PushUnit);
-            return;
+            return Ok(());
         }
         for node in expression.contents {
             match node {
@@ -389,14 +405,12 @@ impl<'source> Program<'source> {
                     block!().extend(Instruction::PushUnit)
                 }
                 Node::Number(Token { origin, .. }) => {
-                    // TODO: Must be handled.
-                    let integer = origin.parse().expect("invalid i64");
+                    let integer = origin.parse()?;
                     scope.stack_pointer += 1;
                     block!().extend(Instruction::PushI64(integer))
                 }
                 Node::Variable(Token { origin, .. }) => {
-                    // TODO: Must be handled.
-                    let value = scope.get(origin).expect("undefined symbol");
+                    let value = scope.get(origin).ok_or(Error::UndefinedSymbol(origin))?;
                     scope.stack_pointer += 1;
                     block!().extend(Instruction::Clone(value.index))
                 }
@@ -425,7 +439,7 @@ impl<'source> Program<'source> {
                     block!().extend(Instruction::Call)
                 }
                 Node::Block(block) => {
-                    self.add_block(block_id, block, scope.child());
+                    self.add_block(block_id, block, scope.child())?;
                     scope.stack_pointer += 1;
                 }
                 Node::Bool(true, _) => {
@@ -449,10 +463,10 @@ impl<'source> Program<'source> {
                             .copy_from_slice(&pc.to_le_bytes());
                     }
 
-                    self.add_expression(block_id, condition, scope);
+                    self.add_expression(block_id, condition, scope)?;
                     block!().extend(Instruction::If(0));
                     let if_destination = block!().len() - size_of::<ProgramCounter>();
-                    self.add_block(block_id, first, scope.child());
+                    self.add_block(block_id, first, scope.child())?;
 
                     // the first block always returns a value (though it may be implicit unit)
                     // so there always needs to be an else block with some value as well,
@@ -466,7 +480,7 @@ impl<'source> Program<'source> {
                     // Now that the first block is complete,
                     // we can fill in the conditional jump's destination.
                     fill(&mut block!(), if_destination);
-                    self.add_block(block_id, second, scope.child());
+                    self.add_block(block_id, second, scope.child())?;
 
                     fill(&mut block!(), jump_destination);
                 }
@@ -491,7 +505,7 @@ impl<'source> Program<'source> {
                 } => {
                     // this is unary and does not move the stack.
                     scope.stack_pointer += 0;
-                    let s = self.create_string(name.origin);
+                    let s = self.create_string(name.origin)?;
                     block!().extend(Instruction::Name(s));
                 }
                 Node::Field {
@@ -503,15 +517,14 @@ impl<'source> Program<'source> {
                             lexigram: Lexigram::Ident,
                             origin,
                         } => {
-                            let s = self.create_string(origin);
+                            let s = self.create_string(origin)?;
                             block!().extend(Instruction::PushString(s));
                         }
                         Token {
                             lexigram: Lexigram::Number,
                             origin,
                         } => {
-                            // TODO: Must be handled.
-                            let integer = origin.parse().expect("invalid i64");
+                            let integer = origin.parse()?;
                             block!().extend(Instruction::PushI64(integer));
                         }
                         _ => {
@@ -527,23 +540,20 @@ impl<'source> Program<'source> {
                 Node::Enum(enumeration) => {
                     let mut child = scope.child();
                     for i in enumeration.block.statements {
-                        self.add_statement(block_id, i, &mut child);
+                        self.add_statement(block_id, i, &mut child)?;
                     }
                     match enumeration.block.result {
                         // Eventually this value will be the enum's methods. Force unit for now.
                         BlockResult::Expression(expression) => {
-                            self.add_expression(block_id, expression, &mut child);
+                            self.add_expression(block_id, expression, &mut child)?;
                         }
-                        _ => {
-                            // TODO: must be handled
-                            panic!("enum block must result in an expression")
-                        }
+                        _ => return Err(Error::UnexpectedEnumResult),
                     }
                     let set = child
                         .bindings
                         .into_iter()
                         .map(|(case, _)| self.create_string(case))
-                        .collect();
+                        .collect::<Result<_, Error<'source>>>()?;
                     let names = self.string_sets.len() as StringSet;
                     self.string_sets.push(set);
                     // -1 to account for the block result (the enum's methods)
@@ -555,15 +565,17 @@ impl<'source> Program<'source> {
                 Node::Match(_) => todo!(),
             };
         }
+        Ok(())
     }
 }
 
-impl<'source> From<Block<'source>> for Program<'source> {
-    fn from(block: Block<'source>) -> Self {
+impl<'source> TryFrom<Block<'source>> for Program<'source> {
+    type Error = Error<'source>;
+    fn try_from(block: Block<'source>) -> Result<Self, Self::Error> {
         let mut this = Self::default();
-        let block_id = this.create_block();
-        this.add_block(block_id, block, Scope::default());
-        this
+        let block_id = this.create_block()?;
+        this.add_block(block_id, block, Scope::default())?;
+        Ok(this)
     }
 }
 

@@ -90,7 +90,7 @@ macro_rules! program {
 fn variables_and_arithmetic() {
     let mut lexer = Lexer::from("let x = 1 + 2; let y = x * 3; x - y").peekable();
     let block = Block::from(&mut lexer);
-    let program = Program::from(block);
+    let program = Program::try_from(block).unwrap();
     let actual = program.compile();
     let expected = program![
         fn _main {
@@ -112,7 +112,7 @@ fn variables_and_arithmetic() {
 fn simple_blocks() {
     let mut lexer = Lexer::from("let x = 2; 1 + { let y = 3; x * y }").peekable();
     let block = Block::from(&mut lexer);
-    let program = Program::from(block);
+    let program = Program::try_from(block).unwrap();
     let actual = program.compile();
     let expected = program![
         fn _main {
@@ -133,7 +133,7 @@ fn simple_blocks() {
 fn function_creation() {
     let mut lexer = Lexer::from("let x = 2; with y; x * y").peekable();
     let block = Block::from(&mut lexer);
-    let program = Program::from(block);
+    let program = Program::try_from(block).unwrap();
     let actual = program.compile();
     let expected = program![
         fn _main {
@@ -156,7 +156,7 @@ fn function_creation() {
 fn function_usage() {
     let mut lexer = Lexer::from("let f = {with x; x * x}; f 2").peekable();
     let block = Block::from(&mut lexer);
-    let program = Program::from(block);
+    let program = Program::try_from(block).unwrap();
     let actual = program.compile();
     let expected = program![
         fn _main {
@@ -181,7 +181,7 @@ fn function_usage() {
 fn if_expression() {
     let mut lexer = Lexer::from("if true then 1 else then 2 end").peekable();
     let block = Block::from(&mut lexer);
-    let program = Program::from(block);
+    let program = Program::try_from(block).unwrap();
     let actual = program.compile();
     let expected = program![
         fn _main {
@@ -200,7 +200,7 @@ fn option_enum() {
     let mut lexer =
         Lexer::from("let Option = enum then let Some = (); let None = (); end;").peekable();
     let block = Block::from(&mut lexer);
-    let program = Program::from(block);
+    let program = Program::try_from(block).unwrap();
     let actual = program.compile();
     let expected = program![
         let some = "Some";
@@ -224,7 +224,7 @@ fn option_enum() {
 fn tuple_indexing() {
     let mut lexer = Lexer::from("let x = 1, 2; x.1").peekable();
     let block = Block::from(&mut lexer);
-    let program = Program::from(block);
+    let program = Program::try_from(block).unwrap();
     let actual = program.compile();
     let expected = program![
         fn _main {
@@ -243,7 +243,7 @@ fn tuple_indexing() {
 fn named_tuple_indexing() {
     let mut lexer = Lexer::from("let x = first: 1, second: 2; x.second").peekable();
     let block = Block::from(&mut lexer);
-    let program = Program::from(block);
+    let program = Program::try_from(block).unwrap();
     let actual = program.compile();
     let expected = program![
         let first = "first";
@@ -266,7 +266,7 @@ fn named_tuple_indexing() {
 fn builtins() {
     let mut lexer = Lexer::from("Option.Some 1; None ()").peekable();
     let block = Block::from(&mut lexer);
-    let program = Program::from(block);
+    let program = Program::try_from(block).unwrap();
     let actual = program.compile();
     let expected = program! {
         let some = "Some";
@@ -283,4 +283,17 @@ fn builtins() {
         }
     };
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn invalid_enum() {
+    let mut lexer = Lexer::from("enum then break 1 end").peekable();
+    let block = Block::from(&mut lexer);
+    let actual = Program::try_from(block);
+    if !matches!(actual, Err(Error::UnexpectedEnumResult)) {
+        panic!(
+            "actual: {actual:?}\nexpected: Err({:?})",
+            Error::UnexpectedEnumResult
+        );
+    }
 }
