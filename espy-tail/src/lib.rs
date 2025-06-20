@@ -1,6 +1,6 @@
 use espy_ears::{Action, Block, BlockResult, Expression, For, If, Node, Statement};
 use espy_eyes::{Lexigram, Token};
-use std::{cell::Cell, iter, num::ParseIntError};
+use std::{cell::Cell, iter, mem, num::ParseIntError};
 
 #[cfg(test)]
 mod tests;
@@ -14,6 +14,7 @@ pub mod instruction {
     pub const COLLAPSE: u8 = 0x03;
     pub const JUMP: u8 = 0x04;
     pub const IF: u8 = 0x05;
+    pub const FOR: u8 = 0x06;
 
     // Push ops: 0x10-0x2F
     pub const PUSH_UNIT: u8 = 0x10;
@@ -107,6 +108,11 @@ pub enum Instruction {
     /// Pop a boolean value off the stack.
     /// If it is *false*, set the program counter.
     If(ProgramCounter),
+    /// Shortcut for for loops.
+    /// This reads the top value on the stack but does not pop it,
+    /// unwraps the inner value and pushes it to the stack if it is Some,
+    /// and jumps to the following address if it is None.
+    For(ProgramCounter),
 
     PushUnit,
     PushI64(i64),
@@ -197,6 +203,7 @@ impl Iterator for InstructionIter {
             Instruction::Collapse(to) => decompose!(instruction::COLLAPSE, to as 1..=4),
             Instruction::Jump(pc) => decompose!(instruction::JUMP, pc as 1..=4),
             Instruction::If(pc) => decompose!(instruction::IF, pc as 1..=4),
+            Instruction::For(escape) => decompose!(instruction::FOR, escape as 1..=4),
 
             Instruction::PushUnit => decompose!(instruction::PUSH_UNIT,),
             Instruction::PushI64(literal) => decompose!(instruction::PUSH_I64, literal as 1..=8),
@@ -263,10 +270,7 @@ impl<'source> Program<'source> {
         let mut output = Vec::new();
         // Reserve space for vector offsets.
         // Blocks, strings, and string sets are only referred to by index,
-        // so this is the only retroactive filling required.
-        // It would be possible to maintain a much smaller vector
-        // (and lazily produce the program's bytecode)
-        // by putting this at the end of the program.
+        // so this is the only program-wide retroactive filling required.
         output.extend((self.blocks.len() as u32).to_le_bytes());
         let block_offsets = output.len();
         output.extend(iter::repeat_n(0, self.blocks.len() * size_of::<u32>()));
@@ -326,8 +330,19 @@ impl<'source> Program<'source> {
         block: Block<'source>,
         mut scope: Scope<'_, 'source>,
     ) -> Result<(), Error<'source>> {
+        self.insert_block(block_id, block, &mut scope)?;
+        scope.resolve_breaks(&mut self.blocks[block_id as usize]);
+        Ok(())
+    }
+
+    fn insert_block(
+        &mut self,
+        block_id: BlockId,
+        block: Block<'source>,
+        scope: &mut Scope<'_, 'source>,
+    ) -> Result<(), Error<'source>> {
         for i in block.statements {
-            self.add_statement(block_id, i, &mut scope)?;
+            self.add_statement(block_id, i, scope)?;
         }
         // Collapse the scope if any additional values are left the stack.
         // This occurs when statements bind variables.
@@ -340,14 +355,14 @@ impl<'source> Program<'source> {
             .map(|parent| parent.stack_pointer);
         match block.result {
             BlockResult::Expression(i) => {
-                self.add_expression(block_id, i, &mut scope)?;
+                self.add_expression(block_id, i, scope)?;
             }
             BlockResult::Break {
                 break_token,
                 expression,
             } => {
-                self.add_expression(block_id, expression, &mut scope)?;
-                let mut candidate = &scope;
+                self.add_expression(block_id, expression, scope)?;
+                let mut candidate = &*scope;
                 while !candidate.implicit_break {
                     let Some(parent) = candidate.parent else {
                         return Err(Error::InvalidBreak(break_token));
@@ -423,7 +438,29 @@ impl<'source> Program<'source> {
                 iterator,
                 block,
                 ..
-            }) => todo!(),
+            }) => {
+                self.add_expression(block_id, iterator, scope)?;
+                let for_address = block!().len();
+                block!().extend(Instruction::For(0));
+                scope.stack_pointer += 1;
+                let escape_address = block!().len() - 4;
+                let mut child = scope.child().implicit_break();
+                if let Some(binding) = binding {
+                    child.insert(binding.origin);
+                }
+                // Note the insert-we need to inject two more instructions into this block.
+                self.insert_block(block_id, block, &mut child)?;
+                // For loop return values can't be used.
+                block!().extend(Instruction::Pop);
+                block!().extend(Instruction::Jump(for_address as u32));
+                // Now the inside of the for has been resolved.
+                child.resolve_breaks(&mut block!());
+                let escape_target = block!().len() as u32;
+                block!()[escape_address..(escape_address + size_of::<u32>())]
+                    .copy_from_slice(&escape_target.to_le_bytes());
+                // Remove the iterator from the stack.
+                block!().extend(Instruction::Pop);
+            }
             Action::Implementation(_) => todo!(),
         }
         Ok(())
@@ -679,6 +716,14 @@ impl<'parent, 'source> Scope<'parent, 'source> {
         self.break_requests.set(break_requests);
     }
 
+    fn resolve_breaks(self, program: &mut [u8]) {
+        let to = program.len() as ProgramCounter;
+        for break_request in self.break_requests.take().into_iter().map(|x| x as usize) {
+            program[break_request..(break_request + size_of::<u32>())]
+                .copy_from_slice(&to.to_le_bytes());
+        }
+    }
+
     fn child(&'parent self) -> Self {
         Self {
             parent: Some(self),
@@ -687,14 +732,21 @@ impl<'parent, 'source> Scope<'parent, 'source> {
         }
     }
 
-    fn promote(mut self) -> Self {
+    /// Removes all variable bindings from this scope
+    /// and creates a new scope which begins with them.
+    fn promote(&mut self) -> Self {
         let lost_size = self.parent.map_or(0, |x| x.stack_pointer);
-        self.parent = None;
-        self.stack_pointer -= lost_size;
-        for binding in &mut self.bindings {
+        let mut new_bindings = Vec::new();
+        mem::swap(&mut self.bindings, &mut new_bindings);
+        for binding in &mut new_bindings {
             binding.1.index -= lost_size;
         }
-        self
+        Self {
+            parent: None,
+            stack_pointer: self.stack_pointer - lost_size,
+            bindings: new_bindings,
+            ..Default::default()
+        }
     }
 
     fn named(self, s: &'source str) -> Self {

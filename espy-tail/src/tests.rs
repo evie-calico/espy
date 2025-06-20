@@ -297,3 +297,46 @@ fn invalid_enum() {
         );
     }
 }
+
+#[test]
+fn for_loop() {
+    let mut lexer = Lexer::from("for i in 5 then Some i end;").peekable();
+    let block = Block::from(&mut lexer);
+    let program = Program::try_from(block).unwrap();
+    let actual = program.compile();
+    let expected = program! {
+        fn _main {
+            PushI64(5),
+            For(31),
+            Clone(builtins::SOME),
+            Clone(1),
+            Call,
+            Pop,
+            Jump(9),
+            Pop,
+            PushUnit,
+        }
+    };
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn for_with_break() {
+    let mut lexer = Lexer::from("for i in 5 then break end;").peekable();
+    let block = Block::from(&mut lexer);
+    let program = Program::try_from(block).unwrap();
+    let actual = program.compile();
+    let expected = program! {
+        fn _main {
+            PushI64(5),
+            For(26),
+            PushUnit,
+            Jump(26),
+            Pop,
+            Jump(9),
+            Pop,
+            PushUnit,
+        }
+    };
+    assert_eq!(actual, expected);
+}
