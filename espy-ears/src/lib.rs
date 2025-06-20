@@ -83,7 +83,6 @@ pub enum Node<'source> {
     Block(Block<'source>),
     If(If<'source>),
     Match(Match<'source>),
-    For(For<'source>),
     Struct(Struct<'source>),
     Enum(Enum<'source>),
 
@@ -473,9 +472,6 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 lexi!(Match) => {
                     contents.push(Match::from(&mut *lexer).into());
                 }
-                lexi!(For) => {
-                    contents.push(For::from(&mut *lexer).into());
-                }
                 lexi!(Struct) => {
                     contents.push(Struct::from(&mut *lexer).into());
                 }
@@ -692,71 +688,6 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Match<'source> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct For<'source> {
-    for_token: Option<Token<'source>>,
-    binding: Option<Token<'source>>,
-    in_token: Option<Token<'source>>,
-    iterator: Expression<'source>,
-    then_token: Option<Token<'source>>,
-    first: Block<'source>,
-    else_token: Option<Token<'source>>,
-    second: Block<'source>,
-    end_token: Option<Token<'source>>,
-    diagnostics: Diagnostics<'source>,
-}
-
-impl<'source> From<For<'source>> for Node<'source> {
-    fn from(for_block: For<'source>) -> Self {
-        Self::For(for_block)
-    }
-}
-
-impl<'source> From<&mut Peekable<Lexer<'source>>> for For<'source> {
-    fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
-        let for_token = lexer.next().transpose().ok().flatten();
-        let mut diagnostics = Diagnostics::default();
-
-        let binding = diagnostics.next_if(lexer, &[Lexigram::Ident, Lexigram::Discard]);
-        let in_token = diagnostics.next_if(lexer, &[Lexigram::In]);
-        let iterator = Expression::from(&mut *lexer);
-        let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
-        let first = Block::from(&mut *lexer);
-
-        let (else_token, second, end_token) = match diagnostics.wrap(lexer.peek().copied()) {
-            end_token @ Some(Token {
-                lexigram: Lexigram::End,
-                ..
-            }) => (None, Block::default(), end_token),
-            else_token @ Some(Token {
-                lexigram: Lexigram::Else,
-                ..
-            }) => {
-                lexer.next();
-                let second = Block::from(&mut *lexer);
-                let end_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
-                (else_token, second, end_token)
-            }
-            _ => {
-                diagnostics.expect(lexer.peek().copied(), &[Lexigram::End, Lexigram::Else]);
-                (None, Block::default(), None)
-            }
-        };
-        Self {
-            for_token,
-            binding,
-            in_token,
-            iterator,
-            then_token,
-            first,
-            else_token,
-            second,
-            end_token,
-            diagnostics,
-        }
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
 pub struct Struct<'source> {
     struct_token: Option<Token<'source>>,
     inner: Expression<'source>,
@@ -834,6 +765,43 @@ pub struct Binding<'source> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
+pub struct For<'source> {
+    pub for_token: Option<Token<'source>>,
+    pub binding: Option<Token<'source>>,
+    pub in_token: Option<Token<'source>>,
+    pub iterator: Expression<'source>,
+    pub then_token: Option<Token<'source>>,
+    pub block: Block<'source>,
+    pub end_token: Option<Token<'source>>,
+    pub diagnostics: Diagnostics<'source>,
+}
+
+impl<'source> From<&mut Peekable<Lexer<'source>>> for For<'source> {
+    fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
+        let for_token = lexer.next().transpose().ok().flatten();
+        let mut diagnostics = Diagnostics::default();
+
+        let binding = diagnostics.next_if(lexer, &[Lexigram::Ident, Lexigram::Discard]);
+        let in_token = diagnostics.next_if(lexer, &[Lexigram::In]);
+        let iterator = Expression::from(&mut *lexer);
+        let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
+        let first = Block::from(&mut *lexer);
+        let end_token = diagnostics.next_if(lexer, &[Lexigram::End]);
+
+        Self {
+            for_token,
+            binding,
+            in_token,
+            iterator,
+            then_token,
+            block: first,
+            end_token,
+            diagnostics,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
 pub struct Implementation<'source> {
     pub impl_token: Token<'source>,
     pub trait_expression: Expression<'source>,
@@ -874,6 +842,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Implementation<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub enum Action<'source> {
     Evaluate(Option<Binding<'source>>, Option<Expression<'source>>),
+    For(For<'source>),
     Implementation(Implementation<'source>),
 }
 
@@ -951,20 +920,6 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
         let mut statements = Vec::new();
         loop {
             let statement = match diagnostics.wrap(lexer.peek().copied()) {
-                Some(Token {
-                    lexigram: Lexigram::Impl,
-                    ..
-                }) => {
-                    // Will consume the impl token
-                    let implementation = Implementation::from(&mut *lexer);
-                    let mut diagnostics = Diagnostics::default();
-                    let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
-                    Statement {
-                        action: Action::Implementation(implementation),
-                        semicolon_token,
-                        diagnostics,
-                    }
-                }
                 Some(
                     let_token @ Token {
                         lexigram: Lexigram::Let,
@@ -1068,6 +1023,34 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
                             diagnostics: st_diagnostics,
                             semicolon_token: None,
                         }
+                    }
+                }
+                Some(Token {
+                    lexigram: Lexigram::For,
+                    ..
+                }) => {
+                    // Will consume the for token
+                    let for_loop = For::from(&mut *lexer);
+                    let mut diagnostics = Diagnostics::default();
+                    let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
+                    Statement {
+                        action: Action::For(for_loop),
+                        semicolon_token,
+                        diagnostics,
+                    }
+                }
+                Some(Token {
+                    lexigram: Lexigram::Impl,
+                    ..
+                }) => {
+                    // Will consume the impl token
+                    let implementation = Implementation::from(&mut *lexer);
+                    let mut diagnostics = Diagnostics::default();
+                    let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
+                    Statement {
+                        action: Action::Implementation(implementation),
+                        semicolon_token,
+                        diagnostics,
                     }
                 }
                 Some(

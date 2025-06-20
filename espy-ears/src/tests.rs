@@ -9,7 +9,6 @@ macro_rules! token {
     };
 }
 
-token!(BREAK: Break = "break");
 token!(COLON: Colon = ":");
 token!(DOT: Dot = ".");
 token!(ELSE: Else = "else");
@@ -320,89 +319,31 @@ fn forgotten_semicolon() {
 
 #[test]
 fn for_loop() {
-    let source = "for i in iter then print i end;";
+    let source = "for i in iter then print i; end;";
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
         statements: vec![Statement {
-            action: evaluate([For {
+            action: Action::For(For {
                 for_token: Some(FOR),
                 binding: Some(ident("i")),
                 in_token: Some(IN),
                 iterator: expression([variable("iter")]),
                 then_token: Some(THEN),
-                first: Block {
-                    result: expression([
-                        variable("print"),
-                        variable("i"),
-                        Node::Call(Some(ident("i"))),
-                    ])
-                    .into(),
+                block: Block {
+                    statements: vec![Statement {
+                        action: evaluate([
+                            variable("print"),
+                            variable("i"),
+                            Node::Call(Some(ident("i"))),
+                        ]),
+                        semicolon_token: Some(SEMICOLON),
+                        diagnostics: Diagnostics::default(),
+                    }],
                     ..Default::default()
                 },
-                else_token: None,
-                second: Block::default(),
                 end_token: Some(END),
                 diagnostics: Diagnostics::default(),
-            }
-            .into()]),
-            semicolon_token: Some(SEMICOLON),
-            diagnostics: Diagnostics::default(),
-        }],
-        ..Default::default()
-    };
-    assert_eq!(actual, expected);
-}
-
-#[test]
-fn for_expression() {
-    let source = "let x = for i in iter then if i == needle then break Some i end else None end;";
-    let actual = Block::from(&mut Lexer::from(source).peekable());
-    let expected = Block {
-        statements: vec![Statement {
-            action: binding(
-                "x",
-                [For {
-                    for_token: Some(FOR),
-                    binding: Some(ident("i")),
-                    in_token: Some(IN),
-                    iterator: expression([variable("iter")]),
-                    then_token: Some(THEN),
-                    first: Block {
-                        result: expression([If {
-                            if_token: Some(IF),
-                            condition: expression([variable("i"), variable("needle"), EQUAL_TO]),
-                            then_token: Some(THEN),
-                            first: Block {
-                                result: BlockResult::Break {
-                                    break_token: BREAK,
-                                    expression: expression([
-                                        variable("Some"),
-                                        variable("i"),
-                                        Node::Call(Some(ident("i"))),
-                                    ]),
-                                },
-                                ..Default::default()
-                            },
-                            else_token: None,
-                            else_kind: None,
-                            second: Block::default(),
-                            end_token: Some(END),
-                            diagnostics: Diagnostics::default(),
-                        }
-                        .into()])
-                        .into(),
-                        ..Default::default()
-                    },
-                    else_token: Some(ELSE),
-                    second: Block {
-                        result: expression([variable("None")]).into(),
-                        ..Default::default()
-                    },
-                    end_token: Some(END),
-                    diagnostics: Diagnostics::default(),
-                }
-                .into()],
-            ),
+            }),
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics::default(),
         }],

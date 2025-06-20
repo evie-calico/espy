@@ -1,4 +1,4 @@
-use espy_ears::{Action, Block, BlockResult, Expression, If, Node, Statement};
+use espy_ears::{Action, Block, BlockResult, Expression, For, If, Node, Statement};
 use espy_eyes::{Lexigram, Token};
 use std::{cell::Cell, iter, num::ParseIntError};
 
@@ -7,7 +7,7 @@ mod tests;
 
 // TODO: Reorder these before release.
 pub mod instruction {
-    // Stack primatives: 0x00-0x0F
+    // Stack and control flow: 0x00-0x0F
     pub const CLONE: u8 = 0x00;
     pub const WRITE: u8 = 0x01;
     pub const POP: u8 = 0x02;
@@ -24,7 +24,7 @@ pub mod instruction {
     pub const PUSH_ENUM: u8 = 0x15;
     pub const PUSH_STRING: u8 = 0x16;
 
-    // Operations: 0x30-0x4F
+    // Operations: 0x30..
     pub const ADD: u8 = 0x30;
     pub const SUB: u8 = 0x31;
     pub const MUL: u8 = 0x32;
@@ -279,24 +279,20 @@ impl<'source> Program<'source> {
         let string_set_offsets = output.len();
         output.extend(iter::repeat_n(0, self.string_sets.len() * size_of::<u32>()));
 
+        // Fill in offsets.
         for (block_id, block) in self.blocks.into_iter().enumerate() {
-            // Fill in offset.
             let src = output.len() as u32;
             let dest = block_offsets + block_id * size_of::<u32>();
             output[dest..(dest + size_of::<u32>())].copy_from_slice(&src.to_le_bytes());
             output.extend(block);
         }
-
         for (string_id, string) in self.strings.into_iter().enumerate() {
-            // Fill in offset.
             let src = output.len() as u32;
             let dest = string_offsets + string_id * size_of::<u32>();
             output[dest..(dest + size_of::<u32>())].copy_from_slice(&src.to_le_bytes());
             output.extend(string.bytes());
         }
-
         for (string_set_id, string_set) in self.string_sets.into_iter().enumerate() {
-            // Fill in offset.
             let src = output.len() as u32;
             let dest = string_set_offsets + string_set_id * size_of::<u32>();
             output[dest..(dest + size_of::<u32>())].copy_from_slice(&src.to_le_bytes());
@@ -400,6 +396,11 @@ impl<'source> Program<'source> {
         statement: Statement<'source>,
         scope: &mut Scope<'_, 'source>,
     ) -> Result<(), Error<'source>> {
+        macro_rules! block {
+            () => {
+                self.blocks[block_id as usize]
+            };
+        }
         match statement.action {
             Action::Evaluate(binding, expression) => {
                 // If the binding exists but not an expression, we need to generate a unit value.
@@ -414,9 +415,15 @@ impl<'source> Program<'source> {
                             .origin,
                     );
                 } else {
-                    self.blocks[block_id as usize].extend(Instruction::Pop)
+                    block!().extend(Instruction::Pop)
                 }
             }
+            Action::For(For {
+                binding,
+                iterator,
+                block,
+                ..
+            }) => todo!(),
             Action::Implementation(_) => todo!(),
         }
         Ok(())
@@ -546,7 +553,6 @@ impl<'source> Program<'source> {
 
                     fill(&mut block!(), jump_destination);
                 }
-                Node::For(_) => todo!(),
                 Node::Field {
                     dot_token: _,
                     index,
