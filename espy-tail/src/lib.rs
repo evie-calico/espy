@@ -186,16 +186,14 @@ impl IntoIterator for Instruction {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct Program<'source> {
+pub struct Program<'source> {
     blocks: Vec<Vec<u8>>,
     strings: Vec<&'source str>,
     string_sets: Vec<Vec<StringId>>,
 }
 
 impl<'source> Program<'source> {
-    // Remove this when defining the public API.
-    #[allow(dead_code, reason = "currently only used for tests")]
-    fn compile(self) -> Vec<u8> {
+    pub fn compile(self) -> Vec<u8> {
         let mut output = Vec::new();
         // Reserve space for vector offsets.
         // Blocks, strings, and string sets are only referred to by index,

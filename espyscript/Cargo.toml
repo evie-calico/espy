@@ -1,0 +1,10 @@
+[package]
+name = "espyscript"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+espy-eyes.path = "../espy-eyes"
+espy-ears.path = "../espy-ears"
+espy-tail.path = "../espy-tail"
+espy-paws.path = "../espy-paws"

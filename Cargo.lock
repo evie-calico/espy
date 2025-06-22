@@ -18,10 +18,27 @@ name = "espy-heart"
 version = "0.1.0"
 
 [[package]]
+name = "espy-paws"
+version = "0.1.0"
+dependencies = [
+ "espy-heart",
+]
+
+[[package]]
 name = "espy-tail"
 version = "0.1.0"
 dependencies = [
  "espy-ears",
  "espy-eyes",
  "espy-heart",
+]
+
+[[package]]
+name = "espyscript"
+version = "0.1.0"
+dependencies = [
+ "espy-ears",
+ "espy-eyes",
+ "espy-paws",
+ "espy-tail",
 ]

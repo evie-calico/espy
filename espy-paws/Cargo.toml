@@ -1,0 +1,7 @@
+[package]
+name = "espy-paws"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+espy-heart.path = "../espy-heart"

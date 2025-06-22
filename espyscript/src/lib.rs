@@ -1,0 +1,45 @@
+pub use espy_ears as parser;
+pub use espy_eyes as lexer;
+pub use espy_paws as interpreter;
+pub use espy_tail as compiler;
+
+pub use interpreter::Value;
+
+pub struct Program {
+    bytecode: Box<[u8]>,
+}
+
+impl Program {
+    fn eval(&self) -> Result<Value, interpreter::Error> {
+        interpreter::eval(&self.bytecode)
+    }
+}
+
+impl<'source> TryFrom<&'source str> for Program {
+    type Error = compiler::Error<'source>;
+
+    fn try_from(s: &'source str) -> Result<Self, Self::Error> {
+        compiler::Program::try_from(parser::Block::from(&mut lexer::Lexer::from(s).peekable())).map(
+            |program| Program {
+                bytecode: compiler::Program::compile(program).into_boxed_slice(),
+            },
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn arithmetic() {
+        let actual = Program::try_from("(1 + 2) * 4").unwrap();
+        println!("{:?}", actual.bytecode);
+        assert_eq!(
+            actual.eval().unwrap(),
+            Value {
+                storage: interpreter::Storage::I64(12),
+            }
+        )
+    }
+}
