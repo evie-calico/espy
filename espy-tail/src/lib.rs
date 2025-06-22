@@ -1,3 +1,18 @@
+//! Compiles an espyscript abstract syntax tree into bytecode.
+//!
+//! ```rust
+//! use espy_eyes::Lexer;
+//! use espy_ears::Block;
+//! use espy_tail::Program;
+//!
+//! let mut lexer = Lexer::from("1 + 2").peekable();
+//! let block = Block::from(&mut lexer);
+//! // note: this *may* panic if any branch of `block` contains error diagnostics.
+//! // even if it does not, a block containing error diagnostics may not produce the intended program.
+//! let program = Program::try_from(block).unwrap();
+//! let bytecode = program.compile();
+//! ```
+
 use espy_ears::{Action, Block, BlockResult, Expression, For, If, Node, Statement};
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;

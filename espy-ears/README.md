@@ -1,4 +1,4 @@
-## espy-ears
+## espy-ears (parser)
 
 the parser consists of two major contexts: the expression and the block.
 expressions define a sequence of operations that produce a value,

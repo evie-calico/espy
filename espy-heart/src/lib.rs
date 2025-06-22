@@ -1,3 +1,7 @@
+//! espyscript bytecode constants.
+//!
+//! Shared between the compiler and interpreter.
+
 pub mod prelude {
     pub use super::*;
 }
