@@ -3,6 +3,17 @@
 as with evscript, this is stylized as lowercase!
 do not capitalize the e!
 
+the espyscript crate is the primary library for end users,
+and provides a simple API for parsing, compiling, and executing espyscript.
+refer to the individual component crates' README.md files for implementation details;
+this document will describe the espyscript language.
+
+- [espy-eyes](espy-eyes/README.md) (lexer)
+- [espy-ears](espy-ears/README.md) (parser)
+- [espy-heart](espy-heart/README.md) (bytecode)
+- [espy-tail](espy-tail/README.md) (compiler)
+- [espy-paws](espy-paws/README.md) (interpreter)
+
 ## goals
 
 - simple to implement
@@ -47,58 +58,7 @@ should the programmer desire static guarantees,
 and precompiled espyscript bytecode may have optimizations applied to it
 —even if the runtime does not perform them.
 
-## lexing
-
-the espy-eyes crate handles lexing and the espy-ears crate handles parsing.
-both are lalr-only (`next` and `peek`).
-
-the espy-eyes lexer produces tokens with an "origin" string and a "lexigram".
-for many tokens the "origin" string is a known value,
-but the address and length of its string slice implies the position of the token.
-identifiers and numbers are the exception to this;
-their origin string is the identifier or number associated with them, respectively.
-
-refer to espy-eyes for a complete list of lexigrams and reserved symbols.
-
-## parsing
-
-the parser consists of two major contexts: the expression and the block.
-expressions define a sequence of operations that produce a value,
-while blocks are capable of binding expressions to identifiers and disrupting control flow.
-an espy script should be interpreted as a "block" at its top level.
-
-a block may be turned into a function using the `with` keyword.
-
-```
-let add = {
-  with x, y;
-  x + y
-};
-
-add(2, 3) == 5
-```
-
-since an espy script is just a block,
-the only way for the runtime to provide values to it is by calling a function it returns.
-the `with` syntax makes this a little more convenient than it might be in other languages,
-since creating a function doesn't require any indentation:
-
-```
-#!/usr/bin/env espyscript
-
-with std;
-
-std.print "hello, world!";
-```
-
-all bindings in the block that existed before the `with` statement continue to be bound within the resulting function.
-
-```
-let closure = {
-  let x = 1 + 2;
-  with y;
-  x * y
-};
-
-closure 5 == 15
-```
+it's also worth noting that this could change as the language develops.
+if introducing static typing doesn't have a serious impact on bytecode compilation speeds
+then i'll try to have a fully-static type system.
+i'm inclined to do so anyways for the sake of jit compilation.

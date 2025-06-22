@@ -1,31 +1,17 @@
-/// A unit of espyscript source code.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Token<'source> {
-    /// Tracks the string slice that this token originated from.
-    ///
-    /// Pointer arithmetic may be used to derive the range of the source string that the represents;
-    /// use the `origin_range` function for this purpose.
-    pub origin: &'source str,
-    /// The semantic meaning of the token.
-    ///
-    /// This is usually called the token's "type",
-    /// but "lexigram" is used to avoid conflict with Rust's `type` keyword.
-    pub lexigram: Lexigram,
-}
-
-impl Token<'_> {
-    /// # Panics
-    ///
-    /// Panics if provided a string slice that does not contain the token's `origin`.
-    pub fn origin_range(&self, source: &str) -> (usize, usize) {
-        let start = self.origin.as_ptr() as isize - source.as_ptr() as isize;
-        let end = start + self.origin.len() as isize;
-        if start < 0 || end - start > source.len() as isize {
-            panic!("source string does not contain token origin");
-        }
-        (start as usize, end as usize)
-    }
-}
+//! The lexer on its own is merely an iterator of tokens.
+//! Use espy-ears to parse espyscript.
+//!
+//! See [`Lexigram`] for a complete list of token types.
+//!
+//! ```rust
+//! use espy_eyes::Lexer;
+//!
+//! let lexer = Lexer::from("1 + 2");
+//!
+//! for token in lexer {
+//!     println!("{token:?}");
+//! }
+//! ```
 
 /// The semantic meaning of a token.
 ///
@@ -91,10 +77,33 @@ pub enum Lexigram {
     Number,
 }
 
+/// A unit of espyscript source code.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Error<'source> {
+pub struct Token<'source> {
+    /// Tracks the string slice that this token originated from.
+    ///
+    /// Pointer arithmetic may be used to derive the range of the source string that the represents;
+    /// use the `origin_range` function for this purpose.
     pub origin: &'source str,
-    pub kind: ErrorKind,
+    /// The semantic meaning of the token.
+    ///
+    /// This is usually called the token's "type",
+    /// but "lexigram" is used to avoid conflict with Rust's `type` keyword.
+    pub lexigram: Lexigram,
+}
+
+impl Token<'_> {
+    /// # Panics
+    ///
+    /// Panics if provided a string slice that does not contain the token's `origin`.
+    pub fn origin_range(&self, source: &str) -> (usize, usize) {
+        let start = self.origin.as_ptr() as isize - source.as_ptr() as isize;
+        let end = start + self.origin.len() as isize;
+        if start < 0 || end - start > source.len() as isize {
+            panic!("source string does not contain token origin");
+        }
+        (start as usize, end as usize)
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -109,6 +118,12 @@ pub enum ErrorKind {
     ///
     /// Parsers are free to reinterpret this as an identifier for diagnostic purposes.
     ReservedSymbol,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct Error<'source> {
+    pub origin: &'source str,
+    pub kind: ErrorKind,
 }
 
 pub type Result<'source, T = Token<'source>, E = Error<'source>> = std::result::Result<T, E>;
