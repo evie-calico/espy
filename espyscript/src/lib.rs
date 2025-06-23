@@ -42,4 +42,31 @@ mod tests {
             }
         )
     }
+
+    #[test]
+    fn tuples() {
+        let actual = Program::try_from("let x = 1, 2; let y = 3, 4; x.1 * y.0").unwrap();
+        println!("{:?}", actual.bytecode);
+        assert_eq!(
+            actual.eval().unwrap(),
+            Value {
+                storage: interpreter::Storage::I64(6),
+            }
+        )
+    }
+
+    #[test]
+    fn named_tuples() {
+        let actual = Program::try_from(
+            "let x = first: 1, second: 2; let y = third: 3, fourth: 4; x.second * y.0",
+        )
+        .unwrap();
+        println!("{:?}", actual.bytecode);
+        assert_eq!(
+            actual.eval().unwrap(),
+            Value {
+                storage: interpreter::Storage::I64(6),
+            }
+        )
+    }
 }
