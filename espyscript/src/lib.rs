@@ -11,7 +11,7 @@ pub struct Program {
 
 impl Program {
     fn eval(&self) -> Result<Value, interpreter::Error> {
-        interpreter::eval(&self.bytecode)
+        interpreter::Program::try_from(&*self.bytecode)?.eval(0, Vec::new())
     }
 }
 
@@ -66,6 +66,30 @@ mod tests {
             actual.eval().unwrap(),
             Value {
                 storage: interpreter::Storage::I64(6),
+            }
+        )
+    }
+
+    #[test]
+    fn functions() {
+        let actual = Program::try_from("let f = {with x; x * x}; f 4").unwrap();
+        println!("{:?}", actual.bytecode);
+        assert_eq!(
+            actual.eval().unwrap(),
+            Value {
+                storage: interpreter::Storage::I64(16),
+            }
+        )
+    }
+
+    #[test]
+    fn closures() {
+        let actual = Program::try_from("let f = {let y = 10; with x; x * y}; f 4").unwrap();
+        println!("{:?}", actual.bytecode);
+        assert_eq!(
+            actual.eval().unwrap(),
+            Value {
+                storage: interpreter::Storage::I64(40),
             }
         )
     }

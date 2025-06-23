@@ -6,6 +6,7 @@ pub enum Error {
     ExpectedBool(Value),
     ExpectedNumber(Value),
     ExpectedNumbers(Value, Value),
+    ExpectedFunction(Value),
     IndexNotFound {
         index: Value,
         container: Value,
@@ -62,6 +63,7 @@ pub enum Storage {
     String(Rc<str>),
     Tuple(Rc<[Storage]>),
     NamedTuple(Rc<[(Rc<str>, Storage)]>),
+    Function { stack: Vec<Value>, block_id: usize },
 }
 
 impl From<Storage> for Value {
@@ -163,7 +165,26 @@ impl<'bytes> Program<'bytes> {
             })
     }
 
-    pub fn eval(&mut self, block_id: usize) -> Result<Value, Error> {
+    pub fn eval(&mut self, block_id: usize, mut stack: Vec<Value>) -> Result<Value, Error> {
+        fn rc_slice_from_iter<T>(len: usize, iter: impl Iterator<Item = T>) -> Rc<[T]> {
+            let mut tuple = Rc::new_uninit_slice(len);
+            // SAFETY: `get_mut` only returns `None` if the `Rc` has been cloned.
+            let mutable_tuple = unsafe { Rc::get_mut(&mut tuple).unwrap_unchecked() };
+            let count = mutable_tuple
+                .iter_mut()
+                .zip(iter)
+                .map(|(entry, value)| {
+                    entry.write(value);
+                })
+                .count();
+            assert!(
+                count == len,
+                "iter did not produce enough values ({count}) to initialize slice of length {len}"
+            );
+            // SAFETY: Since `count` == `len`, the slice is initialized.
+            unsafe { tuple.assume_init() }
+        }
+
         struct Frame<'a> {
             bytecode: &'a [u8],
             pc: usize,
@@ -205,7 +226,6 @@ impl<'bytes> Program<'bytes> {
             pc: 0,
         };
 
-        let mut stack = Vec::<Value>::new();
         // The program counter reaching the first (and only the first)
         // out-of-bounds byte should be considered a return.
         while program.pc != program.bytecode.len() {
@@ -280,7 +300,17 @@ impl<'bytes> Program<'bytes> {
                         storage: Storage::String(string),
                     })
                 }
-                instruction::PUSH_FUNCTION => todo!(),
+                instruction::PUSH_FUNCTION => {
+                    let captures = program.next4()?;
+                    let function = program.next4()?;
+                    let new_stack = stack.split_off(stack.len() - captures);
+                    stack.push(Value {
+                        storage: Storage::Function {
+                            stack: new_stack,
+                            block_id: function,
+                        },
+                    });
+                }
                 instruction::PUSH_ENUM => todo!(),
 
                 instruction::ADD => bi_num!(let l, r => l + r),
@@ -312,26 +342,23 @@ impl<'bytes> Program<'bytes> {
                 instruction::LOGICAL_OR => bi_op!(let l, r: Bool => Bool: *l || *r),
                 instruction::PIPE => todo!(),
 
-                instruction::CALL => todo!(),
+                instruction::CALL => {
+                    let argument = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let function = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let Value {
+                        storage:
+                            Storage::Function {
+                                stack: mut new_stack,
+                                block_id,
+                            },
+                    } = function
+                    else {
+                        return Err(Error::ExpectedFunction(function));
+                    };
+                    new_stack.push(argument);
+                    stack.push(self.eval(block_id, new_stack)?);
+                }
                 instruction::TUPLE => {
-                    fn rc_slice_from_iter<T>(len: usize, iter: impl Iterator<Item = T>) -> Rc<[T]> {
-                        let mut tuple = Rc::new_uninit_slice(len);
-                        // SAFETY: `get_mut` only returns `None` if the `Rc` has been cloned.
-                        let mutable_tuple = unsafe { Rc::get_mut(&mut tuple).unwrap_unchecked() };
-                        let count = mutable_tuple
-                            .iter_mut()
-                            .zip(iter)
-                            .map(|(entry, value)| {
-                                entry.write(value);
-                            })
-                            .count();
-                        assert!(
-                            count == len,
-                            "iter did not produce enough values ({count}) to initialize slice of length {len}"
-                        );
-                        // SAFETY: Since `count` == `len`, the slice is initialized.
-                        unsafe { tuple.assume_init() }
-                    }
                     let r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let l = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     match (l.storage, r.storage) {
