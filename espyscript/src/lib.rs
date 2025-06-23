@@ -93,4 +93,16 @@ mod tests {
             }
         )
     }
+
+    #[test]
+    fn pipes() {
+        let actual = Program::try_from("let f = {with args; args.0 * args.1}; 2 |> f 128").unwrap();
+        println!("{:?}", actual.bytecode);
+        assert_eq!(
+            actual.eval().unwrap(),
+            Value {
+                storage: interpreter::Storage::I64(256),
+            }
+        )
+    }
 }

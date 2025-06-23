@@ -63,13 +63,20 @@ pub enum Storage {
     String(Rc<str>),
     Tuple(Rc<[Storage]>),
     NamedTuple(Rc<[(Rc<str>, Storage)]>),
-    Function { stack: Vec<Value>, block_id: usize },
+    Function(Box<Function>),
 }
 
 impl From<Storage> for Value {
     fn from(storage: Storage) -> Self {
         Self { storage }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Function {
+    stack: Vec<Value>,
+    block_id: usize,
+    arguments: Value,
 }
 
 fn read4(bytes: &[u8], at: usize) -> Option<usize> {
@@ -166,23 +173,56 @@ impl<'bytes> Program<'bytes> {
     }
 
     pub fn eval(&mut self, block_id: usize, mut stack: Vec<Value>) -> Result<Value, Error> {
-        fn rc_slice_from_iter<T>(len: usize, iter: impl Iterator<Item = T>) -> Rc<[T]> {
-            let mut tuple = Rc::new_uninit_slice(len);
-            // SAFETY: `get_mut` only returns `None` if the `Rc` has been cloned.
-            let mutable_tuple = unsafe { Rc::get_mut(&mut tuple).unwrap_unchecked() };
-            let count = mutable_tuple
-                .iter_mut()
-                .zip(iter)
-                .map(|(entry, value)| {
-                    entry.write(value);
-                })
-                .count();
-            assert!(
-                count == len,
-                "iter did not produce enough values ({count}) to initialize slice of length {len}"
-            );
-            // SAFETY: Since `count` == `len`, the slice is initialized.
-            unsafe { tuple.assume_init() }
+        fn concat(l: Value, r: Value) -> Value {
+            fn rc_slice_from_iter<T>(len: usize, iter: impl Iterator<Item = T>) -> Rc<[T]> {
+                let mut tuple = Rc::new_uninit_slice(len);
+                // SAFETY: `get_mut` only returns `None` if the `Rc` has been cloned.
+                let mutable_tuple = unsafe { Rc::get_mut(&mut tuple).unwrap_unchecked() };
+                let count = mutable_tuple
+                    .iter_mut()
+                    .zip(iter)
+                    .map(|(entry, value)| {
+                        entry.write(value);
+                    })
+                    .count();
+                assert!(
+                    count == len,
+                    "iter did not produce enough values ({count}) to initialize slice of length {len}"
+                );
+                // SAFETY: Since `count` == `len`, the slice is initialized.
+                unsafe { tuple.assume_init() }
+            }
+            match (l.storage, r.storage) {
+                (Storage::Tuple(l), Storage::Tuple(r)) => Value {
+                    storage: Storage::Tuple(rc_slice_from_iter(
+                        l.len() + r.len(),
+                        l.iter().chain(r.iter()).cloned(),
+                    )),
+                },
+                (Storage::NamedTuple(l), Storage::NamedTuple(r)) => Value {
+                    storage: Storage::NamedTuple(rc_slice_from_iter(
+                        l.len() + r.len(),
+                        l.iter().chain(r.iter()).cloned(),
+                    )),
+                },
+                (l, Storage::Unit) => Value { storage: l },
+                (Storage::Unit, r) => Value { storage: r },
+                (Storage::Tuple(l), r) => Value {
+                    storage: Storage::Tuple(rc_slice_from_iter(
+                        l.len() + 1,
+                        l.iter().cloned().chain(Some(r)),
+                    )),
+                },
+                (l, Storage::Tuple(r)) => Value {
+                    storage: Storage::Tuple(rc_slice_from_iter(
+                        1 + r.len(),
+                        Some(l).into_iter().chain(r.iter().cloned()),
+                    )),
+                },
+                (l, r) => Value {
+                    storage: Storage::Tuple(Rc::new([l, r])),
+                },
+            }
         }
 
         struct Frame<'a> {
@@ -305,10 +345,14 @@ impl<'bytes> Program<'bytes> {
                     let function = program.next4()?;
                     let new_stack = stack.split_off(stack.len() - captures);
                     stack.push(Value {
-                        storage: Storage::Function {
+                        storage: Storage::Function(Box::new(Function {
                             stack: new_stack,
                             block_id: function,
-                        },
+                            // will be ignored by concatenation
+                            arguments: Value {
+                                storage: Storage::Unit,
+                            },
+                        })),
                     });
                 }
                 instruction::PUSH_ENUM => todo!(),
@@ -340,64 +384,38 @@ impl<'bytes> Program<'bytes> {
                 }
                 instruction::LOGICAL_AND => bi_op!(let l, r: Bool => Bool: *l && *r),
                 instruction::LOGICAL_OR => bi_op!(let l, r: Bool => Bool: *l || *r),
-                instruction::PIPE => todo!(),
+                instruction::PIPE => {
+                    let function = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let argument = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let Value {
+                        storage: Storage::Function(mut function),
+                    } = function
+                    else {
+                        return Err(Error::ExpectedFunction(function));
+                    };
+                    function.arguments = concat(function.arguments, argument);
+                    println!("{:?}", function.arguments);
+                    stack.push(Value {
+                        storage: Storage::Function(function),
+                    });
+                }
 
                 instruction::CALL => {
                     let argument = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let function = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let Value {
-                        storage:
-                            Storage::Function {
-                                stack: mut new_stack,
-                                block_id,
-                            },
+                        storage: Storage::Function(mut function),
                     } = function
                     else {
                         return Err(Error::ExpectedFunction(function));
                     };
-                    new_stack.push(argument);
-                    stack.push(self.eval(block_id, new_stack)?);
+                    function.stack.push(concat(function.arguments, argument));
+                    stack.push(self.eval(function.block_id, function.stack)?);
                 }
                 instruction::TUPLE => {
                     let r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let l = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    match (l.storage, r.storage) {
-                        (Storage::Tuple(l), Storage::Tuple(r)) => {
-                            stack.push(Value {
-                                storage: Storage::Tuple(rc_slice_from_iter(
-                                    l.len() + r.len(),
-                                    l.iter().chain(r.iter()).cloned(),
-                                )),
-                            });
-                        }
-                        (Storage::NamedTuple(l), Storage::NamedTuple(r)) => {
-                            stack.push(Value {
-                                storage: Storage::NamedTuple(rc_slice_from_iter(
-                                    l.len() + r.len(),
-                                    l.iter().chain(r.iter()).cloned(),
-                                )),
-                            });
-                        }
-                        (Storage::Tuple(l), r) => {
-                            stack.push(Value {
-                                storage: Storage::Tuple(rc_slice_from_iter(
-                                    l.len() + 1,
-                                    l.iter().cloned().chain(Some(r)),
-                                )),
-                            });
-                        }
-                        (l, Storage::Tuple(r)) => {
-                            stack.push(Value {
-                                storage: Storage::Tuple(rc_slice_from_iter(
-                                    1 + r.len(),
-                                    Some(l).into_iter().chain(r.iter().cloned()),
-                                )),
-                            });
-                        }
-                        (l, r) => stack.push(Value {
-                            storage: Storage::Tuple(Rc::new([l, r])),
-                        }),
-                    }
+                    stack.push(concat(l, r));
                 }
                 instruction::INDEX => {
                     let index = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
