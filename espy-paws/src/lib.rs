@@ -36,6 +36,8 @@ pub enum InvalidBytecode {
     /// Note the "*greater*"; a pc of the program's length
     /// (after the last byte) is considered an intentional return.
     ProgramOutOfBounds,
+    /// Occurs when a stack access goes beyond the length of the stack.
+    StackOutOfBounds,
     /// Occurs when a string id is greater than the number of strings.
     StringOutOfBounds,
     Utf8Error(std::str::Utf8Error),
@@ -64,6 +66,9 @@ pub enum Storage {
     Tuple(Rc<[Storage]>),
     NamedTuple(Rc<[(Rc<str>, Storage)]>),
     Function(Box<Function>),
+
+    Any,
+    I64Type,
 }
 
 impl From<Storage> for Value {
@@ -294,10 +299,25 @@ impl<'bytes> Program<'bytes> {
             let instruction = program.next()?;
             match instruction {
                 instruction::CLONE => {
-                    stack.push(stack[program.next4()?].clone());
+                    let index = program.next4()? as i32;
+                    match index {
+                        0.. => {
+                            let value = stack
+                                .get(index as usize)
+                                .ok_or(InvalidBytecode::StackOutOfBounds)?;
+                            stack.push(value.clone());
+                        }
+                        builtins::ANY => {
+                            stack.push(Storage::Any.into());
+                        }
+                        builtins::I64 => {
+                            stack.push(Storage::I64Type.into());
+                        }
+                        _ => {}
+                    }
                 }
                 instruction::POP => {
-                    stack.pop();
+                    stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                 }
                 instruction::COLLAPSE => {
                     let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
@@ -336,24 +356,23 @@ impl<'bytes> Program<'bytes> {
                 instruction::PUSH_STRING => {
                     let string_id = program.next4()?;
                     let string = self.string(string_id)?;
-                    stack.push(Value {
-                        storage: Storage::String(string),
-                    })
+                    stack.push(Storage::String(string).into());
                 }
                 instruction::PUSH_FUNCTION => {
                     let captures = program.next4()?;
                     let function = program.next4()?;
                     let new_stack = stack.split_off(stack.len() - captures);
-                    stack.push(Value {
-                        storage: Storage::Function(Box::new(Function {
+                    stack.push(
+                        Storage::Function(Box::new(Function {
                             stack: new_stack,
                             block_id: function,
                             // will be ignored by concatenation
                             arguments: Value {
                                 storage: Storage::Unit,
                             },
-                        })),
-                    });
+                        }))
+                        .into(),
+                    );
                 }
                 instruction::PUSH_ENUM => todo!(),
 
@@ -371,16 +390,12 @@ impl<'bytes> Program<'bytes> {
                 instruction::EQUAL_TO => {
                     let r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let l = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Value {
-                        storage: Storage::Bool(l.storage == r.storage),
-                    });
+                    stack.push(Storage::Bool(l.storage == r.storage).into());
                 }
                 instruction::NOT_EQUAL_TO => {
                     let r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let l = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Value {
-                        storage: Storage::Bool(l.storage != r.storage),
-                    });
+                    stack.push(Storage::Bool(l.storage != r.storage).into());
                 }
                 instruction::LOGICAL_AND => bi_op!(let l, r: Bool => Bool: *l && *r),
                 instruction::LOGICAL_OR => bi_op!(let l, r: Bool => Bool: *l || *r),
@@ -395,9 +410,7 @@ impl<'bytes> Program<'bytes> {
                     };
                     function.arguments = concat(function.arguments, argument);
                     println!("{:?}", function.arguments);
-                    stack.push(Value {
-                        storage: Storage::Function(function),
-                    });
+                    stack.push(Storage::Function(function).into());
                 }
 
                 instruction::CALL => {
@@ -422,31 +435,34 @@ impl<'bytes> Program<'bytes> {
                     let container = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     match (&container.storage, &index.storage) {
                         (Storage::Tuple(tuple), Storage::I64(i)) => {
-                            stack.push(Value {
-                                storage: tuple
+                            stack.push(
+                                tuple
                                     .get(*i as usize)
                                     .cloned()
-                                    .ok_or(Error::IndexNotFound { index, container })?,
-                            });
+                                    .ok_or(Error::IndexNotFound { index, container })?
+                                    .into(),
+                            );
                         }
                         (Storage::NamedTuple(tuple), Storage::I64(i)) => {
-                            stack.push(Value {
-                                storage: tuple
+                            stack.push(
+                                tuple
                                     .get(*i as usize)
                                     .map(|(_name, value)| value)
                                     .cloned()
-                                    .ok_or(Error::IndexNotFound { index, container })?,
-                            });
+                                    .ok_or(Error::IndexNotFound { index, container })?
+                                    .into(),
+                            );
                         }
                         (Storage::NamedTuple(tuple), Storage::String(i)) => {
-                            stack.push(Value {
-                                storage: tuple
+                            stack.push(
+                                tuple
                                     .iter()
                                     .find(|(name, _value)| name == i)
                                     .map(|(_name, value)| value)
                                     .cloned()
-                                    .ok_or(Error::IndexNotFound { index, container })?,
-                            });
+                                    .ok_or(Error::IndexNotFound { index, container })?
+                                    .into(),
+                            );
                         }
                         (_, _) => return Err(Error::IndexNotFound { index, container }),
                     }
@@ -455,9 +471,7 @@ impl<'bytes> Program<'bytes> {
                     let name_id = program.next4()?;
                     let name = self.string(name_id)?;
                     let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Value {
-                        storage: Storage::NamedTuple(Rc::new([(name, value.storage)])),
-                    })
+                    stack.push(Storage::NamedTuple(Rc::new([(name, value.storage)])).into())
                 }
                 // TODO: This instruction shouldn't be emitted; unary + is a no-op
                 instruction::POSITIVE => {}
@@ -469,9 +483,7 @@ impl<'bytes> Program<'bytes> {
                     else {
                         return Err(Error::ExpectedNumber(value));
                     };
-                    stack.push(Value {
-                        storage: Storage::I64(-value),
-                    });
+                    stack.push(Storage::I64(-value).into());
                 }
 
                 _ => Err(InvalidBytecode::InvalidInstruction)?,
