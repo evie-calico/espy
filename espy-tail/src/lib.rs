@@ -73,16 +73,12 @@ pub enum Instruction {
     /// it should be unit or a tamed tuple of functions.
     /// Use this value as the enum's methods.
     ///
-    /// Pop the top `captures` values off the stack;
-    /// these should be types.
-    /// Use these as the types contained within each of the enum's variants.
-    ///
-    /// The names of each variant can be found in the string set `names`.
+    /// The names of each variant can be found in the string set `names` in reverse order.
+    /// Pop a value off the stack for each name (in reverse order) and treat it as the variant's type.
     ///
     /// Push the resulting enum type to the stack.
     PushEnum {
-        captures: StackPointer,
-        names: BlockId,
+        names: StringSet,
     },
     PushString(StringId),
 
@@ -156,9 +152,8 @@ impl Iterator for InstructionIter {
             }
             Instruction::PushTrue => decompose!(instruction::PUSH_TRUE,),
             Instruction::PushFalse => decompose!(instruction::PUSH_FALSE,),
-            Instruction::PushEnum { captures, names } => {
-                decompose!(instruction::PUSH_ENUM, captures as 1..=4, names as 5..=8)
-            }
+            Instruction::PushEnum { names } => decompose!(instruction::PUSH_ENUM, names as 1..=4),
+
             Instruction::PushString(s) => decompose!(instruction::PUSH_STRING, s as 1..=4),
 
             Instruction::Add => decompose!(instruction::ADD,),
@@ -576,14 +571,12 @@ impl<'source> Program<'source> {
                     let set = child
                         .bindings
                         .into_iter()
+                        .rev()
                         .map(|(case, _)| self.create_string(case))
                         .collect::<Result<_, Error<'source>>>()?;
                     let names = self.string_sets.len() as StringSet;
                     self.string_sets.push(set);
-                    // -1 to account for the block result (the enum's methods)
-                    let captures = child.stack_pointer - scope.stack_pointer - 1;
-                    self.blocks[block_id as usize]
-                        .extend(Instruction::PushEnum { captures, names });
+                    self.blocks[block_id as usize].extend(Instruction::PushEnum { names });
                     scope.stack_pointer += 1;
                 }
                 Node::Match(_) => todo!(),

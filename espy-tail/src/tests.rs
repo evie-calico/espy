@@ -203,15 +203,14 @@ fn option_enum() {
     let program = Program::try_from(block).unwrap();
     let actual = program.compile();
     let expected = program![
-        let some = "Some";
         let none = "None";
-        enum option = [some, none];
+        let some = "Some";
+        enum option = [none, some];
         fn _main {
             PushUnit,
             PushUnit,
             PushUnit,
             PushEnum {
-                captures: 2,
                 names: option,
             },
             PushUnit,

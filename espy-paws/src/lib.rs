@@ -38,8 +38,6 @@ pub enum InvalidBytecode {
     ProgramOutOfBounds,
     /// Occurs when a stack access goes beyond the length of the stack.
     StackOutOfBounds,
-    /// Occurs when a string id is greater than the number of strings.
-    StringOutOfBounds,
     Utf8Error(std::str::Utf8Error),
 }
 
@@ -69,6 +67,7 @@ pub enum Storage {
 
     Any,
     I64Type,
+    Enum(Box<Enum>),
 }
 
 impl From<Storage> for Value {
@@ -82,6 +81,11 @@ pub struct Function {
     stack: Vec<Value>,
     block_id: usize,
     arguments: Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Enum {
+    pub variants: Vec<(Rc<str>, Value)>,
 }
 
 fn read4(bytes: &[u8], at: usize) -> Option<usize> {
@@ -175,6 +179,15 @@ impl<'bytes> Program<'bytes> {
                 self.owned_strings[string_id] = Some(string.clone());
                 Ok(string)
             })
+    }
+
+    fn set(&mut self, set_id: usize) -> Result<&'bytes [u8], Error> {
+        let start = read4(self.sets, set_id * 4).ok_or(InvalidBytecode::MalformedHeader)?;
+        let end = read4(self.sets, set_id * 4 + 4).unwrap_or(self.bytes.len());
+        Ok(self
+            .bytes
+            .get(start..end)
+            .ok_or(InvalidBytecode::MalformedHeader)?)
     }
 
     pub fn eval(&mut self, block_id: usize, mut stack: Vec<Value>) -> Result<Value, Error> {
@@ -374,7 +387,22 @@ impl<'bytes> Program<'bytes> {
                         .into(),
                     );
                 }
-                instruction::PUSH_ENUM => todo!(),
+                instruction::PUSH_ENUM => {
+                    let names = self.set(program.next4()?)?;
+                    let methods = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let mut variants = names
+                        .chunks(4)
+                        .map(|name| {
+                            let name = name
+                                .try_into()
+                                .map_err(|_| InvalidBytecode::MalformedHeader)?;
+                            let name = self.string(u32::from_le_bytes(name) as usize)?;
+                            Ok((name, stack.pop().ok_or(InvalidBytecode::StackUnderflow)?))
+                        })
+                        .collect::<Result<Vec<_>, Error>>()?;
+                    variants.reverse();
+                    stack.push(Storage::Enum(Box::new(Enum { variants })).into())
+                }
 
                 instruction::ADD => bi_num!(let l, r => l + r),
                 instruction::SUB => bi_num!(let l, r => l - r),

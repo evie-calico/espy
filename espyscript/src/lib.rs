@@ -29,6 +29,8 @@ impl<'source> TryFrom<&'source str> for Program {
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Rc;
+
     use super::*;
 
     #[test]
@@ -102,6 +104,23 @@ mod tests {
             actual.eval().unwrap(),
             Value {
                 storage: interpreter::Storage::I64(256),
+            }
+        )
+    }
+
+    #[test]
+    fn enums() {
+        let actual = Program::try_from("enum then let Some = any; let None = (); end").unwrap();
+        println!("{:?}", actual.bytecode);
+        assert_eq!(
+            actual.eval().unwrap(),
+            Value {
+                storage: interpreter::Storage::Enum(Box::new(interpreter::Enum {
+                    variants: vec![
+                        (Rc::from("Some"), interpreter::Storage::Any.into()),
+                        (Rc::from("None"), interpreter::Storage::Unit.into())
+                    ]
+                })),
             }
         )
     }
