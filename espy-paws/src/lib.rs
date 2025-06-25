@@ -1,5 +1,5 @@
 use espy_heart::prelude::*;
-use std::rc::Rc;
+use std::{mem, rc::Rc};
 
 #[derive(Debug)]
 pub enum Error {
@@ -63,11 +63,11 @@ pub enum Storage {
     String(Rc<str>),
     Tuple(Rc<[Storage]>),
     NamedTuple(Rc<[(Rc<str>, Storage)]>),
-    Function(Box<Function>),
+    Function(Rc<Function>),
 
     Any,
     I64Type,
-    Enum(Box<Enum>),
+    Enum(Rc<Enum>),
 }
 
 impl From<Storage> for Value {
@@ -376,7 +376,7 @@ impl<'bytes> Program<'bytes> {
                     let function = program.next4()?;
                     let new_stack = stack.split_off(stack.len() - captures);
                     stack.push(
-                        Storage::Function(Box::new(Function {
+                        Storage::Function(Rc::new(Function {
                             stack: new_stack,
                             block_id: function,
                             // will be ignored by concatenation
@@ -401,7 +401,7 @@ impl<'bytes> Program<'bytes> {
                         })
                         .collect::<Result<Vec<_>, Error>>()?;
                     variants.reverse();
-                    stack.push(Storage::Enum(Box::new(Enum { variants })).into())
+                    stack.push(Storage::Enum(Rc::new(Enum { variants })).into())
                 }
 
                 instruction::ADD => bi_num!(let l, r => l + r),
@@ -436,8 +436,16 @@ impl<'bytes> Program<'bytes> {
                     else {
                         return Err(Error::ExpectedFunction(function));
                     };
-                    function.arguments = concat(function.arguments, argument);
-                    println!("{:?}", function.arguments);
+                    let function_mut = if let Some(function_mut) = Rc::get_mut(&mut function) {
+                        function_mut
+                    } else {
+                        function = Rc::new((*function).clone());
+                        Rc::make_mut(&mut function)
+                    };
+                    let mut arguments = Value::from(Storage::Unit);
+                    mem::swap(&mut arguments, &mut function_mut.arguments);
+                    arguments = concat(arguments, argument);
+                    mem::swap(&mut arguments, &mut function_mut.arguments);
                     stack.push(Storage::Function(function).into());
                 }
 
@@ -445,11 +453,13 @@ impl<'bytes> Program<'bytes> {
                     let argument = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let function = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let Value {
-                        storage: Storage::Function(mut function),
+                        storage: Storage::Function(function),
                     } = function
                     else {
                         return Err(Error::ExpectedFunction(function));
                     };
+                    let mut function =
+                        Rc::try_unwrap(function).unwrap_or_else(|function| (*function).clone());
                     function.stack.push(concat(function.arguments, argument));
                     stack.push(self.eval(function.block_id, function.stack)?);
                 }

@@ -115,7 +115,7 @@ mod tests {
         assert_eq!(
             actual.eval().unwrap(),
             Value {
-                storage: interpreter::Storage::Enum(Box::new(interpreter::Enum {
+                storage: interpreter::Storage::Enum(Rc::new(interpreter::Enum {
                     variants: vec![
                         (Rc::from("Some"), interpreter::Storage::Any.into()),
                         (Rc::from("None"), interpreter::Storage::Unit.into())
