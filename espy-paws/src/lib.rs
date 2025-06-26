@@ -55,19 +55,31 @@ pub struct Value {
 // Cloning this type should be cheap;
 // every binding usage is a clone in espyscript!
 // Use Rcs over boxes and try to put allocations as far up as possible.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Storage {
+    /// Unit is a special case of tuple.
+    /// It behaves as both an empty tuple and an empty named tuple,
+    /// as well as the type of itself (typeof () == ()).
+    // TODO: maybe () should be the value and `unit` the type?
+    #[default]
     Unit,
+    Tuple(Rc<[Storage]>),
+    NamedTuple(Rc<[(Rc<str>, Storage)]>),
+
     I64(i64),
     Bool(bool),
     String(Rc<str>),
-    Tuple(Rc<[Storage]>),
-    NamedTuple(Rc<[(Rc<str>, Storage)]>),
     Function(Rc<Function>),
+    EnumVariant(Rc<EnumVariant>),
 
     Any,
     I64Type,
-    Enum(Rc<Enum>),
+    BoolType,
+    StringType,
+    // TODO: FunctionType
+    EnumType(Rc<EnumType>),
+    /// The type of types.
+    Type,
 }
 
 impl From<Storage> for Value {
@@ -76,15 +88,57 @@ impl From<Storage> for Value {
     }
 }
 
+impl Storage {
+    fn type_cmp(&self, ty: &Self) -> bool {
+        match (self, ty) {
+            (_, Storage::Any) => true,
+            (
+                Storage::Type
+                | Storage::Any
+                | Storage::Unit
+                | Storage::I64Type
+                | Storage::EnumType { .. },
+                Storage::Type,
+            ) => true,
+            (Storage::Unit, Storage::Unit) => true,
+            (Storage::I64(_), Storage::I64Type) => true,
+            (Storage::Bool(_), Storage::BoolType) => true,
+            (Storage::String(_), Storage::StringType) => true,
+            (Storage::EnumVariant(variant), Storage::EnumType(ty)) => {
+                Rc::ptr_eq(&variant.definition, ty)
+            }
+            (_, _) => false,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Function {
-    stack: Vec<Value>,
-    block_id: usize,
+    action: FunctionAction,
     arguments: Value,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Enum {
+pub enum FunctionAction {
+    Block {
+        block_id: usize,
+        captures: Vec<Value>,
+    },
+    Enum {
+        variant: usize,
+        definition: Rc<EnumType>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnumVariant {
+    pub contents: Value,
+    pub variant: usize,
+    pub definition: Rc<EnumType>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnumType {
     pub variants: Vec<(Rc<str>, Value)>,
 }
 
@@ -377,8 +431,10 @@ impl<'bytes> Program<'bytes> {
                     let new_stack = stack.split_off(stack.len() - captures);
                     stack.push(
                         Storage::Function(Rc::new(Function {
-                            stack: new_stack,
-                            block_id: function,
+                            action: FunctionAction::Block {
+                                block_id: function,
+                                captures: new_stack,
+                            },
                             // will be ignored by concatenation
                             arguments: Value {
                                 storage: Storage::Unit,
@@ -401,7 +457,7 @@ impl<'bytes> Program<'bytes> {
                         })
                         .collect::<Result<Vec<_>, Error>>()?;
                     variants.reverse();
-                    stack.push(Storage::Enum(Rc::new(Enum { variants })).into())
+                    stack.push(Storage::EnumType(Rc::new(EnumType { variants })).into())
                 }
 
                 instruction::ADD => bi_num!(let l, r => l + r),
@@ -430,23 +486,17 @@ impl<'bytes> Program<'bytes> {
                 instruction::PIPE => {
                     let function = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let argument = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let Value {
-                        storage: Storage::Function(mut function),
-                    } = function
-                    else {
-                        return Err(Error::ExpectedFunction(function));
-                    };
-                    let function_mut = if let Some(function_mut) = Rc::get_mut(&mut function) {
-                        function_mut
-                    } else {
-                        function = Rc::new((*function).clone());
-                        Rc::make_mut(&mut function)
-                    };
-                    let mut arguments = Value::from(Storage::Unit);
-                    mem::swap(&mut arguments, &mut function_mut.arguments);
-                    arguments = concat(arguments, argument);
-                    mem::swap(&mut arguments, &mut function_mut.arguments);
-                    stack.push(Storage::Function(function).into());
+                    match function.storage {
+                        Storage::Function(mut function) => {
+                            let function_mut = Rc::make_mut(&mut function);
+                            let mut arguments = Value::from(Storage::Unit);
+                            mem::swap(&mut arguments, &mut function_mut.arguments);
+                            arguments = concat(arguments, argument);
+                            mem::swap(&mut arguments, &mut function_mut.arguments);
+                            stack.push(Storage::Function(function).into());
+                        }
+                        _ => return Err(Error::ExpectedFunction(function)),
+                    }
                 }
 
                 instruction::CALL => {
@@ -458,10 +508,27 @@ impl<'bytes> Program<'bytes> {
                     else {
                         return Err(Error::ExpectedFunction(function));
                     };
-                    let mut function =
+                    let function =
                         Rc::try_unwrap(function).unwrap_or_else(|function| (*function).clone());
-                    function.stack.push(concat(function.arguments, argument));
-                    stack.push(self.eval(function.block_id, function.stack)?);
+                    let result = match function.action {
+                        FunctionAction::Block {
+                            block_id,
+                            mut captures,
+                        } => {
+                            captures.push(concat(function.arguments, argument));
+                            self.eval(block_id, captures)?
+                        }
+                        FunctionAction::Enum {
+                            variant,
+                            definition,
+                        } => Storage::EnumVariant(Rc::new(EnumVariant {
+                            contents: argument,
+                            variant,
+                            definition,
+                        }))
+                        .into(),
+                    };
+                    stack.push(result);
                 }
                 instruction::TUPLE => {
                     let r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
@@ -471,38 +538,135 @@ impl<'bytes> Program<'bytes> {
                 instruction::INDEX => {
                     let index = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let container = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    match (&container.storage, &index.storage) {
-                        (Storage::Tuple(tuple), Storage::I64(i)) => {
+                    match (container, index) {
+                        (
+                            Value {
+                                storage: Storage::Tuple(tuple),
+                            },
+                            Value {
+                                storage: Storage::I64(i),
+                            },
+                        ) => {
                             stack.push(
                                 tuple
-                                    .get(*i as usize)
+                                    .get(i as usize)
                                     .cloned()
-                                    .ok_or(Error::IndexNotFound { index, container })?
+                                    .ok_or(Error::IndexNotFound {
+                                        index: Value {
+                                            storage: Storage::Tuple(tuple),
+                                        },
+                                        container: Value {
+                                            storage: Storage::I64(i),
+                                        },
+                                    })?
                                     .into(),
                             );
                         }
-                        (Storage::NamedTuple(tuple), Storage::I64(i)) => {
+                        (
+                            Value {
+                                storage: Storage::NamedTuple(tuple),
+                            },
+                            Value {
+                                storage: Storage::I64(i),
+                            },
+                        ) => {
                             stack.push(
                                 tuple
-                                    .get(*i as usize)
+                                    .get(i as usize)
                                     .map(|(_name, value)| value)
                                     .cloned()
-                                    .ok_or(Error::IndexNotFound { index, container })?
+                                    .ok_or(Error::IndexNotFound {
+                                        index: Value {
+                                            storage: Storage::NamedTuple(tuple),
+                                        },
+                                        container: Value {
+                                            storage: Storage::I64(i),
+                                        },
+                                    })?
                                     .into(),
                             );
                         }
-                        (Storage::NamedTuple(tuple), Storage::String(i)) => {
+                        (
+                            Value {
+                                storage: Storage::NamedTuple(tuple),
+                            },
+                            Value {
+                                storage: Storage::String(i),
+                            },
+                        ) => {
                             stack.push(
                                 tuple
                                     .iter()
-                                    .find(|(name, _value)| name == i)
+                                    .find(|(name, _value)| *name == i)
                                     .map(|(_name, value)| value)
                                     .cloned()
-                                    .ok_or(Error::IndexNotFound { index, container })?
+                                    .ok_or(Error::IndexNotFound {
+                                        index: Value {
+                                            storage: Storage::NamedTuple(tuple),
+                                        },
+                                        container: Value {
+                                            storage: Storage::String(i),
+                                        },
+                                    })?
                                     .into(),
                             );
                         }
-                        (_, _) => return Err(Error::IndexNotFound { index, container }),
+                        (
+                            Value {
+                                storage: Storage::EnumType(ty),
+                            },
+                            Value {
+                                storage: Storage::I64(i),
+                            },
+                        ) => stack.push(
+                            Storage::Function(Rc::new(Function {
+                                action: FunctionAction::Enum {
+                                    variant: i as usize,
+                                    definition: ty,
+                                },
+                                arguments: Storage::Unit.into(),
+                            }))
+                            .into(),
+                        ),
+                        (
+                            Value {
+                                storage: Storage::EnumType(ty),
+                            },
+                            Value {
+                                storage: Storage::String(name),
+                            },
+                        ) => {
+                            if let Some(variant_id) = ty
+                                .variants
+                                .iter()
+                                .enumerate()
+                                .find(|(_, (variant, _))| *variant == name)
+                                .map(|(i, _)| i)
+                            {
+                                stack.push(
+                                    Storage::Function(Rc::new(Function {
+                                        action: FunctionAction::Enum {
+                                            variant: variant_id,
+                                            definition: ty,
+                                        },
+                                        arguments: Storage::Unit.into(),
+                                    }))
+                                    .into(),
+                                );
+                            } else {
+                                return Err(Error::IndexNotFound {
+                                    index: Value {
+                                        storage: Storage::EnumType(ty),
+                                    },
+                                    container: Value {
+                                        storage: Storage::String(name),
+                                    },
+                                });
+                            }
+                        }
+                        (index, container) => {
+                            return Err(Error::IndexNotFound { index, container });
+                        }
                     }
                 }
                 instruction::NAME => {
