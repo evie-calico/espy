@@ -27,6 +27,7 @@ impl<'source> TryFrom<&'source str> for Program {
     }
 }
 
+// TODO: by putting the interpreter tests here i had to make too many things public
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;

@@ -3,10 +3,12 @@ use std::{mem, rc::Rc};
 
 #[derive(Debug)]
 pub enum Error {
-    ExpectedBool(Value),
-    ExpectedNumber(Value),
     ExpectedNumbers(Value, Value),
     ExpectedFunction(Value),
+    TypeError {
+        value: Value,
+        ty: Value,
+    },
     IndexNotFound {
         index: Value,
         container: Value,
@@ -47,6 +49,9 @@ impl From<InvalidBytecode> for Error {
     }
 }
 
+type Tuple = [Storage];
+type NamedTuple = [(Rc<str>, Storage)];
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Value {
     pub storage: Storage,
@@ -63,8 +68,8 @@ pub enum Storage {
     // TODO: maybe () should be the value and `unit` the type?
     #[default]
     Unit,
-    Tuple(Rc<[Storage]>),
-    NamedTuple(Rc<[(Rc<str>, Storage)]>),
+    Tuple(Rc<Tuple>),
+    NamedTuple(Rc<NamedTuple>),
 
     I64(i64),
     Bool(bool),
@@ -521,12 +526,25 @@ impl<'bytes> Program<'bytes> {
                         FunctionAction::Enum {
                             variant,
                             definition,
-                        } => Storage::EnumVariant(Rc::new(EnumVariant {
-                            contents: argument,
-                            variant,
-                            definition,
-                        }))
-                        .into(),
+                        } => {
+                            let ty = &definition
+                                .variants
+                                .get(variant)
+                                .expect("enum variant should be empty")
+                                .1;
+                            if !argument.storage.type_cmp(&ty.storage) {
+                                return Err(Error::TypeError {
+                                    value: argument,
+                                    ty: ty.clone(),
+                                });
+                            }
+                            Storage::EnumVariant(Rc::new(EnumVariant {
+                                contents: argument,
+                                variant,
+                                definition,
+                            }))
+                            .into()
+                        }
                     };
                     stack.push(result);
                 }
@@ -683,7 +701,10 @@ impl<'bytes> Program<'bytes> {
                         storage: Storage::I64(value),
                     } = value
                     else {
-                        return Err(Error::ExpectedNumber(value));
+                        return Err(Error::TypeError {
+                            value,
+                            ty: Storage::I64Type.into(),
+                        });
                     };
                     stack.push(Storage::I64(-value).into());
                 }
