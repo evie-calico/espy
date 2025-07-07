@@ -76,6 +76,8 @@ pub enum Storage {
     String(Rc<str>),
     Function(Rc<Function>),
     EnumVariant(Rc<EnumVariant>),
+    Some(Rc<Value>),
+    None,
 
     Any,
     I64Type,
@@ -83,6 +85,7 @@ pub enum Storage {
     StringType,
     // TODO: FunctionType
     EnumType(Rc<EnumType>),
+    Option,
     /// The type of types.
     Type,
 }
@@ -133,6 +136,8 @@ pub enum FunctionAction {
         variant: usize,
         definition: Rc<EnumType>,
     },
+    Some,
+    None,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -385,6 +390,27 @@ impl<'bytes> Program<'bytes> {
                         builtins::I64 => {
                             stack.push(Storage::I64Type.into());
                         }
+                        builtins::OPTION => {
+                            stack.push(Storage::Option.into());
+                        }
+                        builtins::SOME => {
+                            stack.push(
+                                Storage::Function(Rc::new(Function {
+                                    action: FunctionAction::Some,
+                                    arguments: Storage::Unit.into(),
+                                }))
+                                .into(),
+                            );
+                        }
+                        builtins::NONE => {
+                            stack.push(
+                                Storage::Function(Rc::new(Function {
+                                    action: FunctionAction::None,
+                                    arguments: Storage::Unit.into(),
+                                }))
+                                .into(),
+                            );
+                        }
                         _ => {}
                     }
                 }
@@ -544,6 +570,16 @@ impl<'bytes> Program<'bytes> {
                                 definition,
                             }))
                             .into()
+                        }
+                        FunctionAction::Some => Storage::Some(argument.into()).into(),
+                        FunctionAction::None => {
+                            if !argument.storage.type_cmp(&Storage::Unit) {
+                                return Err(Error::TypeError {
+                                    value: argument,
+                                    ty: Storage::Unit.into(),
+                                });
+                            }
+                            Storage::None.into()
                         }
                     };
                     stack.push(result);
