@@ -726,8 +726,9 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Struct<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct Enum<'source> {
     pub enum_token: Option<Token<'source>>,
+    pub variants: Expression<'source>,
     pub then_token: Option<Token<'source>>,
-    pub block: Block<'source>,
+    pub members: Option<Block<'source>>,
     pub end_token: Option<Token<'source>>,
     pub diagnostics: Diagnostics<'source>,
 }
@@ -742,13 +743,33 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Enum<'source> {
     fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
         let enum_token = lexer.next().transpose().ok().flatten();
         let mut diagnostics = Diagnostics::default();
-        let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
-        let block = Block::from(&mut *lexer);
+        let variants = Expression::from(&mut *lexer);
+        let (then_token, members) = match lexer.peek().copied() {
+            Some(Ok(
+                then_token @ Token {
+                    lexigram: Lexigram::Then,
+                    ..
+                },
+            )) => {
+                lexer.next();
+                let members = Block::from(&mut *lexer);
+                (Some(then_token), Some(members))
+            }
+            Some(Ok(Token {
+                lexigram: Lexigram::End,
+                ..
+            })) => (None, None),
+            t => {
+                diagnostics.expect(t, &[Lexigram::Then, Lexigram::End]);
+                (None, None)
+            }
+        };
         let end_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
         Self {
             enum_token,
+            variants,
             then_token,
-            block,
+            members,
             end_token,
             diagnostics,
         }

@@ -5,6 +5,7 @@ use std::{mem, rc::Rc};
 pub enum Error {
     ExpectedNumbers(Value, Value),
     ExpectedFunction(Value),
+    ExpectedNamedTuple(Value),
     TypeError {
         value: Value,
         ty: Value,
@@ -49,12 +50,32 @@ impl From<InvalidBytecode> for Error {
     }
 }
 
-type Tuple = [Storage];
-type NamedTuple = [(Rc<str>, Storage)];
+type Tuple = [Value];
+type NamedTuple = [(Rc<str>, Value)];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Value {
     pub storage: Storage,
+}
+
+impl Value {
+    fn into_named_tuple(self) -> Result<Rc<NamedTuple>, Error> {
+        if let Storage::NamedTuple(x) = self.storage {
+            Ok(x)
+        } else {
+            Err(Error::ExpectedNamedTuple(self))
+        }
+    }
+
+    fn into_named_tuple_or_unit(self) -> Result<Option<Rc<NamedTuple>>, Error> {
+        match self.into_named_tuple() {
+            Ok(tuple) => Ok(Some(tuple)),
+            Err(Error::ExpectedNamedTuple(Value {
+                storage: Storage::Unit,
+            })) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
 }
 
 // Cloning this type should be cheap;
@@ -147,9 +168,9 @@ pub struct EnumVariant {
     pub definition: Rc<EnumType>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct EnumType {
-    pub variants: Vec<(Rc<str>, Value)>,
+    pub variants: Rc<NamedTuple>,
 }
 
 fn read4(bytes: &[u8], at: usize) -> Option<usize> {
@@ -246,6 +267,9 @@ impl<'bytes> Program<'bytes> {
     }
 
     fn set(&mut self, set_id: usize) -> Result<&'bytes [u8], Error> {
+        let Some(set_id) = set_id.checked_sub(1) else {
+            return Ok(&[]);
+        };
         let start = read4(self.sets, set_id * 4).ok_or(InvalidBytecode::MalformedHeader)?;
         let end = read4(self.sets, set_id * 4 + 4).unwrap_or(self.bytes.len());
         Ok(self
@@ -274,28 +298,70 @@ impl<'bytes> Program<'bytes> {
                 // SAFETY: Since `count` == `len`, the slice is initialized.
                 unsafe { tuple.assume_init() }
             }
-            match (l.storage, r.storage) {
-                (Storage::Tuple(l), Storage::Tuple(r)) => Value {
+            match (l, r) {
+                (
+                    Value {
+                        storage: Storage::Tuple(l),
+                        ..
+                    },
+                    Value {
+                        storage: Storage::Tuple(r),
+                        ..
+                    },
+                ) => Value {
                     storage: Storage::Tuple(rc_slice_from_iter(
                         l.len() + r.len(),
                         l.iter().chain(r.iter()).cloned(),
                     )),
                 },
-                (Storage::NamedTuple(l), Storage::NamedTuple(r)) => Value {
+                (
+                    Value {
+                        storage: Storage::NamedTuple(l),
+                        ..
+                    },
+                    Value {
+                        storage: Storage::NamedTuple(r),
+                        ..
+                    },
+                ) => Value {
                     storage: Storage::NamedTuple(rc_slice_from_iter(
                         l.len() + r.len(),
                         l.iter().chain(r.iter()).cloned(),
                     )),
                 },
-                (l, Storage::Unit) => Value { storage: l },
-                (Storage::Unit, r) => Value { storage: r },
-                (Storage::Tuple(l), r) => Value {
+                (
+                    l,
+                    Value {
+                        storage: Storage::Unit,
+                        ..
+                    },
+                ) => Value { storage: l.storage },
+                (
+                    Value {
+                        storage: Storage::Unit,
+                        ..
+                    },
+                    r,
+                ) => Value { storage: r.storage },
+                (
+                    Value {
+                        storage: Storage::Tuple(l),
+                        ..
+                    },
+                    r,
+                ) => Value {
                     storage: Storage::Tuple(rc_slice_from_iter(
                         l.len() + 1,
                         l.iter().cloned().chain(Some(r)),
                     )),
                 },
-                (l, Storage::Tuple(r)) => Value {
+                (
+                    l,
+                    Value {
+                        storage: Storage::Tuple(r),
+                        ..
+                    },
+                ) => Value {
                     storage: Storage::Tuple(rc_slice_from_iter(
                         1 + r.len(),
                         Some(l).into_iter().chain(r.iter().cloned()),
@@ -349,7 +415,7 @@ impl<'bytes> Program<'bytes> {
         };
 
         // The program counter reaching the first (and only the first)
-        // out-of-bounds byte should be considered a return.
+        //,  out-of-bounds byte should be considered a return.
         while program.pc != program.bytecode.len() {
             macro_rules! bi_op {
                 (let $l:ident, $r:ident: $type:ident => $expr_type:ident: $expr:expr) => {{
@@ -475,9 +541,12 @@ impl<'bytes> Program<'bytes> {
                     );
                 }
                 instruction::PUSH_ENUM => {
-                    let names = self.set(program.next4()?)?;
-                    let methods = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let mut variants = names
+                    let methods = stack
+                        .pop()
+                        .ok_or(InvalidBytecode::StackUnderflow)?
+                        .into_named_tuple_or_unit()?;
+                    let mut statics = self
+                        .set(program.next4()?)?
                         .chunks(4)
                         .map(|name| {
                             let name = name
@@ -487,8 +556,13 @@ impl<'bytes> Program<'bytes> {
                             Ok((name, stack.pop().ok_or(InvalidBytecode::StackUnderflow)?))
                         })
                         .collect::<Result<Vec<_>, Error>>()?;
-                    variants.reverse();
-                    stack.push(Storage::EnumType(Rc::new(EnumType { variants })).into())
+                    statics.reverse();
+                    let variants = stack
+                        .pop()
+                        .ok_or(InvalidBytecode::StackUnderflow)?
+                        .into_named_tuple()?;
+                    stack.push(Storage::EnumType(Rc::new(EnumType { variants })).into());
+                    println!("{stack:?}");
                 }
 
                 instruction::ADD => bi_num!(let l, r => l + r),
@@ -556,7 +630,7 @@ impl<'bytes> Program<'bytes> {
                             let ty = &definition
                                 .variants
                                 .get(variant)
-                                .expect("enum variant should be empty")
+                                .expect("enum variant must not be missing")
                                 .1;
                             if !argument.storage.type_cmp(&ty.storage) {
                                 return Err(Error::TypeError {
@@ -601,20 +675,16 @@ impl<'bytes> Program<'bytes> {
                                 storage: Storage::I64(i),
                             },
                         ) => {
-                            stack.push(
-                                tuple
-                                    .get(i as usize)
-                                    .cloned()
-                                    .ok_or(Error::IndexNotFound {
-                                        index: Value {
-                                            storage: Storage::Tuple(tuple),
-                                        },
-                                        container: Value {
-                                            storage: Storage::I64(i),
-                                        },
-                                    })?
-                                    .into(),
-                            );
+                            stack.push(tuple.get(i as usize).cloned().ok_or(
+                                Error::IndexNotFound {
+                                    index: Value {
+                                        storage: Storage::Tuple(tuple),
+                                    },
+                                    container: Value {
+                                        storage: Storage::I64(i),
+                                    },
+                                },
+                            )?);
                         }
                         (
                             Value {
@@ -636,8 +706,7 @@ impl<'bytes> Program<'bytes> {
                                         container: Value {
                                             storage: Storage::I64(i),
                                         },
-                                    })?
-                                    .into(),
+                                    })?,
                             );
                         }
                         (
@@ -661,8 +730,7 @@ impl<'bytes> Program<'bytes> {
                                         container: Value {
                                             storage: Storage::String(i),
                                         },
-                                    })?
-                                    .into(),
+                                    })?,
                             );
                         }
                         (
@@ -727,7 +795,7 @@ impl<'bytes> Program<'bytes> {
                     let name_id = program.next4()?;
                     let name = self.string(name_id)?;
                     let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Storage::NamedTuple(Rc::new([(name, value.storage)])).into())
+                    stack.push(Storage::NamedTuple(Rc::new([(name, value)])).into())
                 }
                 // TODO: This instruction shouldn't be emitted; unary + is a no-op
                 instruction::POSITIVE => {}

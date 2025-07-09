@@ -111,10 +111,8 @@ mod tests {
 
     #[test]
     fn enums_usage() {
-        let actual = Program::try_from(
-            "let Option = enum then let Some = any; let None = (); end; Option.Some 1",
-        )
-        .unwrap();
+        let actual =
+            Program::try_from("let Option = enum Some: any, None: () end; Option.Some 1").unwrap();
         println!("{:?}", actual.bytecode);
         assert_eq!(
             actual.eval().unwrap(),
@@ -123,10 +121,10 @@ mod tests {
                     contents: interpreter::Storage::I64(1).into(),
                     variant: 0,
                     definition: Rc::new(interpreter::EnumType {
-                        variants: vec![
+                        variants: Rc::new([
                             (Rc::from("Some"), interpreter::Storage::Any.into()),
                             (Rc::from("None"), interpreter::Storage::Unit.into())
-                        ]
+                        ])
                     })
                 })),
             }
@@ -141,10 +139,8 @@ mod tests {
             actual.eval().unwrap(),
             Value {
                 storage: interpreter::Storage::Tuple(Rc::new([
-                    interpreter::Storage::Some(Rc::new(Value {
-                        storage: interpreter::Storage::I64(1)
-                    })),
-                    interpreter::Storage::None
+                    interpreter::Storage::Some(Rc::new(interpreter::Storage::I64(1).into())).into(),
+                    interpreter::Storage::None.into()
                 ]))
             }
         )

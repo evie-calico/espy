@@ -608,7 +608,7 @@ fn match_expression() {
 
 #[test]
 fn enum_creation() {
-    let source = "let Option = enum then let Some = (); let None = (); end;";
+    let source = "let Option = enum Some: any, None: () end;";
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
         statements: vec![Statement {
@@ -616,23 +616,21 @@ fn enum_creation() {
                 "Option",
                 [Node::Enum(Enum {
                     enum_token: Some(ENUM),
-                    then_token: Some(THEN),
-                    block: Block {
-                        statements: vec![
-                            Statement {
-                                action: binding("Some", [Node::Unit]),
-                                semicolon_token: Some(SEMICOLON),
-                                diagnostics: Diagnostics::default(),
-                            },
-                            Statement {
-                                action: binding("None", [Node::Unit]),
-                                semicolon_token: Some(SEMICOLON),
-                                diagnostics: Diagnostics::default(),
-                            },
-                        ],
-                        result: BlockResult::Expression(expression([])),
-                        diagnostics: Diagnostics::default(),
-                    },
+                    variants: expression([
+                        variable("any"),
+                        Node::Name {
+                            name: ident("Some"),
+                            colon_token: COLON,
+                        },
+                        Node::Unit,
+                        Node::Name {
+                            name: ident("None"),
+                            colon_token: COLON,
+                        },
+                        TUPLE,
+                    ]),
+                    then_token: None,
+                    members: None,
                     end_token: Some(END),
                     diagnostics: Diagnostics::default(),
                 })],

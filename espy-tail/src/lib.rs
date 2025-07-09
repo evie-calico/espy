@@ -70,15 +70,20 @@ pub enum Instruction {
     PushTrue,
     PushFalse,
     /// Pop the top value off the stack;
-    /// it should be unit or a tamed tuple of functions.
+    /// it should be unit or a named tuple of functions.
     /// Use this value as the enum's methods.
     ///
-    /// The names of each variant can be found in the string set `names` in reverse order.
-    /// Pop a value off the stack for each name (in reverse order) and treat it as the variant's type.
+    /// Then, pop a value off the stack for each string in the string set `statics`.
+    /// Each of these values is a static member of the enum;
+    /// any functions may construct this enum and access its fields.
+    ///
+    /// Pop the next value off the stack;
+    /// it should be unit or a named tuple of types.
+    /// Use this value as the enum's variants.
     ///
     /// Push the resulting enum type to the stack.
     PushEnum {
-        names: StringSet,
+        statics: StringSet,
     },
     PushString(StringId),
 
@@ -152,7 +157,9 @@ impl Iterator for InstructionIter {
             }
             Instruction::PushTrue => decompose!(instruction::PUSH_TRUE,),
             Instruction::PushFalse => decompose!(instruction::PUSH_FALSE,),
-            Instruction::PushEnum { names } => decompose!(instruction::PUSH_ENUM, names as 1..=4),
+            Instruction::PushEnum { statics } => {
+                decompose!(instruction::PUSH_ENUM, statics as 1..=4)
+            }
 
             Instruction::PushString(s) => decompose!(instruction::PUSH_STRING, s as 1..=4),
 
@@ -199,6 +206,8 @@ impl IntoIterator for Instruction {
 pub struct Program<'source> {
     blocks: Vec<Vec<u8>>,
     strings: Vec<&'source str>,
+    /// To index this, subtract 1 from the string set's Id.
+    /// A string set 0 should be considered an empty set.
     string_sets: Vec<Vec<StringId>>,
 }
 
@@ -557,27 +566,45 @@ impl<'source> Program<'source> {
                 }
                 Node::Struct(_) => todo!(),
                 Node::Enum(enumeration) => {
+                    self.add_expression(block_id, enumeration.variants, scope)?;
+                    // note that only one value (the variants) exists on the current scope;
+                    // this will be important later.
                     let mut child = scope.child();
-                    for i in enumeration.block.statements {
-                        self.add_statement(block_id, i, &mut child)?;
-                    }
-                    match enumeration.block.result {
-                        // Eventually this value will be the enum's methods. Force unit for now.
-                        BlockResult::Expression(expression) => {
-                            self.add_expression(block_id, expression, &mut child)?;
+                    let statics = if let Some(members) = enumeration.members {
+                        for i in members.statements {
+                            self.add_statement(block_id, i, &mut child)?;
                         }
-                        _ => return Err(Error::UnexpectedEnumResult),
-                    }
-                    let set = child
-                        .bindings
-                        .into_iter()
-                        .rev()
-                        .map(|(case, _)| self.create_string(case))
-                        .collect::<Result<_, Error<'source>>>()?;
-                    let names = self.string_sets.len() as StringSet;
-                    self.string_sets.push(set);
-                    self.blocks[block_id as usize].extend(Instruction::PushEnum { names });
-                    scope.stack_pointer += 1;
+                        match members.result {
+                            // Eventually this value will be the enum's methods. Force unit for now.
+                            BlockResult::Expression(expression) => {
+                                self.add_expression(block_id, expression, &mut child)?;
+                            }
+                            _ => return Err(Error::UnexpectedEnumResult),
+                        }
+                        let set = child
+                            .bindings
+                            .into_iter()
+                            .rev()
+                            .map(|(case, _)| self.create_string(case))
+                            .collect::<Result<Vec<_>, Error<'source>>>()?;
+                        if set.is_empty() {
+                            0
+                        } else {
+                            self.string_sets.push(set);
+                            // this happens after because string sets start at 1;
+                            // 0 is an empty set!
+                            self.string_sets.len() as StringSet
+                        }
+                    } else {
+                        // missing methods should be treated as none (unit) (obviously)
+                        self.blocks[block_id as usize].extend(Instruction::PushUnit);
+                        0
+                    };
+                    // at this point, the stack has grown by 2 + statics.
+                    // however only the variants (bottom of the stack) are accounted for in our scope,
+                    // and the resulting enum will replace it.
+                    scope.stack_pointer += 0;
+                    self.blocks[block_id as usize].extend(Instruction::PushEnum { statics });
                 }
                 Node::Match(_) => todo!(),
             };

@@ -192,8 +192,8 @@ impl<'source> Iterator for Lexer<'source> {
                 }
                 let ident = &root[0..length];
                 match ident {
-                    "any" | "array" | "as" | "async" | "await" | "case" | "char" | "class"
-                    | "const" | "continue" | "do" | "dyn" | "fixed" | "float" | "fn" | "import"
+                    "array" | "as" | "async" | "await" | "case" | "char" | "class" | "const"
+                    | "continue" | "do" | "dyn" | "fixed" | "float" | "fn" | "import"
                     | "include" | "integer" | "iterator" | "loop" | "macro" | "mod" | "move"
                     | "mut" | "never" | "priv" | "pub" | "ref" | "require" | "return" | "safe"
                     | "static" | "string" | "super" | "switch" | "table" | "trait" | "try"

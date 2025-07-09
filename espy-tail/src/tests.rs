@@ -197,21 +197,22 @@ fn if_expression() {
 
 #[test]
 fn option_enum() {
-    let mut lexer =
-        Lexer::from("let Option = enum then let Some = (); let None = (); end;").peekable();
+    let mut lexer = Lexer::from("let Option = enum Some: any, None: () end;").peekable();
     let block = Block::from(&mut lexer);
     let program = Program::try_from(block).unwrap();
     let actual = program.compile();
     let expected = program![
-        let none = "None";
         let some = "Some";
-        enum option = [none, some];
+        let none = "None";
         fn _main {
+            Clone(builtins::ANY),
+            Name(some),
             PushUnit,
-            PushUnit,
+            Name(none),
+            Tuple,
             PushUnit,
             PushEnum {
-                names: option,
+                statics: 0,
             },
             PushUnit,
         }
