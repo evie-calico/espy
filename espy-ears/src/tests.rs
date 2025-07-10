@@ -741,3 +741,18 @@ fn tuple_indexing() {
     };
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn string() {
+    let source = "\"string\"";
+    let actual = Block::from(&mut Lexer::from(source).peekable());
+    let expected = Block {
+        result: expression([Node::String(Token {
+            origin: "\"string\"",
+            lexigram: Lexigram::String,
+        })])
+        .into(),
+        ..Default::default()
+    };
+    assert_eq!(actual, expected);
+}

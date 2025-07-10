@@ -340,3 +340,18 @@ fn for_with_break() {
     };
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn string() {
+    let mut lexer = Lexer::from("\"string\"").peekable();
+    let block = Block::from(&mut lexer);
+    let program = Program::try_from(block).unwrap();
+    let actual = program.compile();
+    let expected = program! {
+        let string = "string";
+        fn _main {
+            PushString(string),
+        }
+    };
+    assert_eq!(actual, expected);
+}

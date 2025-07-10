@@ -75,6 +75,7 @@ pub enum Lexigram {
     // Values
     Ident,
     Number,
+    String,
 }
 
 /// A unit of espyscript source code.
@@ -229,6 +230,19 @@ impl<'source> Iterator for Lexer<'source> {
             '0'..='9' => {
                 while self.next_if(|c| matches!(c, '0'..='9' | '.')).is_some() {}
                 Lexigram::Number
+            }
+            // String
+            '"' => {
+                loop {
+                    match self.next() {
+                        Some('\\') => {
+                            self.next();
+                        }
+                        Some('"') => break,
+                        _ => {}
+                    }
+                }
+                Lexigram::String
             }
             '=' if self.next_if(|c| c == '=').is_some() => Lexigram::DoubleEqual,
             '=' if self.next_if(|c| c == '>').is_some() => Lexigram::DoubleArrow,

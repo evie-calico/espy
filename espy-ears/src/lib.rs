@@ -77,9 +77,10 @@ impl<'source> Diagnostics<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub enum Node<'source> {
     Unit,
-    Number(Token<'source>),
-    Variable(Token<'source>),
     Bool(bool, Option<Token<'source>>),
+    Number(Token<'source>),
+    String(Token<'source>),
+    Variable(Token<'source>),
     Block(Block<'source>),
     If(If<'source>),
     Match(Match<'source>),
@@ -331,6 +332,17 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
                     contents.push(Node::Number(number));
+                }
+                Some(
+                    string @ Token {
+                        lexigram: Lexigram::String,
+                        ..
+                    },
+                ) => {
+                    if !unary_position {
+                        push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
+                    }
+                    contents.push(Node::String(string));
                 }
                 Some(
                     ident @ Token {

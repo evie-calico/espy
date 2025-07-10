@@ -466,6 +466,13 @@ impl<'source> Program<'source> {
                     scope.stack_pointer += 1;
                     block!().extend(Instruction::PushI64(integer))
                 }
+                Node::String(Token { origin, .. }) => {
+                    // trim starting and ending quotes.
+                    // adjust this if additional string formats are added.
+                    let string = self.create_string(&origin[1..origin.len() - 1])?;
+                    scope.stack_pointer += 1;
+                    block!().extend(Instruction::PushString(string))
+                }
                 Node::Variable(Token { origin, .. }) => {
                     let value = scope.get(origin).ok_or(Error::UndefinedSymbol(origin))?;
                     scope.stack_pointer += 1;
