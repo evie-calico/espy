@@ -526,7 +526,7 @@ fn structure() {
                         TUPLE,
                     ]),
                     then_token: Some(THEN),
-                    block: Block {
+                    members: Some(Block {
                         statements: vec![Statement {
                             action: binding(
                                 "new",
@@ -554,7 +554,7 @@ fn structure() {
                             diagnostics: Diagnostics::default(),
                         }],
                         ..Default::default()
-                    },
+                    }),
                     end_token: Some(END),
                     diagnostics: Diagnostics::default(),
                 })],

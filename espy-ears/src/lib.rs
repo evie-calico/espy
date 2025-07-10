@@ -689,12 +689,12 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Match<'source> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Struct<'source> {
-    struct_token: Option<Token<'source>>,
-    inner: Expression<'source>,
-    then_token: Option<Token<'source>>,
-    block: Block<'source>,
-    end_token: Option<Token<'source>>,
-    diagnostics: Diagnostics<'source>,
+    pub struct_token: Option<Token<'source>>,
+    pub inner: Expression<'source>,
+    pub then_token: Option<Token<'source>>,
+    pub members: Option<Block<'source>>,
+    pub end_token: Option<Token<'source>>,
+    pub diagnostics: Diagnostics<'source>,
 }
 
 impl<'source> From<Struct<'source>> for Node<'source> {
@@ -707,16 +707,33 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Struct<'source> {
     fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
         let struct_token = lexer.next().transpose().ok().flatten();
         let mut diagnostics = Diagnostics::default();
-
         let inner = Expression::from(&mut *lexer);
-        let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
-        let block = Block::from(&mut *lexer);
+        let (then_token, members) = match lexer.peek().copied() {
+            Some(Ok(
+                then_token @ Token {
+                    lexigram: Lexigram::Then,
+                    ..
+                },
+            )) => {
+                lexer.next();
+                let members = Block::from(&mut *lexer);
+                (Some(then_token), Some(members))
+            }
+            Some(Ok(Token {
+                lexigram: Lexigram::End,
+                ..
+            })) => (None, None),
+            t => {
+                diagnostics.expect(t, &[Lexigram::Then, Lexigram::End]);
+                (None, None)
+            }
+        };
         let end_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
         Self {
             struct_token,
             inner,
             then_token,
-            block,
+            members,
             end_token,
             diagnostics,
         }

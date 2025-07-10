@@ -105,6 +105,7 @@ pub enum Storage {
     BoolType,
     StringType,
     // TODO: FunctionType
+    StructType(Rc<StructType>),
     EnumType(Rc<EnumType>),
     Option,
     /// The type of types.
@@ -159,6 +160,11 @@ pub enum FunctionAction {
     },
     Some,
     None,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct StructType {
+    pub inner: Value,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -562,7 +568,26 @@ impl<'bytes> Program<'bytes> {
                         .ok_or(InvalidBytecode::StackUnderflow)?
                         .into_named_tuple()?;
                     stack.push(Storage::EnumType(Rc::new(EnumType { variants })).into());
-                    println!("{stack:?}");
+                }
+                instruction::PUSH_STRUCT => {
+                    let methods = stack
+                        .pop()
+                        .ok_or(InvalidBytecode::StackUnderflow)?
+                        .into_named_tuple_or_unit()?;
+                    let mut statics = self
+                        .set(program.next4()?)?
+                        .chunks(4)
+                        .map(|name| {
+                            let name = name
+                                .try_into()
+                                .map_err(|_| InvalidBytecode::MalformedHeader)?;
+                            let name = self.string(u32::from_le_bytes(name) as usize)?;
+                            Ok((name, stack.pop().ok_or(InvalidBytecode::StackUnderflow)?))
+                        })
+                        .collect::<Result<Vec<_>, Error>>()?;
+                    statics.reverse();
+                    let inner = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    stack.push(Storage::StructType(Rc::new(StructType { inner })).into());
                 }
 
                 instruction::ADD => bi_num!(let l, r => l + r),

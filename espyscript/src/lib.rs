@@ -30,6 +30,7 @@ impl<'source> TryFrom<&'source str> for Program {
 // TODO: by putting the interpreter tests here i had to make too many things public
 #[cfg(test)]
 mod tests {
+    use interpreter::Storage;
     use std::rc::Rc;
 
     use super::*;
@@ -41,7 +42,7 @@ mod tests {
         assert_eq!(
             actual.eval().unwrap(),
             Value {
-                storage: interpreter::Storage::I64(12),
+                storage: Storage::I64(12),
             }
         )
     }
@@ -53,7 +54,7 @@ mod tests {
         assert_eq!(
             actual.eval().unwrap(),
             Value {
-                storage: interpreter::Storage::I64(6),
+                storage: Storage::I64(6),
             }
         )
     }
@@ -68,7 +69,7 @@ mod tests {
         assert_eq!(
             actual.eval().unwrap(),
             Value {
-                storage: interpreter::Storage::I64(6),
+                storage: Storage::I64(6),
             }
         )
     }
@@ -80,7 +81,7 @@ mod tests {
         assert_eq!(
             actual.eval().unwrap(),
             Value {
-                storage: interpreter::Storage::I64(16),
+                storage: Storage::I64(16),
             }
         )
     }
@@ -92,7 +93,7 @@ mod tests {
         assert_eq!(
             actual.eval().unwrap(),
             Value {
-                storage: interpreter::Storage::I64(40),
+                storage: Storage::I64(40),
             }
         )
     }
@@ -104,7 +105,7 @@ mod tests {
         assert_eq!(
             actual.eval().unwrap(),
             Value {
-                storage: interpreter::Storage::I64(256),
+                storage: Storage::I64(256),
             }
         )
     }
@@ -117,13 +118,13 @@ mod tests {
         assert_eq!(
             actual.eval().unwrap(),
             Value {
-                storage: interpreter::Storage::EnumVariant(Rc::new(interpreter::EnumVariant {
-                    contents: interpreter::Storage::I64(1).into(),
+                storage: Storage::EnumVariant(Rc::new(interpreter::EnumVariant {
+                    contents: Storage::I64(1).into(),
                     variant: 0,
                     definition: Rc::new(interpreter::EnumType {
                         variants: Rc::new([
-                            (Rc::from("Some"), interpreter::Storage::Any.into()),
-                            (Rc::from("None"), interpreter::Storage::Unit.into())
+                            (Rc::from("Some"), Storage::Any.into()),
+                            (Rc::from("None"), Storage::Unit.into())
                         ])
                     })
                 })),
@@ -138,11 +139,28 @@ mod tests {
         assert_eq!(
             actual.eval().unwrap(),
             Value {
-                storage: interpreter::Storage::Tuple(Rc::new([
-                    interpreter::Storage::Some(Rc::new(interpreter::Storage::I64(1).into())).into(),
-                    interpreter::Storage::None.into()
+                storage: Storage::Tuple(Rc::new([
+                    Storage::Some(Rc::new(Storage::I64(1).into())).into(),
+                    Storage::None.into()
                 ]))
             }
+        )
+    }
+
+    #[test]
+    fn structures() {
+        let actual = Program::try_from("struct x: any, y: any end").unwrap();
+        println!("{:?}", actual.bytecode);
+        assert_eq!(
+            actual.eval().unwrap(),
+            Storage::StructType(Rc::new(interpreter::StructType {
+                inner: Storage::NamedTuple(Rc::new([
+                    (Rc::from("x"), Storage::Any.into()),
+                    (Rc::from("y"), Storage::Any.into()),
+                ]))
+                .into()
+            }))
+            .into()
         )
     }
 }

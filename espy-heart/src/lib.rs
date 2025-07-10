@@ -30,6 +30,7 @@ pub mod instruction {
     pub const PUSH_STRING: u8 = 0x14;
     pub const PUSH_FUNCTION: u8 = 0x15;
     pub const PUSH_ENUM: u8 = 0x16;
+    pub const PUSH_STRUCT: u8 = 0x17;
 
     // Operations: 0x30..
     pub const ADD: u8 = 0x30;

@@ -85,6 +85,22 @@ pub enum Instruction {
     PushEnum {
         statics: StringSet,
     },
+    /// Pop the top value off the stack;
+    /// it should be unit or a named tuple of functions.
+    /// Use this value as the struct's methods.
+    ///
+    /// Then, pop a value off the stack for each string in the string set `statics`.
+    /// Each of these values is a static member of the struct;
+    /// any functions may construct this enum and access its fields.
+    ///
+    /// Pop the next value off the stack;
+    /// it should be a type.
+    /// Use this type as the type of the struct's inner value.
+    ///
+    /// Push the resulting struct type to the stack.
+    PushStruct {
+        statics: StringSet,
+    },
     PushString(StringId),
 
     Add,
@@ -159,6 +175,9 @@ impl Iterator for InstructionIter {
             Instruction::PushFalse => decompose!(instruction::PUSH_FALSE,),
             Instruction::PushEnum { statics } => {
                 decompose!(instruction::PUSH_ENUM, statics as 1..=4)
+            }
+            Instruction::PushStruct { statics } => {
+                decompose!(instruction::PUSH_STRUCT, statics as 1..=4)
             }
 
             Instruction::PushString(s) => decompose!(instruction::PUSH_STRING, s as 1..=4),
@@ -564,7 +583,47 @@ impl<'source> Program<'source> {
                     scope.stack_pointer += 0;
                     block!().extend(Instruction::Index)
                 }
-                Node::Struct(_) => todo!(),
+                Node::Struct(structure) => {
+                    self.add_expression(block_id, structure.inner, scope)?;
+                    // note that only one value (the inner value's type) exists on the current scope;
+                    // this will be important later.
+                    let mut child = scope.child();
+                    let statics = if let Some(members) = structure.members {
+                        for i in members.statements {
+                            self.add_statement(block_id, i, &mut child)?;
+                        }
+                        match members.result {
+                            // Eventually this value will be the enum's methods. Force unit for now.
+                            BlockResult::Expression(expression) => {
+                                self.add_expression(block_id, expression, &mut child)?;
+                            }
+                            _ => return Err(Error::UnexpectedEnumResult),
+                        }
+                        let set = child
+                            .bindings
+                            .into_iter()
+                            .rev()
+                            .map(|(case, _)| self.create_string(case))
+                            .collect::<Result<Vec<_>, Error<'source>>>()?;
+                        if set.is_empty() {
+                            0
+                        } else {
+                            self.string_sets.push(set);
+                            // this happens after because string sets start at 1;
+                            // 0 is an empty set!
+                            self.string_sets.len() as StringSet
+                        }
+                    } else {
+                        // missing methods should be treated as none (unit) (obviously)
+                        self.blocks[block_id as usize].extend(Instruction::PushUnit);
+                        0
+                    };
+                    // at this point, the stack has grown by 2 + statics.
+                    // however only the variants (bottom of the stack) are accounted for in our scope,
+                    // and the resulting struct will replace it.
+                    scope.stack_pointer += 0;
+                    self.blocks[block_id as usize].extend(Instruction::PushStruct { statics });
+                }
                 Node::Enum(enumeration) => {
                     self.add_expression(block_id, enumeration.variants, scope)?;
                     // note that only one value (the variants) exists on the current scope;
