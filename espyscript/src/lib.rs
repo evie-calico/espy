@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 pub use espy_ears as parser;
 pub use espy_eyes as lexer;
 pub use espy_paws as interpreter;
@@ -6,12 +8,12 @@ pub use espy_tail as compiler;
 pub use interpreter::Value;
 
 pub struct Program {
-    bytecode: Box<[u8]>,
+    bytecode: Rc<[u8]>,
 }
 
 impl Program {
     fn eval(&self) -> Result<Value, interpreter::Error> {
-        interpreter::Program::try_from(&*self.bytecode)?.eval(0, Vec::new())
+        interpreter::Program::try_from(&self.bytecode)?.eval(0, Vec::new())
     }
 }
 
@@ -21,7 +23,7 @@ impl<'source> TryFrom<&'source str> for Program {
     fn try_from(s: &'source str) -> Result<Self, Self::Error> {
         compiler::Program::try_from(parser::Block::from(&mut lexer::Lexer::from(s).peekable())).map(
             |program| Program {
-                bytecode: compiler::Program::compile(program).into_boxed_slice(),
+                bytecode: compiler::Program::compile(program).into(),
             },
         )
     }

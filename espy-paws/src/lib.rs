@@ -59,6 +59,100 @@ pub struct Value {
 }
 
 impl Value {
+    fn concat(self, r: Value) -> Value {
+        fn rc_slice_from_iter<T>(len: usize, iter: impl Iterator<Item = T>) -> Rc<[T]> {
+            let mut tuple = Rc::new_uninit_slice(len);
+            // SAFETY: `get_mut` only returns `None` if the `Rc` has been cloned.
+            let mutable_tuple = unsafe { Rc::get_mut(&mut tuple).unwrap_unchecked() };
+            let count = mutable_tuple
+                .iter_mut()
+                .zip(iter)
+                .map(|(entry, value)| {
+                    entry.write(value);
+                })
+                .count();
+            assert!(
+                count == len,
+                "iter did not produce enough values ({count}) to initialize slice of length {len}"
+            );
+            // SAFETY: Since `count` == `len`, the slice is initialized.
+            unsafe { tuple.assume_init() }
+        }
+        match (self, r) {
+            (
+                Value {
+                    storage: Storage::Tuple(l),
+                    ..
+                },
+                Value {
+                    storage: Storage::Tuple(r),
+                    ..
+                },
+            ) => Value {
+                storage: Storage::Tuple(rc_slice_from_iter(
+                    l.len() + r.len(),
+                    l.iter().chain(r.iter()).cloned(),
+                )),
+            },
+            (
+                Value {
+                    storage: Storage::NamedTuple(l),
+                    ..
+                },
+                Value {
+                    storage: Storage::NamedTuple(r),
+                    ..
+                },
+            ) => Value {
+                storage: Storage::NamedTuple(rc_slice_from_iter(
+                    l.len() + r.len(),
+                    l.iter().chain(r.iter()).cloned(),
+                )),
+            },
+            (
+                l,
+                Value {
+                    storage: Storage::Unit,
+                    ..
+                },
+            ) => Value { storage: l.storage },
+            (
+                Value {
+                    storage: Storage::Unit,
+                    ..
+                },
+                r,
+            ) => Value { storage: r.storage },
+            (
+                Value {
+                    storage: Storage::Tuple(l),
+                    ..
+                },
+                r,
+            ) => Value {
+                storage: Storage::Tuple(rc_slice_from_iter(
+                    l.len() + 1,
+                    l.iter().cloned().chain(Some(r)),
+                )),
+            },
+            (
+                l,
+                Value {
+                    storage: Storage::Tuple(r),
+                    ..
+                },
+            ) => Value {
+                storage: Storage::Tuple(rc_slice_from_iter(
+                    1 + r.len(),
+                    Some(l).into_iter().chain(r.iter().cloned()),
+                )),
+            },
+            (l, r) => Value {
+                storage: Storage::Tuple(Rc::new([l, r])),
+            },
+        }
+    }
+
     fn into_named_tuple(self) -> Result<Rc<NamedTuple>, Error> {
         if let Storage::NamedTuple(x) = self.storage {
             Ok(x)
@@ -145,12 +239,87 @@ impl Storage {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Function {
     action: FunctionAction,
-    arguments: Value,
+    argument: Value,
+}
+
+impl Function {
+    pub fn eval(self) -> Result<Value, Error> {
+        Ok(match self.action {
+            FunctionAction::Block {
+                program,
+                block_id,
+                mut captures,
+            } => {
+                captures.push(self.argument);
+                Program::try_from(&program)?.eval(block_id, captures)?
+            }
+            FunctionAction::Enum {
+                variant,
+                definition,
+            } => {
+                let ty = &definition
+                    .variants
+                    .get(variant)
+                    .expect("enum variant must not be missing")
+                    .1;
+                if !self.argument.storage.type_cmp(&ty.storage) {
+                    return Err(Error::TypeError {
+                        value: self.argument,
+                        ty: ty.clone(),
+                    });
+                }
+                Storage::EnumVariant(Rc::new(EnumVariant {
+                    contents: self.argument,
+                    variant,
+                    definition,
+                }))
+                .into()
+            }
+            FunctionAction::Some => Storage::Some(self.argument.into()).into(),
+            FunctionAction::None => {
+                if !self.argument.storage.type_cmp(&Storage::Unit) {
+                    return Err(Error::TypeError {
+                        value: self.argument,
+                        ty: Storage::Unit.into(),
+                    });
+                }
+                Storage::None.into()
+            }
+        })
+    }
+
+    /// Concatentes the function's argument list with `argument`.
+    pub fn pipe(&mut self, argument: Value) {
+        let mut arguments = Value::from(Storage::Unit);
+        mem::swap(&mut arguments, &mut self.argument);
+        arguments = Value::concat(arguments, argument);
+        mem::swap(&mut arguments, &mut self.argument);
+    }
+
+    pub fn piped(mut self, argument: Value) -> Self {
+        self.pipe(argument);
+        self
+    }
+}
+
+impl TryFrom<Value> for Rc<Function> {
+    type Error = Error;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value {
+            storage: Storage::Function(function),
+        } = value
+        {
+            Ok(function)
+        } else {
+            Err(Error::ExpectedFunction(value))
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FunctionAction {
     Block {
+        program: Rc<[u8]>,
         block_id: usize,
         captures: Vec<Value>,
     },
@@ -189,7 +358,7 @@ fn read4(bytes: &[u8], at: usize) -> Option<usize> {
 }
 
 pub struct Program<'bytes> {
-    bytes: &'bytes [u8],
+    bytes: &'bytes Rc<[u8]>,
 
     blocks: &'bytes [u8],
     strings: &'bytes [u8],
@@ -198,10 +367,10 @@ pub struct Program<'bytes> {
     owned_strings: Vec<Option<Rc<str>>>,
 }
 
-impl<'bytes> TryFrom<&'bytes [u8]> for Program<'bytes> {
+impl<'bytes> TryFrom<&'bytes Rc<[u8]>> for Program<'bytes> {
     type Error = Error;
 
-    fn try_from(bytes: &'bytes [u8]) -> Result<Self, Self::Error> {
+    fn try_from(bytes: &'bytes Rc<[u8]>) -> Result<Self, Self::Error> {
         let block_count = read4(bytes, 0).ok_or(InvalidBytecode::MalformedHeader)?;
         let blocks = bytes
             .get(4..(block_count * 4 + 4))
@@ -285,100 +454,6 @@ impl<'bytes> Program<'bytes> {
     }
 
     pub fn eval(&mut self, block_id: usize, mut stack: Vec<Value>) -> Result<Value, Error> {
-        fn concat(l: Value, r: Value) -> Value {
-            fn rc_slice_from_iter<T>(len: usize, iter: impl Iterator<Item = T>) -> Rc<[T]> {
-                let mut tuple = Rc::new_uninit_slice(len);
-                // SAFETY: `get_mut` only returns `None` if the `Rc` has been cloned.
-                let mutable_tuple = unsafe { Rc::get_mut(&mut tuple).unwrap_unchecked() };
-                let count = mutable_tuple
-                    .iter_mut()
-                    .zip(iter)
-                    .map(|(entry, value)| {
-                        entry.write(value);
-                    })
-                    .count();
-                assert!(
-                    count == len,
-                    "iter did not produce enough values ({count}) to initialize slice of length {len}"
-                );
-                // SAFETY: Since `count` == `len`, the slice is initialized.
-                unsafe { tuple.assume_init() }
-            }
-            match (l, r) {
-                (
-                    Value {
-                        storage: Storage::Tuple(l),
-                        ..
-                    },
-                    Value {
-                        storage: Storage::Tuple(r),
-                        ..
-                    },
-                ) => Value {
-                    storage: Storage::Tuple(rc_slice_from_iter(
-                        l.len() + r.len(),
-                        l.iter().chain(r.iter()).cloned(),
-                    )),
-                },
-                (
-                    Value {
-                        storage: Storage::NamedTuple(l),
-                        ..
-                    },
-                    Value {
-                        storage: Storage::NamedTuple(r),
-                        ..
-                    },
-                ) => Value {
-                    storage: Storage::NamedTuple(rc_slice_from_iter(
-                        l.len() + r.len(),
-                        l.iter().chain(r.iter()).cloned(),
-                    )),
-                },
-                (
-                    l,
-                    Value {
-                        storage: Storage::Unit,
-                        ..
-                    },
-                ) => Value { storage: l.storage },
-                (
-                    Value {
-                        storage: Storage::Unit,
-                        ..
-                    },
-                    r,
-                ) => Value { storage: r.storage },
-                (
-                    Value {
-                        storage: Storage::Tuple(l),
-                        ..
-                    },
-                    r,
-                ) => Value {
-                    storage: Storage::Tuple(rc_slice_from_iter(
-                        l.len() + 1,
-                        l.iter().cloned().chain(Some(r)),
-                    )),
-                },
-                (
-                    l,
-                    Value {
-                        storage: Storage::Tuple(r),
-                        ..
-                    },
-                ) => Value {
-                    storage: Storage::Tuple(rc_slice_from_iter(
-                        1 + r.len(),
-                        Some(l).into_iter().chain(r.iter().cloned()),
-                    )),
-                },
-                (l, r) => Value {
-                    storage: Storage::Tuple(Rc::new([l, r])),
-                },
-            }
-        }
-
         struct Frame<'a> {
             bytecode: &'a [u8],
             pc: usize,
@@ -469,7 +544,7 @@ impl<'bytes> Program<'bytes> {
                             stack.push(
                                 Storage::Function(Rc::new(Function {
                                     action: FunctionAction::Some,
-                                    arguments: Storage::Unit.into(),
+                                    argument: Storage::Unit.into(),
                                 }))
                                 .into(),
                             );
@@ -478,7 +553,7 @@ impl<'bytes> Program<'bytes> {
                             stack.push(
                                 Storage::Function(Rc::new(Function {
                                     action: FunctionAction::None,
-                                    arguments: Storage::Unit.into(),
+                                    argument: Storage::Unit.into(),
                                 }))
                                 .into(),
                             );
@@ -535,11 +610,12 @@ impl<'bytes> Program<'bytes> {
                     stack.push(
                         Storage::Function(Rc::new(Function {
                             action: FunctionAction::Block {
+                                program: self.bytes.clone(),
                                 block_id: function,
                                 captures: new_stack,
                             },
                             // will be ignored by concatenation
-                            arguments: Value {
+                            argument: Value {
                                 storage: Storage::Unit,
                             },
                         }))
@@ -620,9 +696,9 @@ impl<'bytes> Program<'bytes> {
                         Storage::Function(mut function) => {
                             let function_mut = Rc::make_mut(&mut function);
                             let mut arguments = Value::from(Storage::Unit);
-                            mem::swap(&mut arguments, &mut function_mut.arguments);
-                            arguments = concat(arguments, argument);
-                            mem::swap(&mut arguments, &mut function_mut.arguments);
+                            mem::swap(&mut arguments, &mut function_mut.argument);
+                            arguments = Value::concat(arguments, argument);
+                            mem::swap(&mut arguments, &mut function_mut.argument);
                             stack.push(Storage::Function(function).into());
                         }
                         _ => return Err(Error::ExpectedFunction(function)),
@@ -632,61 +708,17 @@ impl<'bytes> Program<'bytes> {
                 instruction::CALL => {
                     let argument = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let function = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let Value {
-                        storage: Storage::Function(function),
-                    } = function
-                    else {
-                        return Err(Error::ExpectedFunction(function));
-                    };
-                    let function =
-                        Rc::try_unwrap(function).unwrap_or_else(|function| (*function).clone());
-                    let result = match function.action {
-                        FunctionAction::Block {
-                            block_id,
-                            mut captures,
-                        } => {
-                            captures.push(concat(function.arguments, argument));
-                            self.eval(block_id, captures)?
-                        }
-                        FunctionAction::Enum {
-                            variant,
-                            definition,
-                        } => {
-                            let ty = &definition
-                                .variants
-                                .get(variant)
-                                .expect("enum variant must not be missing")
-                                .1;
-                            if !argument.storage.type_cmp(&ty.storage) {
-                                return Err(Error::TypeError {
-                                    value: argument,
-                                    ty: ty.clone(),
-                                });
-                            }
-                            Storage::EnumVariant(Rc::new(EnumVariant {
-                                contents: argument,
-                                variant,
-                                definition,
-                            }))
-                            .into()
-                        }
-                        FunctionAction::Some => Storage::Some(argument.into()).into(),
-                        FunctionAction::None => {
-                            if !argument.storage.type_cmp(&Storage::Unit) {
-                                return Err(Error::TypeError {
-                                    value: argument,
-                                    ty: Storage::Unit.into(),
-                                });
-                            }
-                            Storage::None.into()
-                        }
-                    };
-                    stack.push(result);
+                    stack.push(
+                        Rc::<Function>::try_unwrap(function.try_into()?)
+                            .unwrap_or_else(|function| (*function).clone())
+                            .piped(argument)
+                            .eval()?,
+                    );
                 }
                 instruction::TUPLE => {
                     let r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let l = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(concat(l, r));
+                    stack.push(Value::concat(l, r));
                 }
                 instruction::INDEX => {
                     let index = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
@@ -771,7 +803,7 @@ impl<'bytes> Program<'bytes> {
                                     variant: i as usize,
                                     definition: ty,
                                 },
-                                arguments: Storage::Unit.into(),
+                                argument: Storage::Unit.into(),
                             }))
                             .into(),
                         ),
@@ -796,7 +828,7 @@ impl<'bytes> Program<'bytes> {
                                             variant: variant_id,
                                             definition: ty,
                                         },
-                                        arguments: Storage::Unit.into(),
+                                        argument: Storage::Unit.into(),
                                     }))
                                     .into(),
                                 );
