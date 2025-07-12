@@ -140,7 +140,7 @@ mod tests {
         let (variant, value) = interpreter::EnumVariant::try_from(actual.eval().unwrap())
             .unwrap()
             .unwrap();
-        assert_eq!(&*variant, "Some");
+        assert_eq!(variant, Some("Some".into()));
         assert!(value.eq(Storage::I64(1).into()).unwrap());
     }
 
@@ -152,12 +152,10 @@ mod tests {
             actual
                 .eval()
                 .unwrap()
-                .eq(Value {
-                    storage: Storage::Tuple(Rc::new([
-                        Storage::Some(Rc::new(Storage::I64(1).into())).into(),
-                        Storage::None.into()
-                    ]))
-                })
+                .eq(Value::concat(
+                    Storage::Some(Rc::new(Storage::I64(1).into())).into(),
+                    Storage::None.into()
+                ))
                 .unwrap()
         )
     }
@@ -171,9 +169,9 @@ mod tests {
         assert!(
             struct_type
                 .inner
-                .eq(Storage::NamedTuple(Rc::new([
-                    (Rc::from("x"), Storage::Any.into()),
-                    (Rc::from("y"), Storage::Any.into()),
+                .eq(Storage::Tuple(interpreter::Tuple::from([
+                    (Some(Rc::from("x")), Storage::Any.into()),
+                    (Some(Rc::from("y")), Storage::Any.into()),
                 ]))
                 .into())
                 .unwrap()

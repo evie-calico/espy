@@ -259,7 +259,7 @@ impl Program {
                     let methods = stack
                         .pop()
                         .ok_or(InvalidBytecode::StackUnderflow)?
-                        .into_named_tuple_or_unit()?;
+                        .into_tuple_or_unit()?;
                     let mut statics = set(&self.bytes, program.next4()?)?
                         .chunks(4)
                         .map(|name| {
@@ -278,14 +278,14 @@ impl Program {
                     let variants = stack
                         .pop()
                         .ok_or(InvalidBytecode::StackUnderflow)?
-                        .into_named_tuple()?;
+                        .into_tuple()?;
                     stack.push(Storage::EnumType(Rc::new(EnumType { variants })).into());
                 }
                 instruction::PUSH_STRUCT => {
                     let methods = stack
                         .pop()
                         .ok_or(InvalidBytecode::StackUnderflow)?
-                        .into_named_tuple_or_unit()?;
+                        .into_tuple_or_unit()?;
                     let mut statics = set(&self.bytes, program.next4()?)?
                         .chunks(4)
                         .map(|name| {
@@ -371,7 +371,7 @@ impl Program {
                                 storage: Storage::I64(i),
                             },
                         ) => {
-                            stack.push(tuple.get(i as usize).cloned().ok_or(
+                            stack.push(tuple.value(i as usize).cloned().ok_or(
                                 Error::IndexNotFound {
                                     index: Value {
                                         storage: Storage::Tuple(tuple),
@@ -384,50 +384,22 @@ impl Program {
                         }
                         (
                             Value {
-                                storage: Storage::NamedTuple(tuple),
-                            },
-                            Value {
-                                storage: Storage::I64(i),
-                            },
-                        ) => {
-                            stack.push(
-                                tuple
-                                    .get(i as usize)
-                                    .map(|(_name, value)| value)
-                                    .cloned()
-                                    .ok_or(Error::IndexNotFound {
-                                        index: Value {
-                                            storage: Storage::NamedTuple(tuple),
-                                        },
-                                        container: Value {
-                                            storage: Storage::I64(i),
-                                        },
-                                    })?,
-                            );
-                        }
-                        (
-                            Value {
-                                storage: Storage::NamedTuple(tuple),
+                                storage: Storage::Tuple(tuple),
                             },
                             Value {
                                 storage: Storage::String(i),
                             },
                         ) => {
-                            stack.push(
-                                tuple
-                                    .iter()
-                                    .find(|(name, _value)| *name == i)
-                                    .map(|(_name, value)| value)
-                                    .cloned()
-                                    .ok_or(Error::IndexNotFound {
-                                        index: Value {
-                                            storage: Storage::NamedTuple(tuple),
-                                        },
-                                        container: Value {
-                                            storage: Storage::String(i),
-                                        },
-                                    })?,
-                            );
+                            stack.push(tuple.find_value(&i).cloned().ok_or(
+                                Error::IndexNotFound {
+                                    index: Value {
+                                        storage: Storage::Tuple(tuple),
+                                    },
+                                    container: Value {
+                                        storage: Storage::String(i),
+                                    },
+                                },
+                            )?);
                         }
                         (
                             Value {
@@ -456,9 +428,12 @@ impl Program {
                         ) => {
                             if let Some(variant_id) = ty
                                 .variants
+                                .as_ref()
                                 .iter()
                                 .enumerate()
-                                .find(|(_, (variant, _))| *variant == name)
+                                .find(|(_, (variant, _))| {
+                                    variant.as_ref().is_some_and(|variant| *variant == name)
+                                })
                                 .map(|(i, _)| i)
                             {
                                 stack.push(
@@ -495,7 +470,7 @@ impl Program {
                         .ok_or(InvalidBytecode::UnexpectedStringId)?
                         .clone();
                     let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Storage::NamedTuple(Rc::new([(name, value)])).into())
+                    stack.push(Storage::Tuple(Tuple::from((name, value))).into())
                 }
                 // TODO: This instruction shouldn't be emitted; unary + is a no-op
                 instruction::POSITIVE => {}

@@ -3,10 +3,6 @@ use std::{mem, rc::Rc};
 mod interpreter;
 pub use interpreter::*;
 
-// These will probably not be type aliases eventually.
-type Tuple = [Value];
-type NamedTuple = [(Rc<str>, Value)];
-
 #[derive(Clone, Debug)]
 pub struct Value {
     pub storage: Storage,
@@ -23,8 +19,7 @@ pub enum Storage {
     // TODO: maybe () should be the value and `unit` the type?
     #[default]
     Unit,
-    Tuple(Rc<Tuple>),
-    NamedTuple(Rc<NamedTuple>),
+    Tuple(Tuple),
 
     I64(i64),
     Bool(bool),
@@ -71,59 +66,13 @@ impl Value {
                     storage: Storage::Tuple(r),
                 },
             ) if l.len() == r.len() => {
-                for (l, r) in l.iter().zip(r.iter()) {
+                for (l, r) in l.values().zip(r.values()) {
                     if !l.clone().eq(r.clone())? {
                         return Ok(false);
                     }
                 }
                 Ok(true)
             }
-            (
-                Value {
-                    storage: Storage::Tuple(l),
-                },
-                Value {
-                    storage: Storage::NamedTuple(r),
-                },
-            ) if l.len() == r.len() => {
-                for (l, (_, r)) in l.iter().zip(r.iter()) {
-                    if !l.clone().eq(r.clone())? {
-                        return Ok(false);
-                    }
-                }
-                Ok(true)
-            }
-            (
-                Value {
-                    storage: Storage::NamedTuple(l),
-                },
-                Value {
-                    storage: Storage::Tuple(r),
-                },
-            ) if l.len() == r.len() => {
-                for ((_, l), r) in l.iter().zip(r.iter()) {
-                    if !l.clone().eq(r.clone())? {
-                        return Ok(false);
-                    }
-                }
-                Ok(true)
-            }
-            (
-                Value {
-                    storage: Storage::NamedTuple(l),
-                },
-                Value {
-                    storage: Storage::NamedTuple(r),
-                },
-            ) if l.len() == r.len() => {
-                for ((_, l), (_, r)) in l.iter().zip(r.iter()) {
-                    if !l.clone().eq(r.clone())? {
-                        return Ok(false);
-                    }
-                }
-                Ok(true)
-            }
-
             (
                 Value {
                     storage: Storage::I64(l),
@@ -262,7 +211,7 @@ impl Value {
         }
     }
 
-    fn concat(self, r: Value) -> Value {
+    pub fn concat(self, r: Value) -> Value {
         fn rc_slice_from_iter<T>(len: usize, iter: impl Iterator<Item = T>) -> Rc<[T]> {
             let mut tuple = Rc::new_uninit_slice(len);
             // SAFETY: `get_mut` only returns `None` if the `Rc` has been cloned.
@@ -292,25 +241,10 @@ impl Value {
                     ..
                 },
             ) => Value {
-                storage: Storage::Tuple(rc_slice_from_iter(
+                storage: Storage::Tuple(Tuple(rc_slice_from_iter(
                     l.len() + r.len(),
-                    l.iter().chain(r.iter()).cloned(),
-                )),
-            },
-            (
-                Value {
-                    storage: Storage::NamedTuple(l),
-                    ..
-                },
-                Value {
-                    storage: Storage::NamedTuple(r),
-                    ..
-                },
-            ) => Value {
-                storage: Storage::NamedTuple(rc_slice_from_iter(
-                    l.len() + r.len(),
-                    l.iter().chain(r.iter()).cloned(),
-                )),
+                    l.0.iter().chain(r.0.iter()).cloned(),
+                ))),
             },
             (
                 l,
@@ -333,10 +267,10 @@ impl Value {
                 },
                 r,
             ) => Value {
-                storage: Storage::Tuple(rc_slice_from_iter(
+                storage: Storage::Tuple(Tuple(rc_slice_from_iter(
                     l.len() + 1,
-                    l.iter().cloned().chain(Some(r)),
-                )),
+                    l.0.iter().cloned().chain(Some((None, r))),
+                ))),
             },
             (
                 l,
@@ -345,25 +279,25 @@ impl Value {
                     ..
                 },
             ) => Value {
-                storage: Storage::Tuple(rc_slice_from_iter(
+                storage: Storage::Tuple(Tuple(rc_slice_from_iter(
                     1 + r.len(),
-                    Some(l).into_iter().chain(r.iter().cloned()),
-                )),
+                    Some((None, l)).into_iter().chain(r.0.iter().cloned()),
+                ))),
             },
             (l, r) => Value {
-                storage: Storage::Tuple(Rc::new([l, r])),
+                storage: Storage::Tuple(Tuple(Rc::new([(None, l), (None, r)]))),
             },
         }
     }
 
-    pub fn into_named_tuple(self) -> Result<Rc<NamedTuple>, Error> {
+    pub fn into_tuple(self) -> Result<Tuple, Error> {
         self.try_into()
     }
 
-    pub fn into_named_tuple_or_unit(self) -> Result<Option<Rc<NamedTuple>>, Error> {
-        match self.into_named_tuple() {
+    pub fn into_tuple_or_unit(self) -> Result<Option<Tuple>, Error> {
+        match self.into_tuple() {
             Ok(tuple) => Ok(Some(tuple)),
-            Err(Error::ExpectedNamedTuple(Value {
+            Err(Error::ExpectedTuple(Value {
                 storage: Storage::Unit,
             })) => Ok(None),
             Err(e) => Err(e),
@@ -387,14 +321,14 @@ impl Value {
     }
 }
 
-impl TryFrom<Value> for Rc<NamedTuple> {
+impl TryFrom<Value> for Tuple {
     type Error = Error;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
-        if let Storage::NamedTuple(value) = value.storage {
+        if let Storage::Tuple(value) = value.storage {
             Ok(value)
         } else {
-            Err(Error::ExpectedNamedTuple(value))
+            Err(Error::ExpectedTuple(value))
         }
     }
 }
@@ -487,6 +421,69 @@ impl TryFrom<Value> for StructType {
 }
 
 #[derive(Clone, Debug)]
+pub struct Tuple(Rc<[(Option<Rc<str>>, Value)]>);
+
+impl Tuple {
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn value(&self, index: usize) -> Option<&Value> {
+        self.0.get(index).map(|(_name, value)| value)
+    }
+
+    pub fn find_value(&self, name: &str) -> Option<&Value> {
+        self.0.iter().find_map(|(n, v)| {
+            if n.as_ref().is_some_and(|n| **n == *name) {
+                Some(v)
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &Value> {
+        self.0.iter().map(|(_name, value)| value)
+    }
+}
+
+impl From<(Rc<str>, Value)> for Tuple {
+    fn from((name, value): (Rc<str>, Value)) -> Self {
+        Self(Rc::new([(Some(name), value)]))
+    }
+}
+
+impl From<Rc<[(Option<Rc<str>>, Value)]>> for Tuple {
+    fn from(value: Rc<[(Option<Rc<str>>, Value)]>) -> Self {
+        Self(value)
+    }
+}
+
+impl<const N: usize> From<[(Option<Rc<str>>, Value); N]> for Tuple {
+    fn from(value: [(Option<Rc<str>>, Value); N]) -> Self {
+        Self(Rc::from(value))
+    }
+}
+
+impl AsRef<[(Option<Rc<str>>, Value)]> for Tuple {
+    fn as_ref(&self) -> &[(Option<Rc<str>>, Value)] {
+        &self.0
+    }
+}
+
+impl std::ops::Index<usize> for Tuple {
+    type Output = (Option<Rc<str>>, Value);
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct Function {
     action: FunctionAction,
     argument: Value,
@@ -507,11 +504,10 @@ impl Function {
                 variant,
                 definition,
             } => {
-                let ty = &definition
+                let ty = definition
                     .variants
-                    .get(variant)
-                    .expect("enum variant must not be missing")
-                    .1;
+                    .value(variant)
+                    .expect("enum variant must not be missing");
                 if !self.argument.type_cmp(ty) {
                     return Err(Error::TypeError {
                         value: self.argument,
@@ -592,7 +588,7 @@ impl EnumVariant {
         self.variant
     }
 
-    pub fn unwrap(self) -> (Rc<str>, Value) {
+    pub fn unwrap(self) -> (Option<Rc<str>>, Value) {
         (
             self.definition.variants[self.variant].0.clone(),
             self.contents,
@@ -602,7 +598,7 @@ impl EnumVariant {
 
 #[derive(Clone, Debug)]
 pub struct EnumType {
-    pub variants: Rc<NamedTuple>,
+    pub variants: Tuple,
 }
 
 #[derive(Debug)]
@@ -612,7 +608,7 @@ pub enum Error {
     ExpectedEnumVariant(Value),
     ExpectedEnumType(Value),
     ExpectedStructType(Value),
-    ExpectedNamedTuple(Value),
+    ExpectedTuple(Value),
     IncomparableValues(Value, Value),
     TypeError {
         value: Value,
