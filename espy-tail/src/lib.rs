@@ -233,18 +233,18 @@ pub struct Program<'source> {
 impl<'source> Program<'source> {
     pub fn compile(self) -> Vec<u8> {
         let mut output = Vec::new();
+        output.extend((self.blocks.len() as u32).to_le_bytes());
+        output.extend((self.strings.len() as u32).to_le_bytes());
+        output.extend((self.string_sets.len() as u32).to_le_bytes());
         // Reserve space for vector offsets.
         // Blocks, strings, and string sets are only referred to by index,
         // so this is the only program-wide retroactive filling required.
-        output.extend((self.blocks.len() as u32).to_le_bytes());
         let block_offsets = output.len();
         output.extend(iter::repeat_n(0, self.blocks.len() * size_of::<u32>()));
         // same for strings.
-        output.extend((self.strings.len() as u32).to_le_bytes());
         let string_offsets = output.len();
         output.extend(iter::repeat_n(0, self.strings.len() * size_of::<u32>()));
         // and string sets (these are currently only used for enums)
-        output.extend((self.string_sets.len() as u32).to_le_bytes());
         let string_set_offsets = output.len();
         output.extend(iter::repeat_n(0, self.string_sets.len() * size_of::<u32>()));
 

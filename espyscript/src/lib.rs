@@ -7,13 +7,12 @@ pub use espy_tail as compiler;
 
 pub use interpreter::Value;
 
-pub struct Program {
-    bytecode: Rc<[u8]>,
-}
+#[derive(Debug)]
+pub struct Program(interpreter::Program);
 
 impl Program {
-    fn eval(&self) -> Result<Value, interpreter::Error> {
-        interpreter::Program::try_from(&self.bytecode)?.eval(0, Vec::new())
+    pub fn eval(&self) -> Result<Value, interpreter::Error> {
+        self.0.eval(0, Vec::new())
     }
 }
 
@@ -22,8 +21,11 @@ impl<'source> TryFrom<&'source str> for Program {
 
     fn try_from(s: &'source str) -> Result<Self, Self::Error> {
         compiler::Program::try_from(parser::Block::from(&mut lexer::Lexer::from(s).peekable())).map(
-            |program| Program {
-                bytecode: compiler::Program::compile(program).into(),
+            |program| {
+                Program(
+                    interpreter::Program::try_from(Rc::from(compiler::Program::compile(program)))
+                        .expect("textual programs may not produce invalid bytecode"),
+                )
             },
         )
     }
@@ -40,24 +42,30 @@ mod tests {
     #[test]
     fn arithmetic() {
         let actual = Program::try_from("(1 + 2) * 4").unwrap();
-        println!("{:?}", actual.bytecode);
-        assert_eq!(
-            actual.eval().unwrap(),
-            Value {
-                storage: Storage::I64(12),
-            }
+        println!("{actual:?}");
+        assert!(
+            actual
+                .eval()
+                .unwrap()
+                .eq(Value {
+                    storage: Storage::I64(12),
+                })
+                .unwrap()
         )
     }
 
     #[test]
     fn tuples() {
         let actual = Program::try_from("let x = 1, 2; let y = 3, 4; x.1 * y.0").unwrap();
-        println!("{:?}", actual.bytecode);
-        assert_eq!(
-            actual.eval().unwrap(),
-            Value {
-                storage: Storage::I64(6),
-            }
+        println!("{actual:?}");
+        assert!(
+            actual
+                .eval()
+                .unwrap()
+                .eq(Value {
+                    storage: Storage::I64(6),
+                })
+                .unwrap()
         )
     }
 
@@ -67,48 +75,60 @@ mod tests {
             "let x = first: 1, second: 2; let y = third: 3, fourth: 4; x.second * y.0",
         )
         .unwrap();
-        println!("{:?}", actual.bytecode);
-        assert_eq!(
-            actual.eval().unwrap(),
-            Value {
-                storage: Storage::I64(6),
-            }
+        println!("{actual:?}");
+        assert!(
+            actual
+                .eval()
+                .unwrap()
+                .eq(Value {
+                    storage: Storage::I64(6),
+                })
+                .unwrap()
         )
     }
 
     #[test]
     fn functions() {
         let actual = Program::try_from("let f = {with x; x * x}; f 4").unwrap();
-        println!("{:?}", actual.bytecode);
-        assert_eq!(
-            actual.eval().unwrap(),
-            Value {
-                storage: Storage::I64(16),
-            }
+        println!("{actual:?}");
+        assert!(
+            actual
+                .eval()
+                .unwrap()
+                .eq(Value {
+                    storage: Storage::I64(16),
+                })
+                .unwrap()
         )
     }
 
     #[test]
     fn closures() {
         let actual = Program::try_from("let f = {let y = 10; with x; x * y}; f 4").unwrap();
-        println!("{:?}", actual.bytecode);
-        assert_eq!(
-            actual.eval().unwrap(),
-            Value {
-                storage: Storage::I64(40),
-            }
+        println!("{actual:?}");
+        assert!(
+            actual
+                .eval()
+                .unwrap()
+                .eq(Value {
+                    storage: Storage::I64(40),
+                })
+                .unwrap()
         )
     }
 
     #[test]
     fn pipes() {
         let actual = Program::try_from("let f = {with args; args.0 * args.1}; 2 |> f 128").unwrap();
-        println!("{:?}", actual.bytecode);
-        assert_eq!(
-            actual.eval().unwrap(),
-            Value {
-                storage: Storage::I64(256),
-            }
+        println!("{actual:?}");
+        assert!(
+            actual
+                .eval()
+                .unwrap()
+                .eq(Value {
+                    storage: Storage::I64(256),
+                })
+                .unwrap()
         )
     }
 
@@ -116,53 +136,52 @@ mod tests {
     fn enums_usage() {
         let actual =
             Program::try_from("let Option = enum Some: any, None: () end; Option.Some 1").unwrap();
-        println!("{:?}", actual.bytecode);
-        assert_eq!(
-            actual.eval().unwrap(),
-            Value {
-                storage: Storage::EnumVariant(Rc::new(interpreter::EnumVariant {
-                    contents: Storage::I64(1).into(),
-                    variant: 0,
-                    definition: Rc::new(interpreter::EnumType {
-                        variants: Rc::new([
-                            (Rc::from("Some"), Storage::Any.into()),
-                            (Rc::from("None"), Storage::Unit.into())
-                        ])
-                    })
-                })),
-            }
-        )
+        println!("{actual:?}");
+        let value = actual.eval().unwrap();
+        let Storage::EnumVariant(enum_variant) = value.storage else {
+            panic!("expected enum variant, got {value:?}");
+        };
+        let (variant, value) = Rc::unwrap_or_clone(enum_variant).unwrap();
+        assert_eq!(&*variant, "Some");
+        assert!(value.eq(Storage::I64(1).into()).unwrap());
     }
 
     #[test]
     fn options() {
         let actual = Program::try_from("Some 1, None ()").unwrap();
-        println!("{:?}", actual.bytecode);
-        assert_eq!(
-            actual.eval().unwrap(),
-            Value {
-                storage: Storage::Tuple(Rc::new([
-                    Storage::Some(Rc::new(Storage::I64(1).into())).into(),
-                    Storage::None.into()
-                ]))
-            }
+        println!("{actual:?}");
+        assert!(
+            actual
+                .eval()
+                .unwrap()
+                .eq(Value {
+                    storage: Storage::Tuple(Rc::new([
+                        Storage::Some(Rc::new(Storage::I64(1).into())).into(),
+                        Storage::None.into()
+                    ]))
+                })
+                .unwrap()
         )
     }
 
     #[test]
     fn structures() {
         let actual = Program::try_from("struct x: any, y: any end").unwrap();
-        println!("{:?}", actual.bytecode);
-        assert_eq!(
-            actual.eval().unwrap(),
-            Storage::StructType(Rc::new(interpreter::StructType {
-                inner: Storage::NamedTuple(Rc::new([
+        println!("{actual:?}");
+        let value = actual.eval().unwrap();
+        let Storage::StructType(struct_type) = value.storage else {
+            panic!("expected structure definition, got {value:?}");
+        };
+        assert!(
+            Rc::into_inner(struct_type)
+                .unwrap()
+                .inner
+                .eq(Storage::NamedTuple(Rc::new([
                     (Rc::from("x"), Storage::Any.into()),
                     (Rc::from("y"), Storage::Any.into()),
                 ]))
-                .into()
-            }))
-            .into()
+                .into())
+                .unwrap()
         )
     }
 }

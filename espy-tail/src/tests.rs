@@ -17,16 +17,19 @@ macro_rules! program {
     ] => {
         {
             let mut program = Vec::new();
+            program.extend([0; 4]);
+            program.extend([0; 4]);
+            program.extend([0; 4]);
+            let block_count = program.len();
             let mut i: BlockId = 0;
             $(
                 let $block = i;
                 program.extend([0; 4]);
                 i += 1;
             )*
-            for b in i.to_le_bytes().into_iter().rev() {
-                program.insert(0, b);
-            }
+            program[0..4].copy_from_slice(&i.to_le_bytes());
 
+            #[allow(unused)]
             let string_count = program.len();
             #[allow(unused)]
             let mut i: BlockId = 0;
@@ -35,10 +38,9 @@ macro_rules! program {
                 program.extend([0; 4]);
                 i += 1;
             )*
-            for b in i.to_le_bytes().into_iter().rev() {
-                program.insert(string_count, b);
-            }
+            program[4..8].copy_from_slice(&i.to_le_bytes());
 
+            #[allow(unused)]
             let enum_count = program.len();
             #[allow(unused)]
             let mut i: BlockId = 0;
@@ -47,21 +49,19 @@ macro_rules! program {
                 program.extend([0; 4]);
                 i += 1;
             )*
-            for b in i.to_le_bytes().into_iter().rev() {
-                program.insert(enum_count, b);
-            }
+            program[8..12].copy_from_slice(&i.to_le_bytes());
 
-            let mut i = 1;
+            let mut i = 0;
             $(
                 let offset = program.len() as u32;
                 $(program.extend($i);)*
-                program[(i * size_of::<u32>())..((i + 1) * size_of::<u32>())]
+                program[(block_count + i * size_of::<u32>())..(block_count + (i + 1) * size_of::<u32>())]
                     .copy_from_slice(&offset.to_le_bytes());
                 #[allow(unused_assignments)]
                 { i += 1; }
             )*
             #[allow(unused)]
-            let mut i = 1;
+            let mut i = 0;
             $(
                 let offset = program.len() as u32;
                 program.extend($slit.bytes());
@@ -71,7 +71,7 @@ macro_rules! program {
                 { i += 1; }
             )*
             #[allow(unused)]
-            let mut i = 1;
+            let mut i = 0;
             $(
                 let offset = program.len() as u32;
                 $(program.extend($case.to_le_bytes());)*

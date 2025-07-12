@@ -6,6 +6,7 @@ pub enum Error {
     ExpectedNumbers(Value, Value),
     ExpectedFunction(Value),
     ExpectedNamedTuple(Value),
+    IncomparableValues(Value, Value),
     TypeError {
         value: Value,
         ty: Value,
@@ -27,10 +28,10 @@ pub enum InvalidBytecode {
     ///
     /// Well-behaved bytecode never has any reason to cause this.
     StackUnderflow,
-    /// An instruction's arguments were interrupted by the end of the program.
-    MissingInstructionArgument,
     /// An instruction byte had an unexpected value.
     InvalidInstruction,
+    /// An instruction referred to a string id that did not exist.
+    UnexpectedStringId,
     /// Occurs when the header is too short or
     /// describes a program which is longer than the provided slice.
     MalformedHeader,
@@ -53,12 +54,199 @@ impl From<InvalidBytecode> for Error {
 type Tuple = [Value];
 type NamedTuple = [(Rc<str>, Value)];
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct Value {
     pub storage: Storage,
 }
 
 impl Value {
+    pub fn eq(self, other: Self) -> Result<bool, Error> {
+        match (self, other) {
+            (
+                Value {
+                    storage: Storage::Unit,
+                },
+                Value {
+                    storage: Storage::Unit,
+                },
+            ) => Ok(true),
+            (
+                Value {
+                    storage: Storage::Tuple(l),
+                },
+                Value {
+                    storage: Storage::Tuple(r),
+                },
+            ) if l.len() == r.len() => {
+                for (l, r) in l.iter().zip(r.iter()) {
+                    if !l.clone().eq(r.clone())? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+            (
+                Value {
+                    storage: Storage::Tuple(l),
+                },
+                Value {
+                    storage: Storage::NamedTuple(r),
+                },
+            ) if l.len() == r.len() => {
+                for (l, (_, r)) in l.iter().zip(r.iter()) {
+                    if !l.clone().eq(r.clone())? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+            (
+                Value {
+                    storage: Storage::NamedTuple(l),
+                },
+                Value {
+                    storage: Storage::Tuple(r),
+                },
+            ) if l.len() == r.len() => {
+                for ((_, l), r) in l.iter().zip(r.iter()) {
+                    if !l.clone().eq(r.clone())? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+            (
+                Value {
+                    storage: Storage::NamedTuple(l),
+                },
+                Value {
+                    storage: Storage::NamedTuple(r),
+                },
+            ) if l.len() == r.len() => {
+                for ((_, l), (_, r)) in l.iter().zip(r.iter()) {
+                    if !l.clone().eq(r.clone())? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+
+            (
+                Value {
+                    storage: Storage::I64(l),
+                },
+                Value {
+                    storage: Storage::I64(r),
+                },
+            ) => Ok(l == r),
+            (
+                Value {
+                    storage: Storage::Bool(l),
+                },
+                Value {
+                    storage: Storage::Bool(r),
+                },
+            ) => Ok(l == r),
+            (
+                Value {
+                    storage: Storage::EnumVariant(l),
+                },
+                Value {
+                    storage: Storage::EnumVariant(r),
+                },
+            ) => Ok(l.variant == r.variant
+                && Rc::ptr_eq(&l.definition, &r.definition)
+                && Rc::try_unwrap(l)
+                    .map(|l| l.contents)
+                    .unwrap_or_else(|l| l.contents.clone())
+                    .eq(Rc::try_unwrap(r)
+                        .map(|r| r.contents)
+                        .unwrap_or_else(|r| r.contents.clone()))?),
+            (
+                Value {
+                    storage: Storage::Some(l),
+                },
+                Value {
+                    storage: Storage::Some(r),
+                },
+            ) => Rc::unwrap_or_clone(l).eq(Rc::unwrap_or_clone(r)),
+            (
+                Value {
+                    storage: Storage::None,
+                },
+                Value {
+                    storage: Storage::None,
+                },
+            ) => Ok(true),
+
+            (
+                Value {
+                    storage: Storage::Any,
+                },
+                Value {
+                    storage: Storage::Any,
+                },
+            ) => Ok(true),
+            (
+                Value {
+                    storage: Storage::I64Type,
+                },
+                Value {
+                    storage: Storage::I64Type,
+                },
+            ) => Ok(true),
+            (
+                Value {
+                    storage: Storage::BoolType,
+                },
+                Value {
+                    storage: Storage::BoolType,
+                },
+            ) => Ok(true),
+            (
+                Value {
+                    storage: Storage::StringType,
+                },
+                Value {
+                    storage: Storage::StringType,
+                },
+            ) => Ok(true),
+            (
+                Value {
+                    storage: Storage::StructType(l),
+                },
+                Value {
+                    storage: Storage::StructType(r),
+                },
+            ) => Ok(Rc::ptr_eq(&l, &r)),
+            (
+                Value {
+                    storage: Storage::EnumType(l),
+                },
+                Value {
+                    storage: Storage::EnumType(r),
+                },
+            ) => Ok(Rc::ptr_eq(&l, &r)),
+            (
+                Value {
+                    storage: Storage::Option,
+                },
+                Value {
+                    storage: Storage::Option,
+                },
+            ) => Ok(true),
+            (
+                Value {
+                    storage: Storage::Type,
+                },
+                Value {
+                    storage: Storage::Type,
+                },
+            ) => Ok(true),
+            (this, other) => Err(Error::IncomparableValues(this, other)),
+        }
+    }
+
     fn concat(self, r: Value) -> Value {
         fn rc_slice_from_iter<T>(len: usize, iter: impl Iterator<Item = T>) -> Rc<[T]> {
             let mut tuple = Rc::new_uninit_slice(len);
@@ -175,7 +363,7 @@ impl Value {
 // Cloning this type should be cheap;
 // every binding usage is a clone in espyscript!
 // Use Rcs over boxes and try to put allocations as far up as possible.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default)]
 pub enum Storage {
     /// Unit is a special case of tuple.
     /// It behaves as both an empty tuple and an empty named tuple,
@@ -236,7 +424,7 @@ impl Storage {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct Function {
     action: FunctionAction,
     argument: Value,
@@ -251,7 +439,7 @@ impl Function {
                 mut captures,
             } => {
                 captures.push(self.argument);
-                Program::try_from(&program)?.eval(block_id, captures)?
+                program.eval(block_id, captures)?
             }
             FunctionAction::Enum {
                 variant,
@@ -316,10 +504,10 @@ impl TryFrom<Value> for Rc<Function> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub enum FunctionAction {
     Block {
-        program: Rc<[u8]>,
+        program: Program,
         block_id: usize,
         captures: Vec<Value>,
     },
@@ -331,19 +519,40 @@ pub enum FunctionAction {
     None,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct StructType {
     pub inner: Value,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct EnumVariant {
     pub contents: Value,
     pub variant: usize,
     pub definition: Rc<EnumType>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+impl EnumVariant {
+    pub fn contents(&self) -> &Value {
+        &self.contents
+    }
+
+    pub fn definition(&self) -> &Rc<EnumType> {
+        &self.definition
+    }
+
+    pub fn variant(&self) -> usize {
+        self.variant
+    }
+
+    pub fn unwrap(self) -> (Rc<str>, Value) {
+        (
+            self.definition.variants[self.variant].0.clone(),
+            self.contents,
+        )
+    }
+}
+
+#[derive(Debug)]
 pub struct EnumType {
     pub variants: Rc<NamedTuple>,
 }
@@ -357,103 +566,79 @@ fn read4(bytes: &[u8], at: usize) -> Option<usize> {
     ]) as usize)
 }
 
-pub struct Program<'bytes> {
-    bytes: &'bytes Rc<[u8]>,
-
-    blocks: &'bytes [u8],
-    strings: &'bytes [u8],
-    sets: &'bytes [u8],
-
-    owned_strings: Vec<Option<Rc<str>>>,
+fn block_count(bytes: &[u8]) -> Result<usize, InvalidBytecode> {
+    read4(bytes, 0).ok_or(InvalidBytecode::MalformedHeader)
 }
 
-impl<'bytes> TryFrom<&'bytes Rc<[u8]>> for Program<'bytes> {
+fn string_count(bytes: &[u8]) -> Result<usize, InvalidBytecode> {
+    read4(bytes, 4).ok_or(InvalidBytecode::MalformedHeader)
+}
+
+fn set_count(bytes: &[u8]) -> Result<usize, InvalidBytecode> {
+    read4(bytes, 8).ok_or(InvalidBytecode::MalformedHeader)
+}
+
+fn offsets(bytes: &[u8]) -> Result<&[u8], InvalidBytecode> {
+    bytes
+        .get(12..(12 + 4 * (block_count(bytes)? + string_count(bytes)? + set_count(bytes)?)))
+        .ok_or(InvalidBytecode::MalformedHeader)
+}
+
+fn block(bytes: &[u8], block_id: usize) -> Result<&[u8], Error> {
+    let offsets = offsets(bytes)?;
+    let start = read4(offsets, 4 * block_id).ok_or(InvalidBytecode::MalformedHeader)?;
+    let end = read4(offsets, 4 * block_id + 4).unwrap_or(bytes.len());
+    Ok(bytes
+        .get(start..end)
+        .ok_or(InvalidBytecode::MalformedHeader)?)
+}
+
+fn set(bytes: &[u8], set_id: usize) -> Result<&[u8], Error> {
+    let Some(set_id) = set_id.checked_sub(1) else {
+        return Ok(&[]);
+    };
+    let i = set_id + block_count(bytes)? + string_count(bytes)?;
+    let offsets = offsets(bytes)?;
+    let start = read4(offsets, 4 * i).ok_or(InvalidBytecode::MalformedHeader)?;
+    let end = read4(offsets, 4 * i + 4).unwrap_or(bytes.len());
+    Ok(bytes
+        .get(start..end)
+        .ok_or(InvalidBytecode::MalformedHeader)?)
+}
+
+#[derive(Clone, Debug)]
+pub struct Program {
+    bytes: Rc<[u8]>,
+    owned_strings: Rc<[Rc<str>]>,
+}
+
+impl TryFrom<Rc<[u8]>> for Program {
     type Error = Error;
 
-    fn try_from(bytes: &'bytes Rc<[u8]>) -> Result<Self, Self::Error> {
-        let block_count = read4(bytes, 0).ok_or(InvalidBytecode::MalformedHeader)?;
-        let blocks = bytes
-            .get(4..(block_count * 4 + 4))
-            .ok_or(InvalidBytecode::MalformedHeader)?;
-        let string_start = block_count * 4 + 4;
-        let string_count = read4(bytes, string_start).ok_or(InvalidBytecode::MalformedHeader)?;
-        let strings = bytes
-            .get((string_start + 4)..(string_count * 4 + string_start + 4))
-            .ok_or(InvalidBytecode::MalformedHeader)?;
-        let set_start = string_count * 4 + string_start + 4;
-        let set_count = read4(bytes, set_start).ok_or(InvalidBytecode::MalformedHeader)?;
-        let sets = bytes
-            .get((set_start + 4)..(set_count * 4 + set_start + 4))
-            .ok_or(InvalidBytecode::MalformedHeader)?;
+    fn try_from(bytes: Rc<[u8]>) -> Result<Self, Self::Error> {
+        let string_count = string_count(&bytes)?;
+        let owned_strings = (0..string_count)
+            .map(|i| {
+                let i = i + block_count(&bytes)?;
+                let offsets = offsets(&bytes)?;
+                let start = read4(offsets, 4 * i).ok_or(InvalidBytecode::MalformedHeader)?;
+                let end = read4(offsets, 4 * i + 4).unwrap_or(bytes.len());
+                let string_bytes = bytes
+                    .get(start..end)
+                    .ok_or(InvalidBytecode::MalformedHeader)?;
+                let string = str::from_utf8(string_bytes).map_err(InvalidBytecode::Utf8Error)?;
+                Ok(Rc::from(string))
+            })
+            .collect::<Result<_, Error>>()?;
         Ok(Self {
             bytes,
-
-            blocks,
-            strings,
-            sets,
-
-            owned_strings: Vec::new(),
+            owned_strings,
         })
     }
 }
 
-impl<'bytes> Program<'bytes> {
-    fn block(&mut self, block_id: usize) -> Result<&'bytes [u8], Error> {
-        let start = read4(self.blocks, block_id * 4).ok_or(InvalidBytecode::MalformedHeader)?;
-        let (next_region, at) = if self.blocks.len() / 4 == block_id + 1 {
-            // we don't need to check sets because if strings is empty so is sets.
-            (self.strings, 0)
-        } else {
-            (self.blocks, block_id + 1)
-        };
-        let end = read4(next_region, at * 4).unwrap_or(self.bytes.len());
-        Ok(self
-            .bytes
-            .get(start..end)
-            .ok_or(InvalidBytecode::MalformedHeader)?)
-    }
-
-    fn string(&mut self, string_id: usize) -> Result<Rc<str>, Error> {
-        self.owned_strings
-            .get(string_id)
-            .and_then(|x: &Option<Rc<str>>| x.clone())
-            .map(Ok::<_, Error>)
-            .unwrap_or_else(|| {
-                let start =
-                    read4(self.strings, string_id * 4).ok_or(InvalidBytecode::MalformedHeader)?;
-                let (next_region, at) = if self.strings.len() / 4 == string_id + 1 {
-                    (self.sets, 0)
-                } else {
-                    (self.strings, string_id + 1)
-                };
-                let end = read4(next_region, at * 4).unwrap_or(self.bytes.len());
-                let string_bytes = self
-                    .bytes
-                    .get(start..end)
-                    .ok_or(InvalidBytecode::MalformedHeader)?;
-                let string = Rc::<str>::from(
-                    str::from_utf8(string_bytes).map_err(InvalidBytecode::Utf8Error)?,
-                );
-                self.owned_strings
-                    .resize(self.owned_strings.len().max(string_id + 1), None);
-                self.owned_strings[string_id] = Some(string.clone());
-                Ok(string)
-            })
-    }
-
-    fn set(&mut self, set_id: usize) -> Result<&'bytes [u8], Error> {
-        let Some(set_id) = set_id.checked_sub(1) else {
-            return Ok(&[]);
-        };
-        let start = read4(self.sets, set_id * 4).ok_or(InvalidBytecode::MalformedHeader)?;
-        let end = read4(self.sets, set_id * 4 + 4).unwrap_or(self.bytes.len());
-        Ok(self
-            .bytes
-            .get(start..end)
-            .ok_or(InvalidBytecode::MalformedHeader)?)
-    }
-
-    pub fn eval(&mut self, block_id: usize, mut stack: Vec<Value>) -> Result<Value, Error> {
+impl Program {
+    pub fn eval(&self, block_id: usize, mut stack: Vec<Value>) -> Result<Value, Error> {
         struct Frame<'a> {
             bytecode: &'a [u8],
             pc: usize,
@@ -491,7 +676,7 @@ impl<'bytes> Program<'bytes> {
         }
 
         let mut program = Frame {
-            bytecode: self.block(block_id)?,
+            bytecode: block(&self.bytes, block_id)?,
             pc: 0,
         };
 
@@ -600,7 +785,11 @@ impl<'bytes> Program<'bytes> {
                 }
                 instruction::PUSH_STRING => {
                     let string_id = program.next4()?;
-                    let string = self.string(string_id)?;
+                    let string = self
+                        .owned_strings
+                        .get(string_id)
+                        .ok_or(InvalidBytecode::UnexpectedStringId)?
+                        .clone();
                     stack.push(Storage::String(string).into());
                 }
                 instruction::PUSH_FUNCTION => {
@@ -610,7 +799,7 @@ impl<'bytes> Program<'bytes> {
                     stack.push(
                         Storage::Function(Rc::new(Function {
                             action: FunctionAction::Block {
-                                program: self.bytes.clone(),
+                                program: self.clone(),
                                 block_id: function,
                                 captures: new_stack,
                             },
@@ -627,14 +816,17 @@ impl<'bytes> Program<'bytes> {
                         .pop()
                         .ok_or(InvalidBytecode::StackUnderflow)?
                         .into_named_tuple_or_unit()?;
-                    let mut statics = self
-                        .set(program.next4()?)?
+                    let mut statics = set(&self.bytes, program.next4()?)?
                         .chunks(4)
                         .map(|name| {
                             let name = name
                                 .try_into()
                                 .map_err(|_| InvalidBytecode::MalformedHeader)?;
-                            let name = self.string(u32::from_le_bytes(name) as usize)?;
+                            let name = self
+                                .owned_strings
+                                .get(u32::from_le_bytes(name) as usize)
+                                .ok_or(InvalidBytecode::UnexpectedStringId)?
+                                .clone();
                             Ok((name, stack.pop().ok_or(InvalidBytecode::StackUnderflow)?))
                         })
                         .collect::<Result<Vec<_>, Error>>()?;
@@ -650,14 +842,17 @@ impl<'bytes> Program<'bytes> {
                         .pop()
                         .ok_or(InvalidBytecode::StackUnderflow)?
                         .into_named_tuple_or_unit()?;
-                    let mut statics = self
-                        .set(program.next4()?)?
+                    let mut statics = set(&self.bytes, program.next4()?)?
                         .chunks(4)
                         .map(|name| {
                             let name = name
                                 .try_into()
                                 .map_err(|_| InvalidBytecode::MalformedHeader)?;
-                            let name = self.string(u32::from_le_bytes(name) as usize)?;
+                            let name = self
+                                .owned_strings
+                                .get(u32::from_le_bytes(name) as usize)
+                                .ok_or(InvalidBytecode::UnexpectedStringId)?
+                                .clone();
                             Ok((name, stack.pop().ok_or(InvalidBytecode::StackUnderflow)?))
                         })
                         .collect::<Result<Vec<_>, Error>>()?;
@@ -680,12 +875,12 @@ impl<'bytes> Program<'bytes> {
                 instruction::EQUAL_TO => {
                     let r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let l = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Storage::Bool(l.storage == r.storage).into());
+                    stack.push(Storage::Bool(l.eq(r)?).into());
                 }
                 instruction::NOT_EQUAL_TO => {
                     let r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let l = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Storage::Bool(l.storage != r.storage).into());
+                    stack.push(Storage::Bool(!l.eq(r)?).into());
                 }
                 instruction::LOGICAL_AND => bi_op!(let l, r: Bool => Bool: *l && *r),
                 instruction::LOGICAL_OR => bi_op!(let l, r: Bool => Bool: *l || *r),
@@ -850,7 +1045,11 @@ impl<'bytes> Program<'bytes> {
                 }
                 instruction::NAME => {
                     let name_id = program.next4()?;
-                    let name = self.string(name_id)?;
+                    let name = self
+                        .owned_strings
+                        .get(name_id)
+                        .ok_or(InvalidBytecode::UnexpectedStringId)?
+                        .clone();
                     let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     stack.push(Storage::NamedTuple(Rc::new([(name, value)])).into())
                 }
