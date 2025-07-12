@@ -1,65 +1,55 @@
-use espy_heart::prelude::*;
 use std::{mem, rc::Rc};
 
-#[derive(Debug)]
-pub enum Error {
-    ExpectedNumbers(Value, Value),
-    ExpectedFunction(Value),
-    ExpectedEnumVariant(Value),
-    ExpectedEnumType(Value),
-    ExpectedStructType(Value),
-    ExpectedNamedTuple(Value),
-    IncomparableValues(Value, Value),
-    TypeError {
-        value: Value,
-        ty: Value,
-    },
-    IndexNotFound {
-        index: Value,
-        container: Value,
-    },
-    /// Errors that occur due to invalid bytecode.
-    ///
-    /// If this is emitted due to bytecode from the espyscript compiler,
-    /// it should be considered a bug in either program.
-    InvalidBytecode(InvalidBytecode),
-}
+mod interpreter;
+pub use interpreter::*;
 
-#[derive(Debug)]
-pub enum InvalidBytecode {
-    /// Caused by an imbalance in stack operations.
-    ///
-    /// Well-behaved bytecode never has any reason to cause this.
-    StackUnderflow,
-    /// An instruction byte had an unexpected value.
-    InvalidInstruction,
-    /// An instruction referred to a string id that did not exist.
-    UnexpectedStringId,
-    /// Occurs when the header is too short or
-    /// describes a program which is longer than the provided slice.
-    MalformedHeader,
-    /// Occurs when the program counter becomes greater than the length of the program.
-    ///
-    /// Note the "*greater*"; a pc of the program's length
-    /// (after the last byte) is considered an intentional return.
-    ProgramOutOfBounds,
-    /// Occurs when a stack access goes beyond the length of the stack.
-    StackOutOfBounds,
-    Utf8Error(std::str::Utf8Error),
-}
-
-impl From<InvalidBytecode> for Error {
-    fn from(e: InvalidBytecode) -> Error {
-        Error::InvalidBytecode(e)
-    }
-}
-
+// These will probably not be type aliases eventually.
 type Tuple = [Value];
 type NamedTuple = [(Rc<str>, Value)];
 
 #[derive(Clone, Debug)]
 pub struct Value {
     pub storage: Storage,
+}
+
+// Cloning this type should be cheap;
+// every binding usage is a clone in espyscript!
+// Use Rcs over boxes and try to put allocations as far up as possible.
+#[derive(Clone, Debug, Default)]
+pub enum Storage {
+    /// Unit is a special case of tuple.
+    /// It behaves as both an empty tuple and an empty named tuple,
+    /// as well as the type of itself (typeof () == ()).
+    // TODO: maybe () should be the value and `unit` the type?
+    #[default]
+    Unit,
+    Tuple(Rc<Tuple>),
+    NamedTuple(Rc<NamedTuple>),
+
+    I64(i64),
+    Bool(bool),
+    String(Rc<str>),
+    Function(Rc<Function>),
+    EnumVariant(Rc<EnumVariant>),
+    Some(Rc<Value>),
+    None,
+
+    Any,
+    I64Type,
+    BoolType,
+    StringType,
+    // TODO: FunctionType
+    StructType(Rc<StructType>),
+    EnumType(Rc<EnumType>),
+    Option,
+    /// The type of types.
+    Type,
+}
+
+impl From<Storage> for Value {
+    fn from(storage: Storage) -> Self {
+        Self { storage }
+    }
 }
 
 impl Value {
@@ -247,6 +237,28 @@ impl Value {
                 },
             ) => Ok(true),
             (this, other) => Err(Error::IncomparableValues(this, other)),
+        }
+    }
+
+    fn type_cmp(&self, ty: &Self) -> bool {
+        match (&self.storage, &ty.storage) {
+            (_, Storage::Any) => true,
+            (
+                Storage::Type
+                | Storage::Any
+                | Storage::Unit
+                | Storage::I64Type
+                | Storage::EnumType { .. },
+                Storage::Type,
+            ) => true,
+            (Storage::Unit, Storage::Unit) => true,
+            (Storage::I64(_), Storage::I64Type) => true,
+            (Storage::Bool(_), Storage::BoolType) => true,
+            (Storage::String(_), Storage::StringType) => true,
+            (Storage::EnumVariant(variant), Storage::EnumType(ty)) => {
+                Rc::ptr_eq(&variant.definition, ty)
+            }
+            (_, _) => false,
         }
     }
 
@@ -474,70 +486,6 @@ impl TryFrom<Value> for StructType {
     }
 }
 
-// Cloning this type should be cheap;
-// every binding usage is a clone in espyscript!
-// Use Rcs over boxes and try to put allocations as far up as possible.
-#[derive(Clone, Debug, Default)]
-pub enum Storage {
-    /// Unit is a special case of tuple.
-    /// It behaves as both an empty tuple and an empty named tuple,
-    /// as well as the type of itself (typeof () == ()).
-    // TODO: maybe () should be the value and `unit` the type?
-    #[default]
-    Unit,
-    Tuple(Rc<Tuple>),
-    NamedTuple(Rc<NamedTuple>),
-
-    I64(i64),
-    Bool(bool),
-    String(Rc<str>),
-    Function(Rc<Function>),
-    EnumVariant(Rc<EnumVariant>),
-    Some(Rc<Value>),
-    None,
-
-    Any,
-    I64Type,
-    BoolType,
-    StringType,
-    // TODO: FunctionType
-    StructType(Rc<StructType>),
-    EnumType(Rc<EnumType>),
-    Option,
-    /// The type of types.
-    Type,
-}
-
-impl From<Storage> for Value {
-    fn from(storage: Storage) -> Self {
-        Self { storage }
-    }
-}
-
-impl Storage {
-    fn type_cmp(&self, ty: &Self) -> bool {
-        match (self, ty) {
-            (_, Storage::Any) => true,
-            (
-                Storage::Type
-                | Storage::Any
-                | Storage::Unit
-                | Storage::I64Type
-                | Storage::EnumType { .. },
-                Storage::Type,
-            ) => true,
-            (Storage::Unit, Storage::Unit) => true,
-            (Storage::I64(_), Storage::I64Type) => true,
-            (Storage::Bool(_), Storage::BoolType) => true,
-            (Storage::String(_), Storage::StringType) => true,
-            (Storage::EnumVariant(variant), Storage::EnumType(ty)) => {
-                Rc::ptr_eq(&variant.definition, ty)
-            }
-            (_, _) => false,
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct Function {
     action: FunctionAction,
@@ -564,7 +512,7 @@ impl Function {
                     .get(variant)
                     .expect("enum variant must not be missing")
                     .1;
-                if !self.argument.storage.type_cmp(&ty.storage) {
+                if !self.argument.type_cmp(ty) {
                     return Err(Error::TypeError {
                         value: self.argument,
                         ty: ty.clone(),
@@ -579,7 +527,7 @@ impl Function {
             }
             FunctionAction::Some => Storage::Some(self.argument.into()).into(),
             FunctionAction::None => {
-                if !self.argument.storage.type_cmp(&Storage::Unit) {
+                if !self.argument.type_cmp(&Storage::Unit.into()) {
                     return Err(Error::TypeError {
                         value: self.argument,
                         ty: Storage::Unit.into(),
@@ -657,521 +605,55 @@ pub struct EnumType {
     pub variants: Rc<NamedTuple>,
 }
 
-fn read4(bytes: &[u8], at: usize) -> Option<usize> {
-    Some(u32::from_le_bytes([
-        *bytes.get(at)?,
-        *bytes.get(at + 1)?,
-        *bytes.get(at + 2)?,
-        *bytes.get(at + 3)?,
-    ]) as usize)
+#[derive(Debug)]
+pub enum Error {
+    ExpectedNumbers(Value, Value),
+    ExpectedFunction(Value),
+    ExpectedEnumVariant(Value),
+    ExpectedEnumType(Value),
+    ExpectedStructType(Value),
+    ExpectedNamedTuple(Value),
+    IncomparableValues(Value, Value),
+    TypeError {
+        value: Value,
+        ty: Value,
+    },
+    IndexNotFound {
+        index: Value,
+        container: Value,
+    },
+    /// Errors that occur due to invalid bytecode.
+    ///
+    /// If this is emitted due to bytecode from the espyscript compiler,
+    /// it should be considered a bug in either program.
+    InvalidBytecode(InvalidBytecode),
 }
 
-fn block_count(bytes: &[u8]) -> Result<usize, InvalidBytecode> {
-    read4(bytes, 0).ok_or(InvalidBytecode::MalformedHeader)
+#[derive(Debug)]
+pub enum InvalidBytecode {
+    /// Caused by an imbalance in stack operations.
+    ///
+    /// Well-behaved bytecode never has any reason to cause this.
+    StackUnderflow,
+    /// An instruction byte had an unexpected value.
+    InvalidInstruction,
+    /// An instruction referred to a string id that did not exist.
+    UnexpectedStringId,
+    /// Occurs when the header is too short or
+    /// describes a program which is longer than the provided slice.
+    MalformedHeader,
+    /// Occurs when the program counter becomes greater than the length of the program.
+    ///
+    /// Note the "*greater*"; a pc of the program's length
+    /// (after the last byte) is considered an intentional return.
+    ProgramOutOfBounds,
+    /// Occurs when a stack access goes beyond the length of the stack.
+    StackOutOfBounds,
+    Utf8Error(std::str::Utf8Error),
 }
 
-fn string_count(bytes: &[u8]) -> Result<usize, InvalidBytecode> {
-    read4(bytes, 4).ok_or(InvalidBytecode::MalformedHeader)
-}
-
-fn set_count(bytes: &[u8]) -> Result<usize, InvalidBytecode> {
-    read4(bytes, 8).ok_or(InvalidBytecode::MalformedHeader)
-}
-
-fn offsets(bytes: &[u8]) -> Result<&[u8], InvalidBytecode> {
-    bytes
-        .get(12..(12 + 4 * (block_count(bytes)? + string_count(bytes)? + set_count(bytes)?)))
-        .ok_or(InvalidBytecode::MalformedHeader)
-}
-
-fn block(bytes: &[u8], block_id: usize) -> Result<&[u8], Error> {
-    let offsets = offsets(bytes)?;
-    let start = read4(offsets, 4 * block_id).ok_or(InvalidBytecode::MalformedHeader)?;
-    let end = read4(offsets, 4 * block_id + 4).unwrap_or(bytes.len());
-    Ok(bytes
-        .get(start..end)
-        .ok_or(InvalidBytecode::MalformedHeader)?)
-}
-
-fn set(bytes: &[u8], set_id: usize) -> Result<&[u8], Error> {
-    let Some(set_id) = set_id.checked_sub(1) else {
-        return Ok(&[]);
-    };
-    let i = set_id + block_count(bytes)? + string_count(bytes)?;
-    let offsets = offsets(bytes)?;
-    let start = read4(offsets, 4 * i).ok_or(InvalidBytecode::MalformedHeader)?;
-    let end = read4(offsets, 4 * i + 4).unwrap_or(bytes.len());
-    Ok(bytes
-        .get(start..end)
-        .ok_or(InvalidBytecode::MalformedHeader)?)
-}
-
-#[derive(Clone, Debug)]
-pub struct Program {
-    bytes: Rc<[u8]>,
-    owned_strings: Rc<[Rc<str>]>,
-}
-
-impl TryFrom<Rc<[u8]>> for Program {
-    type Error = Error;
-
-    fn try_from(bytes: Rc<[u8]>) -> Result<Self, Self::Error> {
-        let string_count = string_count(&bytes)?;
-        let owned_strings = (0..string_count)
-            .map(|i| {
-                let i = i + block_count(&bytes)?;
-                let offsets = offsets(&bytes)?;
-                let start = read4(offsets, 4 * i).ok_or(InvalidBytecode::MalformedHeader)?;
-                let end = read4(offsets, 4 * i + 4).unwrap_or(bytes.len());
-                let string_bytes = bytes
-                    .get(start..end)
-                    .ok_or(InvalidBytecode::MalformedHeader)?;
-                let string = str::from_utf8(string_bytes).map_err(InvalidBytecode::Utf8Error)?;
-                Ok(Rc::from(string))
-            })
-            .collect::<Result<_, Error>>()?;
-        Ok(Self {
-            bytes,
-            owned_strings,
-        })
-    }
-}
-
-impl Program {
-    pub fn eval(&self, block_id: usize, mut stack: Vec<Value>) -> Result<Value, Error> {
-        struct Frame<'a> {
-            bytecode: &'a [u8],
-            pc: usize,
-        }
-
-        impl Frame<'_> {
-            fn next(&mut self) -> Result<u8, Error> {
-                let next = self
-                    .bytecode
-                    .get(self.pc)
-                    .ok_or(InvalidBytecode::ProgramOutOfBounds)?;
-                self.pc += 1;
-                Ok(*next)
-            }
-
-            fn next4(&mut self) -> Result<usize, Error> {
-                Ok(
-                    u32::from_le_bytes([self.next()?, self.next()?, self.next()?, self.next()?])
-                        as usize,
-                )
-            }
-
-            fn next_i64(&mut self) -> Result<i64, Error> {
-                Ok(i64::from_le_bytes([
-                    self.next()?,
-                    self.next()?,
-                    self.next()?,
-                    self.next()?,
-                    self.next()?,
-                    self.next()?,
-                    self.next()?,
-                    self.next()?,
-                ]))
-            }
-        }
-
-        let mut program = Frame {
-            bytecode: block(&self.bytes, block_id)?,
-            pc: 0,
-        };
-
-        // The program counter reaching the first (and only the first)
-        //,  out-of-bounds byte should be considered a return.
-        while program.pc != program.bytecode.len() {
-            macro_rules! bi_op {
-                (let $l:ident, $r:ident: $type:ident => $expr_type:ident: $expr:expr) => {{
-                    let $r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let $l = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    match (&$l.storage, &$r.storage) {
-                        (Storage::$type($l), Storage::$type($r)) => stack.push(Value {
-                            storage: Storage::$expr_type($expr),
-                        }),
-                        _ => return Err(Error::ExpectedNumbers($l, $r)),
-                    }
-                }};
-            }
-            macro_rules! bi_num {
-                (let $l:ident, $r:ident => $expr:expr) => {
-                    bi_op!(let $l, $r: I64 => I64: $expr)
-                };
-            }
-            macro_rules! bi_cmp {
-                (let $l:ident, $r:ident => $expr:expr) => {
-                    bi_op!(let $l, $r: I64 => Bool: $expr)
-                };
-            }
-            let instruction = program.next()?;
-            match instruction {
-                instruction::CLONE => {
-                    let index = program.next4()? as i32;
-                    match index {
-                        0.. => {
-                            let value = stack
-                                .get(index as usize)
-                                .ok_or(InvalidBytecode::StackOutOfBounds)?;
-                            stack.push(value.clone());
-                        }
-                        builtins::ANY => {
-                            stack.push(Storage::Any.into());
-                        }
-                        builtins::I64 => {
-                            stack.push(Storage::I64Type.into());
-                        }
-                        builtins::OPTION => {
-                            stack.push(Storage::Option.into());
-                        }
-                        builtins::SOME => {
-                            stack.push(
-                                Storage::Function(Rc::new(Function {
-                                    action: FunctionAction::Some,
-                                    argument: Storage::Unit.into(),
-                                }))
-                                .into(),
-                            );
-                        }
-                        builtins::NONE => {
-                            stack.push(
-                                Storage::Function(Rc::new(Function {
-                                    action: FunctionAction::None,
-                                    argument: Storage::Unit.into(),
-                                }))
-                                .into(),
-                            );
-                        }
-                        _ => {}
-                    }
-                }
-                instruction::POP => {
-                    stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                }
-                instruction::COLLAPSE => {
-                    let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    for _ in 0..(stack.len() - program.next4()?) {
-                        stack.pop();
-                    }
-                    stack.push(value);
-                }
-                instruction::JUMP => {
-                    program.pc = program.next4()?;
-                }
-                instruction::IF => {
-                    let target = program.next4()?;
-                    if let Value {
-                        storage: Storage::Bool(false),
-                    } = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?
-                    {
-                        program.pc = target;
-                    }
-                }
-                // TODO: need function calls and builtins for this.
-                instruction::FOR => todo!(),
-
-                instruction::PUSH_UNIT => {
-                    stack.push(Storage::Unit.into());
-                }
-                instruction::PUSH_TRUE => {
-                    stack.push(Storage::Bool(true).into());
-                }
-                instruction::PUSH_FALSE => {
-                    stack.push(Storage::Bool(false).into());
-                }
-                instruction::PUSH_I64 => {
-                    stack.push(Storage::I64(program.next_i64()?).into());
-                }
-                instruction::PUSH_STRING => {
-                    let string_id = program.next4()?;
-                    let string = self
-                        .owned_strings
-                        .get(string_id)
-                        .ok_or(InvalidBytecode::UnexpectedStringId)?
-                        .clone();
-                    stack.push(Storage::String(string).into());
-                }
-                instruction::PUSH_FUNCTION => {
-                    let captures = program.next4()?;
-                    let function = program.next4()?;
-                    let new_stack = stack.split_off(stack.len() - captures);
-                    stack.push(
-                        Storage::Function(Rc::new(Function {
-                            action: FunctionAction::Block {
-                                program: self.clone(),
-                                block_id: function,
-                                captures: new_stack,
-                            },
-                            // will be ignored by concatenation
-                            argument: Value {
-                                storage: Storage::Unit,
-                            },
-                        }))
-                        .into(),
-                    );
-                }
-                instruction::PUSH_ENUM => {
-                    let methods = stack
-                        .pop()
-                        .ok_or(InvalidBytecode::StackUnderflow)?
-                        .into_named_tuple_or_unit()?;
-                    let mut statics = set(&self.bytes, program.next4()?)?
-                        .chunks(4)
-                        .map(|name| {
-                            let name = name
-                                .try_into()
-                                .map_err(|_| InvalidBytecode::MalformedHeader)?;
-                            let name = self
-                                .owned_strings
-                                .get(u32::from_le_bytes(name) as usize)
-                                .ok_or(InvalidBytecode::UnexpectedStringId)?
-                                .clone();
-                            Ok((name, stack.pop().ok_or(InvalidBytecode::StackUnderflow)?))
-                        })
-                        .collect::<Result<Vec<_>, Error>>()?;
-                    statics.reverse();
-                    let variants = stack
-                        .pop()
-                        .ok_or(InvalidBytecode::StackUnderflow)?
-                        .into_named_tuple()?;
-                    stack.push(Storage::EnumType(Rc::new(EnumType { variants })).into());
-                }
-                instruction::PUSH_STRUCT => {
-                    let methods = stack
-                        .pop()
-                        .ok_or(InvalidBytecode::StackUnderflow)?
-                        .into_named_tuple_or_unit()?;
-                    let mut statics = set(&self.bytes, program.next4()?)?
-                        .chunks(4)
-                        .map(|name| {
-                            let name = name
-                                .try_into()
-                                .map_err(|_| InvalidBytecode::MalformedHeader)?;
-                            let name = self
-                                .owned_strings
-                                .get(u32::from_le_bytes(name) as usize)
-                                .ok_or(InvalidBytecode::UnexpectedStringId)?
-                                .clone();
-                            Ok((name, stack.pop().ok_or(InvalidBytecode::StackUnderflow)?))
-                        })
-                        .collect::<Result<Vec<_>, Error>>()?;
-                    statics.reverse();
-                    let inner = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Storage::StructType(Rc::new(StructType { inner })).into());
-                }
-
-                instruction::ADD => bi_num!(let l, r => l + r),
-                instruction::SUB => bi_num!(let l, r => l - r),
-                instruction::MUL => bi_num!(let l, r => l * r),
-                instruction::DIV => bi_num!(let l, r => l / r),
-                instruction::BITWISE_AND => bi_num!(let l, r => l & r),
-                instruction::BITWISE_OR => bi_num!(let l, r => l | r),
-                instruction::BITWISE_XOR => bi_num!(let l, r => l ^ r),
-                instruction::GREATER => bi_cmp!(let l, r => l > r),
-                instruction::GREATER_EQUAL => bi_cmp!(let l, r => l >= r),
-                instruction::LESSER => bi_cmp!(let l, r => l < r),
-                instruction::LESSER_EQUAL => bi_cmp!(let l, r => l <= r),
-                instruction::EQUAL_TO => {
-                    let r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let l = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Storage::Bool(l.eq(r)?).into());
-                }
-                instruction::NOT_EQUAL_TO => {
-                    let r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let l = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Storage::Bool(!l.eq(r)?).into());
-                }
-                instruction::LOGICAL_AND => bi_op!(let l, r: Bool => Bool: *l && *r),
-                instruction::LOGICAL_OR => bi_op!(let l, r: Bool => Bool: *l || *r),
-                instruction::PIPE => {
-                    let function = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let argument = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    match function.storage {
-                        Storage::Function(mut function) => {
-                            let function_mut = Rc::make_mut(&mut function);
-                            let mut arguments = Value::from(Storage::Unit);
-                            mem::swap(&mut arguments, &mut function_mut.argument);
-                            arguments = Value::concat(arguments, argument);
-                            mem::swap(&mut arguments, &mut function_mut.argument);
-                            stack.push(Storage::Function(function).into());
-                        }
-                        _ => return Err(Error::ExpectedFunction(function)),
-                    }
-                }
-
-                instruction::CALL => {
-                    let argument = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let function = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(
-                        Rc::<Function>::try_unwrap(function.try_into()?)
-                            .unwrap_or_else(|function| (*function).clone())
-                            .piped(argument)
-                            .eval()?,
-                    );
-                }
-                instruction::TUPLE => {
-                    let r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let l = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Value::concat(l, r));
-                }
-                instruction::INDEX => {
-                    let index = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let container = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    match (container, index) {
-                        (
-                            Value {
-                                storage: Storage::Tuple(tuple),
-                            },
-                            Value {
-                                storage: Storage::I64(i),
-                            },
-                        ) => {
-                            stack.push(tuple.get(i as usize).cloned().ok_or(
-                                Error::IndexNotFound {
-                                    index: Value {
-                                        storage: Storage::Tuple(tuple),
-                                    },
-                                    container: Value {
-                                        storage: Storage::I64(i),
-                                    },
-                                },
-                            )?);
-                        }
-                        (
-                            Value {
-                                storage: Storage::NamedTuple(tuple),
-                            },
-                            Value {
-                                storage: Storage::I64(i),
-                            },
-                        ) => {
-                            stack.push(
-                                tuple
-                                    .get(i as usize)
-                                    .map(|(_name, value)| value)
-                                    .cloned()
-                                    .ok_or(Error::IndexNotFound {
-                                        index: Value {
-                                            storage: Storage::NamedTuple(tuple),
-                                        },
-                                        container: Value {
-                                            storage: Storage::I64(i),
-                                        },
-                                    })?,
-                            );
-                        }
-                        (
-                            Value {
-                                storage: Storage::NamedTuple(tuple),
-                            },
-                            Value {
-                                storage: Storage::String(i),
-                            },
-                        ) => {
-                            stack.push(
-                                tuple
-                                    .iter()
-                                    .find(|(name, _value)| *name == i)
-                                    .map(|(_name, value)| value)
-                                    .cloned()
-                                    .ok_or(Error::IndexNotFound {
-                                        index: Value {
-                                            storage: Storage::NamedTuple(tuple),
-                                        },
-                                        container: Value {
-                                            storage: Storage::String(i),
-                                        },
-                                    })?,
-                            );
-                        }
-                        (
-                            Value {
-                                storage: Storage::EnumType(ty),
-                            },
-                            Value {
-                                storage: Storage::I64(i),
-                            },
-                        ) => stack.push(
-                            Storage::Function(Rc::new(Function {
-                                action: FunctionAction::Enum {
-                                    variant: i as usize,
-                                    definition: ty,
-                                },
-                                argument: Storage::Unit.into(),
-                            }))
-                            .into(),
-                        ),
-                        (
-                            Value {
-                                storage: Storage::EnumType(ty),
-                            },
-                            Value {
-                                storage: Storage::String(name),
-                            },
-                        ) => {
-                            if let Some(variant_id) = ty
-                                .variants
-                                .iter()
-                                .enumerate()
-                                .find(|(_, (variant, _))| *variant == name)
-                                .map(|(i, _)| i)
-                            {
-                                stack.push(
-                                    Storage::Function(Rc::new(Function {
-                                        action: FunctionAction::Enum {
-                                            variant: variant_id,
-                                            definition: ty,
-                                        },
-                                        argument: Storage::Unit.into(),
-                                    }))
-                                    .into(),
-                                );
-                            } else {
-                                return Err(Error::IndexNotFound {
-                                    index: Value {
-                                        storage: Storage::EnumType(ty),
-                                    },
-                                    container: Value {
-                                        storage: Storage::String(name),
-                                    },
-                                });
-                            }
-                        }
-                        (index, container) => {
-                            return Err(Error::IndexNotFound { index, container });
-                        }
-                    }
-                }
-                instruction::NAME => {
-                    let name_id = program.next4()?;
-                    let name = self
-                        .owned_strings
-                        .get(name_id)
-                        .ok_or(InvalidBytecode::UnexpectedStringId)?
-                        .clone();
-                    let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Storage::NamedTuple(Rc::new([(name, value)])).into())
-                }
-                // TODO: This instruction shouldn't be emitted; unary + is a no-op
-                instruction::POSITIVE => {}
-                instruction::NEGATIVE => {
-                    let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let Value {
-                        storage: Storage::I64(value),
-                    } = value
-                    else {
-                        return Err(Error::TypeError {
-                            value,
-                            ty: Storage::I64Type.into(),
-                        });
-                    };
-                    stack.push(Storage::I64(-value).into());
-                }
-
-                _ => Err(InvalidBytecode::InvalidInstruction)?,
-            }
-        }
-        Ok(stack.pop().ok_or(InvalidBytecode::StackUnderflow)?)
+impl From<InvalidBytecode> for Error {
+    fn from(e: InvalidBytecode) -> Error {
+        Error::InvalidBytecode(e)
     }
 }
