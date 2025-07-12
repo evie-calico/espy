@@ -137,11 +137,9 @@ mod tests {
         let actual =
             Program::try_from("let Option = enum Some: any, None: () end; Option.Some 1").unwrap();
         println!("{actual:?}");
-        let value = actual.eval().unwrap();
-        let Storage::EnumVariant(enum_variant) = value.storage else {
-            panic!("expected enum variant, got {value:?}");
-        };
-        let (variant, value) = Rc::unwrap_or_clone(enum_variant).unwrap();
+        let (variant, value) = interpreter::EnumVariant::try_from(actual.eval().unwrap())
+            .unwrap()
+            .unwrap();
         assert_eq!(&*variant, "Some");
         assert!(value.eq(Storage::I64(1).into()).unwrap());
     }
@@ -169,12 +167,9 @@ mod tests {
         let actual = Program::try_from("struct x: any, y: any end").unwrap();
         println!("{actual:?}");
         let value = actual.eval().unwrap();
-        let Storage::StructType(struct_type) = value.storage else {
-            panic!("expected structure definition, got {value:?}");
-        };
+        let struct_type = interpreter::StructType::try_from(value).unwrap();
         assert!(
-            Rc::into_inner(struct_type)
-                .unwrap()
+            struct_type
                 .inner
                 .eq(Storage::NamedTuple(Rc::new([
                     (Rc::from("x"), Storage::Any.into()),

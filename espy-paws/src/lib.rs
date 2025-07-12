@@ -5,6 +5,9 @@ use std::{mem, rc::Rc};
 pub enum Error {
     ExpectedNumbers(Value, Value),
     ExpectedFunction(Value),
+    ExpectedEnumVariant(Value),
+    ExpectedEnumType(Value),
+    ExpectedStructType(Value),
     ExpectedNamedTuple(Value),
     IncomparableValues(Value, Value),
     TypeError {
@@ -341,15 +344,11 @@ impl Value {
         }
     }
 
-    fn into_named_tuple(self) -> Result<Rc<NamedTuple>, Error> {
-        if let Storage::NamedTuple(x) = self.storage {
-            Ok(x)
-        } else {
-            Err(Error::ExpectedNamedTuple(self))
-        }
+    pub fn into_named_tuple(self) -> Result<Rc<NamedTuple>, Error> {
+        self.try_into()
     }
 
-    fn into_named_tuple_or_unit(self) -> Result<Option<Rc<NamedTuple>>, Error> {
+    pub fn into_named_tuple_or_unit(self) -> Result<Option<Rc<NamedTuple>>, Error> {
         match self.into_named_tuple() {
             Ok(tuple) => Ok(Some(tuple)),
             Err(Error::ExpectedNamedTuple(Value {
@@ -357,6 +356,121 @@ impl Value {
             })) => Ok(None),
             Err(e) => Err(e),
         }
+    }
+
+    pub fn into_function(self) -> Result<Rc<Function>, Error> {
+        self.try_into()
+    }
+
+    pub fn into_enum_variant(self) -> Result<Rc<EnumVariant>, Error> {
+        self.try_into()
+    }
+
+    pub fn into_enum_type(self) -> Result<Rc<EnumType>, Error> {
+        self.try_into()
+    }
+
+    pub fn into_struct_type(self) -> Result<Rc<StructType>, Error> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<Value> for Rc<NamedTuple> {
+    type Error = Error;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Storage::NamedTuple(value) = value.storage {
+            Ok(value)
+        } else {
+            Err(Error::ExpectedNamedTuple(value))
+        }
+    }
+}
+
+impl TryFrom<Value> for Rc<Function> {
+    type Error = Error;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value {
+            storage: Storage::Function(value),
+        } = value
+        {
+            Ok(value)
+        } else {
+            Err(Error::ExpectedFunction(value))
+        }
+    }
+}
+
+impl TryFrom<Value> for Function {
+    type Error = Error;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        Ok(Rc::unwrap_or_clone(Rc::<Self>::try_from(value)?))
+    }
+}
+
+impl TryFrom<Value> for Rc<EnumVariant> {
+    type Error = Error;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value {
+            storage: Storage::EnumVariant(value),
+        } = value
+        {
+            Ok(value)
+        } else {
+            Err(Error::ExpectedEnumVariant(value))
+        }
+    }
+}
+
+impl TryFrom<Value> for EnumVariant {
+    type Error = Error;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        Ok(Rc::unwrap_or_clone(Rc::<Self>::try_from(value)?))
+    }
+}
+
+impl TryFrom<Value> for Rc<EnumType> {
+    type Error = Error;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value {
+            storage: Storage::EnumType(value),
+        } = value
+        {
+            Ok(value)
+        } else {
+            Err(Error::ExpectedEnumType(value))
+        }
+    }
+}
+
+impl TryFrom<Value> for EnumType {
+    type Error = Error;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        Ok(Rc::unwrap_or_clone(Rc::<Self>::try_from(value)?))
+    }
+}
+
+impl TryFrom<Value> for Rc<StructType> {
+    type Error = Error;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value {
+            storage: Storage::StructType(value),
+        } = value
+        {
+            Ok(value)
+        } else {
+            Err(Error::ExpectedStructType(value))
+        }
+    }
+}
+impl TryFrom<Value> for StructType {
+    type Error = Error;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        Ok(Rc::unwrap_or_clone(Rc::<Self>::try_from(value)?))
     }
 }
 
@@ -490,20 +604,6 @@ impl Function {
     }
 }
 
-impl TryFrom<Value> for Rc<Function> {
-    type Error = Error;
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        if let Value {
-            storage: Storage::Function(function),
-        } = value
-        {
-            Ok(function)
-        } else {
-            Err(Error::ExpectedFunction(value))
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub enum FunctionAction {
     Block {
@@ -519,7 +619,7 @@ pub enum FunctionAction {
     None,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StructType {
     pub inner: Value,
 }
@@ -552,7 +652,7 @@ impl EnumVariant {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct EnumType {
     pub variants: Rc<NamedTuple>,
 }
