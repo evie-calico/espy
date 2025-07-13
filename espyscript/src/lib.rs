@@ -31,7 +31,6 @@ impl<'source> TryFrom<&'source str> for Program {
     }
 }
 
-// TODO: by putting the interpreter tests here i had to make too many things public
 #[cfg(test)]
 mod tests {
     use interpreter::Storage;
@@ -175,6 +174,70 @@ mod tests {
                 ]))
                 .into())
                 .unwrap()
+        )
+    }
+
+    #[test]
+    fn rust_function() {
+        fn f(arg: Value) -> Result<Value, interpreter::Error> {
+            match arg {
+                Value {
+                    storage: Storage::I64(i),
+                } => Ok(Storage::I64(i * 4).into()),
+                arg => Err(interpreter::Error::TypeError {
+                    value: arg,
+                    ty: Storage::I64Type.into(),
+                }),
+            }
+        }
+
+        assert!(
+            interpreter::Function::try_from(
+                Program::try_from("with f; f(3)").unwrap().eval().unwrap(),
+            )
+            .unwrap()
+            .piped(Storage::Borrow(&f).into())
+            .eval()
+            .unwrap()
+            .eq(Storage::I64(12).into())
+            .unwrap()
+        )
+    }
+
+    #[test]
+    fn hello_world() {
+        static MESSAGE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+        fn print(arg: Value) -> Result<Value, interpreter::Error> {
+            match arg {
+                Value {
+                    storage: Storage::String(i),
+                } => {
+                    println!("{i}");
+                    MESSAGE.get_or_init(|| String::from(&*i));
+                    Ok(Storage::Unit.into())
+                }
+                arg => Err(interpreter::Error::TypeError {
+                    value: arg,
+                    ty: Storage::StringType.into(),
+                }),
+            }
+        }
+
+        assert!(
+            interpreter::Function::try_from(
+                Program::try_from("with print; print \"Hello, world!\"")
+                    .unwrap()
+                    .eval()
+                    .unwrap(),
+            )
+            .unwrap()
+            .piped(Storage::Borrow(&print).into())
+            .eval()
+            .unwrap()
+            .eq(Storage::Unit.into())
+            .unwrap()
+                && MESSAGE.get().unwrap() == "Hello, world!"
         )
     }
 }

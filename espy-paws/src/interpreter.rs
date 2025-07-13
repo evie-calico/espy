@@ -347,12 +347,19 @@ impl Program {
                 instruction::CALL => {
                     let argument = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let function = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(
-                        Rc::<Function>::try_unwrap(function.try_into()?)
+                    let result = match function {
+                        Value {
+                            storage: Storage::Borrow(borrow),
+                        } => borrow.call(argument)?,
+                        Value {
+                            storage: Storage::Function(function),
+                        } => Rc::<Function>::try_unwrap(function)
                             .unwrap_or_else(|function| (*function).clone())
                             .piped(argument)
                             .eval()?,
-                    );
+                        function => Err(Error::ExpectedFunction(function))?,
+                    };
+                    stack.push(result);
                 }
                 instruction::TUPLE => {
                     let r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;

@@ -11,7 +11,7 @@ pub struct Value {
 // Cloning this type should be cheap;
 // every binding usage is a clone in espyscript!
 // Use Rcs over boxes and try to put allocations as far up as possible.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default)]
 pub enum Storage {
     /// Unit is a special case of tuple.
     /// It behaves as both an empty tuple and an empty named tuple,
@@ -21,6 +21,7 @@ pub enum Storage {
     Unit,
     Tuple(Tuple),
 
+    Borrow(&'static dyn Extern),
     I64(i64),
     Bool(bool),
     String(Rc<str>),
@@ -39,6 +40,35 @@ pub enum Storage {
     Option,
     /// The type of types.
     Type,
+}
+
+impl std::fmt::Debug for Storage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Storage::Unit => write!(f, "Unit"),
+            Storage::Tuple(tuple) => write!(f, "Tuple({tuple:?})"),
+            Storage::Borrow(external) => {
+                write!(f, "Borrow(")?;
+                external.debug(f)?;
+                write!(f, ")")
+            }
+            Storage::I64(i) => write!(f, "I64({i:?})"),
+            Storage::Bool(i) => write!(f, "Bool({i:?})"),
+            Storage::String(i) => write!(f, "String({i:?})"),
+            Storage::Function(function) => write!(f, "Function({function:?})"),
+            Storage::EnumVariant(enum_variant) => write!(f, "EnumVariant({enum_variant:?})"),
+            Storage::Some(value) => write!(f, "Some({value:?})"),
+            Storage::None => write!(f, "None"),
+            Storage::Any => write!(f, "Any"),
+            Storage::I64Type => write!(f, "I64Type"),
+            Storage::BoolType => write!(f, "BoolType"),
+            Storage::StringType => write!(f, "StringType"),
+            Storage::StructType(struct_type) => write!(f, "StructType({struct_type:?})"),
+            Storage::EnumType(enum_type) => write!(f, "EnumType({enum_type:?})"),
+            Storage::Option => write!(f, "Option"),
+            Storage::Type => write!(f, "Type"),
+        }
+    }
 }
 
 impl From<Storage> for Value {
@@ -333,6 +363,26 @@ impl TryFrom<Value> for Tuple {
     }
 }
 
+pub trait Extern {
+    fn call(&self, _argument: Value) -> Result<Value, Error> {
+        Err(ExternError::MissingFunctionImpl)?
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{external value}}")
+    }
+}
+
+impl<F: Fn(Value) -> Result<Value, Error>> Extern for F {
+    fn call(&self, argument: Value) -> Result<Value, Error> {
+        self(argument)
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{external function}}")
+    }
+}
+
 impl TryFrom<Value> for Rc<Function> {
     type Error = Error;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
@@ -412,6 +462,7 @@ impl TryFrom<Value> for Rc<StructType> {
         }
     }
 }
+
 impl TryFrom<Value> for StructType {
     type Error = Error;
 
@@ -618,11 +669,29 @@ pub enum Error {
         index: Value,
         container: Value,
     },
+    /// Errors that occur during host interop.
+    ///
+    /// These may carry less information than a typical espyscript error,
+    /// or wrap the error type of another crate.
+    ExternError(ExternError),
     /// Errors that occur due to invalid bytecode.
     ///
     /// If this is emitted due to bytecode from the espyscript compiler,
     /// it should be considered a bug in either program.
     InvalidBytecode(InvalidBytecode),
+}
+
+#[derive(Debug)]
+pub enum ExternError {
+    MissingFunctionImpl,
+    MissingPipeImpl,
+    Other(Box<dyn std::error::Error>),
+}
+
+impl From<ExternError> for Error {
+    fn from(e: ExternError) -> Error {
+        Error::ExternError(e)
+    }
 }
 
 #[derive(Debug)]
