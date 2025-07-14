@@ -2,6 +2,8 @@ use std::{mem, rc::Rc};
 
 mod interpreter;
 pub use interpreter::*;
+mod interop;
+pub use interop::{Extern, function};
 
 #[derive(Clone, Debug)]
 pub struct Value<'host> {
@@ -360,29 +362,6 @@ impl<'host> TryFrom<Value<'host>> for Tuple<'host> {
         } else {
             Err(Error::ExpectedTuple(value))
         }
-    }
-}
-
-pub trait Extern {
-    fn call<'host>(&self, _argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        Err(ExternError::MissingFunctionImpl)?
-    }
-
-    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{external value}}")
-    }
-}
-
-impl<F> Extern for F
-where
-    F: for<'host> Fn(Value<'host>) -> Result<Value<'host>, Error<'host>>,
-{
-    fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        self(argument)
-    }
-
-    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{external function}}")
     }
 }
 

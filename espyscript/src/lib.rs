@@ -196,7 +196,7 @@ mod tests {
                 Program::try_from("with f; f(3)").unwrap().eval().unwrap(),
             )
             .unwrap()
-            .piped(Storage::Borrow(&f).into())
+            .piped(Storage::Borrow(&interpreter::function(f)).into())
             .eval()
             .unwrap()
             .eq(Storage::I64(12).into())
@@ -206,29 +206,16 @@ mod tests {
 
     #[test]
     fn rust_closure() {
-        // Rust closures don't seem to have the expected lifetimes for espyscript,
-        // possibly because of https://github.com/rust-lang/rust/issues/70263
-        // This structure accomplishes the same thing, but much less elegantly.
-        struct F(i64);
-
-        impl interpreter::Extern for F {
-            fn call<'host>(
-                &self,
-                arg: Value<'host>,
-            ) -> Result<Value<'host>, espy_paws::Error<'host>> {
-                match arg {
-                    Value {
-                        storage: Storage::I64(i),
-                    } => Ok(Storage::I64(i * self.0).into()),
-                    arg => Err(interpreter::Error::TypeError {
-                        value: arg,
-                        ty: Storage::I64Type.into(),
-                    }),
-                }
-            }
-        }
-
-        let f = F(4);
+        let four = 4;
+        let f = interpreter::function(|arg| match arg {
+            Value {
+                storage: Storage::I64(i),
+            } => Ok(Storage::I64(i * four).into()),
+            arg => Err(interpreter::Error::TypeError {
+                value: arg,
+                ty: Storage::I64Type.into(),
+            }),
+        });
 
         assert!(
             interpreter::Function::try_from(
@@ -245,23 +232,20 @@ mod tests {
 
     #[test]
     fn hello_world() {
-        static MESSAGE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-
-        fn print(arg: Value) -> Result<Value, interpreter::Error> {
-            match arg {
-                Value {
-                    storage: Storage::String(i),
-                } => {
-                    println!("{i}");
-                    MESSAGE.get_or_init(|| String::from(&*i));
-                    Ok(Storage::Unit.into())
-                }
-                arg => Err(interpreter::Error::TypeError {
-                    value: arg,
-                    ty: Storage::StringType.into(),
-                }),
+        let message = std::cell::RefCell::new(String::new());
+        let print = interpreter::function(|arg| match arg {
+            Value {
+                storage: Storage::String(i),
+            } => {
+                println!("{i}");
+                *message.borrow_mut() = String::from(&*i);
+                Ok(Storage::Unit.into())
             }
-        }
+            arg => Err(interpreter::Error::TypeError {
+                value: arg,
+                ty: Storage::StringType.into(),
+            }),
+        });
 
         assert!(
             interpreter::Function::try_from(
@@ -276,7 +260,7 @@ mod tests {
             .unwrap()
             .eq(Storage::Unit.into())
             .unwrap()
-                && MESSAGE.get().unwrap() == "Hello, world!"
+                && message.borrow().as_str() == "Hello, world!"
         )
     }
 }
