@@ -28,16 +28,16 @@ fn offsets(bytes: &[u8]) -> Result<&[u8], InvalidBytecode> {
         .ok_or(InvalidBytecode::MalformedHeader)
 }
 
-fn block(bytes: &[u8], block_id: usize) -> Result<&[u8], Error> {
+fn block(bytes: &[u8], block_id: usize) -> Result<&[u8], InvalidBytecode> {
     let offsets = offsets(bytes)?;
     let start = read4(offsets, 4 * block_id).ok_or(InvalidBytecode::MalformedHeader)?;
     let end = read4(offsets, 4 * block_id + 4).unwrap_or(bytes.len());
-    Ok(bytes
+    bytes
         .get(start..end)
-        .ok_or(InvalidBytecode::MalformedHeader)?)
+        .ok_or(InvalidBytecode::MalformedHeader)
 }
 
-fn set(bytes: &[u8], set_id: usize) -> Result<&[u8], Error> {
+fn set(bytes: &[u8], set_id: usize) -> Result<&[u8], InvalidBytecode> {
     let Some(set_id) = set_id.checked_sub(1) else {
         return Ok(&[]);
     };
@@ -45,9 +45,9 @@ fn set(bytes: &[u8], set_id: usize) -> Result<&[u8], Error> {
     let offsets = offsets(bytes)?;
     let start = read4(offsets, 4 * i).ok_or(InvalidBytecode::MalformedHeader)?;
     let end = read4(offsets, 4 * i + 4).unwrap_or(bytes.len());
-    Ok(bytes
+    bytes
         .get(start..end)
-        .ok_or(InvalidBytecode::MalformedHeader)?)
+        .ok_or(InvalidBytecode::MalformedHeader)
 }
 
 #[derive(Clone, Debug)]
@@ -57,7 +57,7 @@ pub struct Program {
 }
 
 impl TryFrom<Rc<[u8]>> for Program {
-    type Error = Error;
+    type Error = Error<'static>;
 
     fn try_from(bytes: Rc<[u8]>) -> Result<Self, Self::Error> {
         let string_count = string_count(&bytes)?;
@@ -82,14 +82,18 @@ impl TryFrom<Rc<[u8]>> for Program {
 }
 
 impl Program {
-    pub fn eval(&self, block_id: usize, mut stack: Vec<Value>) -> Result<Value, Error> {
+    pub fn eval<'host>(
+        &self,
+        block_id: usize,
+        mut stack: Vec<Value<'host>>,
+    ) -> Result<Value<'host>, Error<'host>> {
         struct Frame<'a> {
             bytecode: &'a [u8],
             pc: usize,
         }
 
         impl Frame<'_> {
-            fn next(&mut self) -> Result<u8, Error> {
+            fn next(&mut self) -> Result<u8, Error<'static>> {
                 let next = self
                     .bytecode
                     .get(self.pc)
@@ -98,14 +102,14 @@ impl Program {
                 Ok(*next)
             }
 
-            fn next4(&mut self) -> Result<usize, Error> {
+            fn next4(&mut self) -> Result<usize, Error<'static>> {
                 Ok(
                     u32::from_le_bytes([self.next()?, self.next()?, self.next()?, self.next()?])
                         as usize,
                 )
             }
 
-            fn next_i64(&mut self) -> Result<i64, Error> {
+            fn next_i64(&mut self) -> Result<i64, Error<'static>> {
                 Ok(i64::from_le_bytes([
                     self.next()?,
                     self.next()?,

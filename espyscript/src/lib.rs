@@ -11,7 +11,7 @@ pub use interpreter::Value;
 pub struct Program(interpreter::Program);
 
 impl Program {
-    pub fn eval(&self) -> Result<Value, interpreter::Error> {
+    pub fn eval<'host>(&self) -> Result<Value<'host>, interpreter::Error<'host>> {
         self.0.eval(0, Vec::new())
     }
 }
@@ -190,6 +190,45 @@ mod tests {
                 }),
             }
         }
+
+        assert!(
+            interpreter::Function::try_from(
+                Program::try_from("with f; f(3)").unwrap().eval().unwrap(),
+            )
+            .unwrap()
+            .piped(Storage::Borrow(&f).into())
+            .eval()
+            .unwrap()
+            .eq(Storage::I64(12).into())
+            .unwrap()
+        )
+    }
+
+    #[test]
+    fn rust_closure() {
+        // Rust closures don't seem to have the expected lifetimes for espyscript,
+        // possibly because of https://github.com/rust-lang/rust/issues/70263
+        // This structure accomplishes the same thing, but much less elegantly.
+        struct F(i64);
+
+        impl interpreter::Extern for F {
+            fn call<'host>(
+                &self,
+                arg: Value<'host>,
+            ) -> Result<Value<'host>, espy_paws::Error<'host>> {
+                match arg {
+                    Value {
+                        storage: Storage::I64(i),
+                    } => Ok(Storage::I64(i * self.0).into()),
+                    arg => Err(interpreter::Error::TypeError {
+                        value: arg,
+                        ty: Storage::I64Type.into(),
+                    }),
+                }
+            }
+        }
+
+        let f = F(4);
 
         assert!(
             interpreter::Function::try_from(

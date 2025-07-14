@@ -4,30 +4,30 @@ mod interpreter;
 pub use interpreter::*;
 
 #[derive(Clone, Debug)]
-pub struct Value {
-    pub storage: Storage,
+pub struct Value<'host> {
+    pub storage: Storage<'host>,
 }
 
 // Cloning this type should be cheap;
 // every binding usage is a clone in espyscript!
 // Use Rcs over boxes and try to put allocations as far up as possible.
 #[derive(Clone, Default)]
-pub enum Storage {
+pub enum Storage<'host> {
     /// Unit is a special case of tuple.
     /// It behaves as both an empty tuple and an empty named tuple,
     /// as well as the type of itself (typeof () == ()).
     // TODO: maybe () should be the value and `unit` the type?
     #[default]
     Unit,
-    Tuple(Tuple),
+    Tuple(Tuple<'host>),
 
-    Borrow(&'static dyn Extern),
+    Borrow(&'host dyn Extern),
     I64(i64),
     Bool(bool),
     String(Rc<str>),
-    Function(Rc<Function>),
-    EnumVariant(Rc<EnumVariant>),
-    Some(Rc<Value>),
+    Function(Rc<Function<'host>>),
+    EnumVariant(Rc<EnumVariant<'host>>),
+    Some(Rc<Value<'host>>),
     None,
 
     Any,
@@ -35,14 +35,14 @@ pub enum Storage {
     BoolType,
     StringType,
     // TODO: FunctionType
-    StructType(Rc<StructType>),
-    EnumType(Rc<EnumType>),
+    StructType(Rc<StructType<'host>>),
+    EnumType(Rc<EnumType<'host>>),
     Option,
     /// The type of types.
     Type,
 }
 
-impl std::fmt::Debug for Storage {
+impl std::fmt::Debug for Storage<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Storage::Unit => write!(f, "Unit"),
@@ -71,14 +71,14 @@ impl std::fmt::Debug for Storage {
     }
 }
 
-impl From<Storage> for Value {
-    fn from(storage: Storage) -> Self {
+impl<'host> From<Storage<'host>> for Value<'host> {
+    fn from(storage: Storage<'host>) -> Self {
         Self { storage }
     }
 }
 
-impl Value {
-    pub fn eq(self, other: Self) -> Result<bool, Error> {
+impl<'host> Value<'host> {
+    pub fn eq(self, other: Self) -> Result<bool, Error<'host>> {
         match (self, other) {
             (
                 Value {
@@ -241,7 +241,7 @@ impl Value {
         }
     }
 
-    pub fn concat(self, r: Value) -> Value {
+    pub fn concat(self, r: Self) -> Self {
         fn rc_slice_from_iter<T>(len: usize, iter: impl Iterator<Item = T>) -> Rc<[T]> {
             let mut tuple = Rc::new_uninit_slice(len);
             // SAFETY: `get_mut` only returns `None` if the `Rc` has been cloned.
@@ -320,11 +320,11 @@ impl Value {
         }
     }
 
-    pub fn into_tuple(self) -> Result<Tuple, Error> {
+    pub fn into_tuple(self) -> Result<Tuple<'host>, Error<'host>> {
         self.try_into()
     }
 
-    pub fn into_tuple_or_unit(self) -> Result<Option<Tuple>, Error> {
+    pub fn into_tuple_or_unit(self) -> Result<Option<Tuple<'host>>, Error<'host>> {
         match self.into_tuple() {
             Ok(tuple) => Ok(Some(tuple)),
             Err(Error::ExpectedTuple(Value {
@@ -334,27 +334,27 @@ impl Value {
         }
     }
 
-    pub fn into_function(self) -> Result<Rc<Function>, Error> {
+    pub fn into_function(self) -> Result<Rc<Function<'host>>, Error<'host>> {
         self.try_into()
     }
 
-    pub fn into_enum_variant(self) -> Result<Rc<EnumVariant>, Error> {
+    pub fn into_enum_variant(self) -> Result<Rc<EnumVariant<'host>>, Error<'host>> {
         self.try_into()
     }
 
-    pub fn into_enum_type(self) -> Result<Rc<EnumType>, Error> {
+    pub fn into_enum_type(self) -> Result<Rc<EnumType<'host>>, Error<'host>> {
         self.try_into()
     }
 
-    pub fn into_struct_type(self) -> Result<Rc<StructType>, Error> {
+    pub fn into_struct_type(self) -> Result<Rc<StructType<'host>>, Error<'host>> {
         self.try_into()
     }
 }
 
-impl TryFrom<Value> for Tuple {
-    type Error = Error;
+impl<'host> TryFrom<Value<'host>> for Tuple<'host> {
+    type Error = Error<'host>;
 
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
+    fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
         if let Storage::Tuple(value) = value.storage {
             Ok(value)
         } else {
@@ -364,7 +364,7 @@ impl TryFrom<Value> for Tuple {
 }
 
 pub trait Extern {
-    fn call(&self, _argument: Value) -> Result<Value, Error> {
+    fn call<'host>(&self, _argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         Err(ExternError::MissingFunctionImpl)?
     }
 
@@ -373,8 +373,11 @@ pub trait Extern {
     }
 }
 
-impl<F: Fn(Value) -> Result<Value, Error>> Extern for F {
-    fn call(&self, argument: Value) -> Result<Value, Error> {
+impl<F> Extern for F
+where
+    F: for<'host> Fn(Value<'host>) -> Result<Value<'host>, Error<'host>>,
+{
+    fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         self(argument)
     }
 
@@ -383,9 +386,9 @@ impl<F: Fn(Value) -> Result<Value, Error>> Extern for F {
     }
 }
 
-impl TryFrom<Value> for Rc<Function> {
-    type Error = Error;
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
+impl<'host> TryFrom<Value<'host>> for Rc<Function<'host>> {
+    type Error = Error<'host>;
+    fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
         if let Value {
             storage: Storage::Function(value),
         } = value
@@ -397,17 +400,17 @@ impl TryFrom<Value> for Rc<Function> {
     }
 }
 
-impl TryFrom<Value> for Function {
-    type Error = Error;
+impl<'host> TryFrom<Value<'host>> for Function<'host> {
+    type Error = Error<'host>;
 
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
+    fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
         Ok(Rc::unwrap_or_clone(Rc::<Self>::try_from(value)?))
     }
 }
 
-impl TryFrom<Value> for Rc<EnumVariant> {
-    type Error = Error;
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
+impl<'host> TryFrom<Value<'host>> for Rc<EnumVariant<'host>> {
+    type Error = Error<'host>;
+    fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
         if let Value {
             storage: Storage::EnumVariant(value),
         } = value
@@ -419,17 +422,17 @@ impl TryFrom<Value> for Rc<EnumVariant> {
     }
 }
 
-impl TryFrom<Value> for EnumVariant {
-    type Error = Error;
+impl<'host> TryFrom<Value<'host>> for EnumVariant<'host> {
+    type Error = Error<'host>;
 
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
+    fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
         Ok(Rc::unwrap_or_clone(Rc::<Self>::try_from(value)?))
     }
 }
 
-impl TryFrom<Value> for Rc<EnumType> {
-    type Error = Error;
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
+impl<'host> TryFrom<Value<'host>> for Rc<EnumType<'host>> {
+    type Error = Error<'host>;
+    fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
         if let Value {
             storage: Storage::EnumType(value),
         } = value
@@ -441,17 +444,17 @@ impl TryFrom<Value> for Rc<EnumType> {
     }
 }
 
-impl TryFrom<Value> for EnumType {
-    type Error = Error;
+impl<'host> TryFrom<Value<'host>> for EnumType<'host> {
+    type Error = Error<'host>;
 
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
+    fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
         Ok(Rc::unwrap_or_clone(Rc::<Self>::try_from(value)?))
     }
 }
 
-impl TryFrom<Value> for Rc<StructType> {
-    type Error = Error;
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
+impl<'host> TryFrom<Value<'host>> for Rc<StructType<'host>> {
+    type Error = Error<'host>;
+    fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
         if let Value {
             storage: Storage::StructType(value),
         } = value
@@ -463,18 +466,18 @@ impl TryFrom<Value> for Rc<StructType> {
     }
 }
 
-impl TryFrom<Value> for StructType {
-    type Error = Error;
+impl<'host> TryFrom<Value<'host>> for StructType<'host> {
+    type Error = Error<'host>;
 
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
+    fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
         Ok(Rc::unwrap_or_clone(Rc::<Self>::try_from(value)?))
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct Tuple(Rc<[(Option<Rc<str>>, Value)]>);
+pub struct Tuple<'host>(Rc<[(Option<Rc<str>>, Value<'host>)]>);
 
-impl Tuple {
+impl<'host> Tuple<'host> {
     pub fn len(&self) -> usize {
         self.0.len()
     }
@@ -483,11 +486,11 @@ impl Tuple {
         self.len() == 0
     }
 
-    pub fn value(&self, index: usize) -> Option<&Value> {
+    pub fn value(&self, index: usize) -> Option<&Value<'host>> {
         self.0.get(index).map(|(_name, value)| value)
     }
 
-    pub fn find_value(&self, name: &str) -> Option<&Value> {
+    pub fn find_value(&self, name: &str) -> Option<&Value<'host>> {
         self.0.iter().find_map(|(n, v)| {
             if n.as_ref().is_some_and(|n| **n == *name) {
                 Some(v)
@@ -497,37 +500,37 @@ impl Tuple {
         })
     }
 
-    pub fn values(&self) -> impl Iterator<Item = &Value> {
+    pub fn values(&self) -> impl Iterator<Item = &Value<'host>> {
         self.0.iter().map(|(_name, value)| value)
     }
 }
 
-impl From<(Rc<str>, Value)> for Tuple {
-    fn from((name, value): (Rc<str>, Value)) -> Self {
+impl<'host> From<(Rc<str>, Value<'host>)> for Tuple<'host> {
+    fn from((name, value): (Rc<str>, Value<'host>)) -> Self {
         Self(Rc::new([(Some(name), value)]))
     }
 }
 
-impl From<Rc<[(Option<Rc<str>>, Value)]>> for Tuple {
-    fn from(value: Rc<[(Option<Rc<str>>, Value)]>) -> Self {
+impl<'host> From<Rc<[(Option<Rc<str>>, Value<'host>)]>> for Tuple<'host> {
+    fn from(value: Rc<[(Option<Rc<str>>, Value<'host>)]>) -> Self {
         Self(value)
     }
 }
 
-impl<const N: usize> From<[(Option<Rc<str>>, Value); N]> for Tuple {
-    fn from(value: [(Option<Rc<str>>, Value); N]) -> Self {
+impl<'host, const N: usize> From<[(Option<Rc<str>>, Value<'host>); N]> for Tuple<'host> {
+    fn from(value: [(Option<Rc<str>>, Value<'host>); N]) -> Self {
         Self(Rc::from(value))
     }
 }
 
-impl AsRef<[(Option<Rc<str>>, Value)]> for Tuple {
-    fn as_ref(&self) -> &[(Option<Rc<str>>, Value)] {
+impl<'host> AsRef<[(Option<Rc<str>>, Value<'host>)]> for Tuple<'host> {
+    fn as_ref(&self) -> &[(Option<Rc<str>>, Value<'host>)] {
         &self.0
     }
 }
 
-impl std::ops::Index<usize> for Tuple {
-    type Output = (Option<Rc<str>>, Value);
+impl<'host> std::ops::Index<usize> for Tuple<'host> {
+    type Output = (Option<Rc<str>>, Value<'host>);
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.0[index]
@@ -535,13 +538,13 @@ impl std::ops::Index<usize> for Tuple {
 }
 
 #[derive(Clone, Debug)]
-pub struct Function {
-    action: FunctionAction,
-    argument: Value,
+pub struct Function<'host> {
+    action: FunctionAction<'host>,
+    argument: Value<'host>,
 }
 
-impl Function {
-    pub fn eval(self) -> Result<Value, Error> {
+impl<'host> Function<'host> {
+    pub fn eval(self) -> Result<Value<'host>, Error<'host>> {
         Ok(match self.action {
             FunctionAction::Block {
                 program,
@@ -586,52 +589,52 @@ impl Function {
     }
 
     /// Concatentes the function's argument list with `argument`.
-    pub fn pipe(&mut self, argument: Value) {
+    pub fn pipe(&mut self, argument: Value<'host>) {
         let mut arguments = Value::from(Storage::Unit);
         mem::swap(&mut arguments, &mut self.argument);
         arguments = Value::concat(arguments, argument);
         mem::swap(&mut arguments, &mut self.argument);
     }
 
-    pub fn piped(mut self, argument: Value) -> Self {
+    pub fn piped(mut self, argument: Value<'host>) -> Self {
         self.pipe(argument);
         self
     }
 }
 
 #[derive(Clone, Debug)]
-pub enum FunctionAction {
+pub enum FunctionAction<'host> {
     Block {
         program: Program,
         block_id: usize,
-        captures: Vec<Value>,
+        captures: Vec<Value<'host>>,
     },
     Enum {
         variant: usize,
-        definition: Rc<EnumType>,
+        definition: Rc<EnumType<'host>>,
     },
     Some,
     None,
 }
 
 #[derive(Clone, Debug)]
-pub struct StructType {
-    pub inner: Value,
+pub struct StructType<'host> {
+    pub inner: Value<'host>,
 }
 
 #[derive(Clone, Debug)]
-pub struct EnumVariant {
-    pub contents: Value,
+pub struct EnumVariant<'host> {
+    pub contents: Value<'host>,
     pub variant: usize,
-    pub definition: Rc<EnumType>,
+    pub definition: Rc<EnumType<'host>>,
 }
 
-impl EnumVariant {
-    pub fn contents(&self) -> &Value {
+impl<'host> EnumVariant<'host> {
+    pub fn contents(&self) -> &Value<'host> {
         &self.contents
     }
 
-    pub fn definition(&self) -> &Rc<EnumType> {
+    pub fn definition(&self) -> &Rc<EnumType<'host>> {
         &self.definition
     }
 
@@ -639,7 +642,7 @@ impl EnumVariant {
         self.variant
     }
 
-    pub fn unwrap(self) -> (Option<Rc<str>>, Value) {
+    pub fn unwrap(self) -> (Option<Rc<str>>, Value<'host>) {
         (
             self.definition.variants[self.variant].0.clone(),
             self.contents,
@@ -648,26 +651,26 @@ impl EnumVariant {
 }
 
 #[derive(Clone, Debug)]
-pub struct EnumType {
-    pub variants: Tuple,
+pub struct EnumType<'host> {
+    pub variants: Tuple<'host>,
 }
 
 #[derive(Debug)]
-pub enum Error {
-    ExpectedNumbers(Value, Value),
-    ExpectedFunction(Value),
-    ExpectedEnumVariant(Value),
-    ExpectedEnumType(Value),
-    ExpectedStructType(Value),
-    ExpectedTuple(Value),
-    IncomparableValues(Value, Value),
+pub enum Error<'host> {
+    ExpectedNumbers(Value<'host>, Value<'host>),
+    ExpectedFunction(Value<'host>),
+    ExpectedEnumVariant(Value<'host>),
+    ExpectedEnumType(Value<'host>),
+    ExpectedStructType(Value<'host>),
+    ExpectedTuple(Value<'host>),
+    IncomparableValues(Value<'host>, Value<'host>),
     TypeError {
-        value: Value,
-        ty: Value,
+        value: Value<'host>,
+        ty: Value<'host>,
     },
     IndexNotFound {
-        index: Value,
-        container: Value,
+        index: Value<'host>,
+        container: Value<'host>,
     },
     /// Errors that occur during host interop.
     ///
@@ -688,8 +691,8 @@ pub enum ExternError {
     Other(Box<dyn std::error::Error>),
 }
 
-impl From<ExternError> for Error {
-    fn from(e: ExternError) -> Error {
+impl<'host> From<ExternError> for Error<'host> {
+    fn from(e: ExternError) -> Error<'host> {
         Error::ExternError(e)
     }
 }
@@ -717,8 +720,8 @@ pub enum InvalidBytecode {
     Utf8Error(std::str::Utf8Error),
 }
 
-impl From<InvalidBytecode> for Error {
-    fn from(e: InvalidBytecode) -> Error {
+impl<'host> From<InvalidBytecode> for Error<'host> {
+    fn from(e: InvalidBytecode) -> Error<'host> {
         Error::InvalidBytecode(e)
     }
 }
