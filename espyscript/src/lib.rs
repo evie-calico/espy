@@ -232,13 +232,13 @@ mod tests {
 
     #[test]
     fn hello_world() {
-        let message = std::cell::RefCell::new(String::new());
-        let print = interpreter::function(|arg| match arg {
+        let mut message = Rc::from("");
+        let print = interpreter::function_mut(|arg| match arg {
             Value {
                 storage: Storage::String(i),
             } => {
                 println!("{i}");
-                *message.borrow_mut() = String::from(&*i);
+                message = i.clone();
                 Ok(Storage::Unit.into())
             }
             arg => Err(interpreter::Error::TypeError {
@@ -260,7 +260,7 @@ mod tests {
             .unwrap()
             .eq(Storage::Unit.into())
             .unwrap()
-                && message.borrow().as_str() == "Hello, world!"
+                && &*message == "Hello, world!"
         )
     }
 }

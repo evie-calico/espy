@@ -356,6 +356,9 @@ impl Program {
                             storage: Storage::Borrow(borrow),
                         } => borrow.call(argument)?,
                         Value {
+                            storage: Storage::Owned(borrow),
+                        } => borrow.call(argument)?,
+                        Value {
                             storage: Storage::Function(function),
                         } => Rc::<Function>::try_unwrap(function)
                             .unwrap_or_else(|function| (*function).clone())

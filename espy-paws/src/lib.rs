@@ -3,7 +3,7 @@ use std::{mem, rc::Rc};
 mod interpreter;
 pub use interpreter::*;
 mod interop;
-pub use interop::{Extern, function};
+pub use interop::{Extern, ExternCell, ExternMut, function, function_mut};
 
 #[derive(Clone, Debug)]
 pub struct Value<'host> {
@@ -24,6 +24,7 @@ pub enum Storage<'host> {
     Tuple(Tuple<'host>),
 
     Borrow(&'host dyn Extern),
+    Owned(Rc<dyn Extern>),
     I64(i64),
     Bool(bool),
     String(Rc<str>),
@@ -51,6 +52,11 @@ impl std::fmt::Debug for Storage<'_> {
             Storage::Tuple(tuple) => write!(f, "Tuple({tuple:?})"),
             Storage::Borrow(external) => {
                 write!(f, "Borrow(")?;
+                external.debug(f)?;
+                write!(f, ")")
+            }
+            Storage::Owned(external) => {
+                write!(f, "Owned(")?;
                 external.debug(f)?;
                 write!(f, ")")
             }
@@ -667,6 +673,7 @@ pub enum Error<'host> {
 pub enum ExternError {
     MissingFunctionImpl,
     MissingPipeImpl,
+    BorrowMutError,
     Other(Box<dyn std::error::Error>),
 }
 
