@@ -54,6 +54,21 @@ mod tests {
     }
 
     #[test]
+    fn hang() {
+        let actual = Program::try_from("let x = \"").unwrap();
+        println!("{actual:?}");
+        assert!(
+            actual
+                .eval()
+                .unwrap()
+                .eq(Value {
+                    storage: Storage::I64(12),
+                })
+                .unwrap()
+        )
+    }
+
+    #[test]
     fn tuples() {
         let actual = Program::try_from("let x = 1, 2; let y = 3, 4; x.1 * y.0").unwrap();
         println!("{actual:?}");

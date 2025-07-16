@@ -119,6 +119,8 @@ pub enum ErrorKind {
     ///
     /// Parsers are free to reinterpret this as an identifier for diagnostic purposes.
     ReservedSymbol,
+    /// A quote character was encountered but never terminated.
+    UnterminatedString,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -239,6 +241,12 @@ impl<'source> Iterator for Lexer<'source> {
                             self.next();
                         }
                         Some('"') => break,
+                        None => {
+                            return Some(Err(Error {
+                                origin: root,
+                                kind: ErrorKind::UnterminatedString,
+                            }));
+                        }
                         _ => {}
                     }
                 }
