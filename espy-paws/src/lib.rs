@@ -666,7 +666,7 @@ pub enum Error<'host> {
 #[derive(Debug)]
 pub enum ExternError {
     MissingFunctionImpl,
-    MissingPipeImpl,
+    MissingIndexImpl,
     BorrowMutError,
     Other(Box<dyn std::error::Error>),
 }

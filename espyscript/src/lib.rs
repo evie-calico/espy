@@ -271,14 +271,28 @@ mod tests {
             io: Io,
         }
         #[derive(Default)]
-        struct Io;
+        struct Io {
+            print: Print,
+        }
+        #[derive(Default)]
+        struct Print {
+            log: std::cell::Cell<Vec<Rc<str>>>,
+        }
 
         impl interpreter::Extern for Std {
-            fn call<'host>(
+            fn index<'host>(
                 &'host self,
-                _argument: Value<'host>,
-            ) -> Result<Value<'host>, espy_paws::Error<'host>> {
-                Ok(Storage::Borrow(&self.io).into())
+                index: Value<'host>,
+            ) -> Result<Value<'host>, interpreter::Error<'host>> {
+                match index {
+                    Value {
+                        storage: Storage::String(x),
+                    } if &*x == "io" => Ok(Storage::Borrow(&self.io).into()),
+                    index => Err(interpreter::Error::IndexNotFound {
+                        index,
+                        container: Storage::Borrow(self).into(),
+                    }),
+                }
             }
 
             fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -287,24 +301,76 @@ mod tests {
         }
 
         impl interpreter::Extern for Io {
+            fn index<'host>(
+                &'host self,
+                index: Value<'host>,
+            ) -> Result<Value<'host>, interpreter::Error<'host>> {
+                match index {
+                    Value {
+                        storage: Storage::String(x),
+                    } if &*x == "print" => Ok(Storage::Borrow(&self.print).into()),
+                    index => Err(interpreter::Error::IndexNotFound {
+                        index,
+                        container: Storage::Borrow(self).into(),
+                    }),
+                }
+            }
+
             fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "io module")
             }
         }
 
+        impl interpreter::Extern for Print {
+            fn call<'host>(
+                &'host self,
+                message: Value<'host>,
+            ) -> Result<Value<'host>, interpreter::Error<'host>> {
+                match message {
+                    Value {
+                        storage: Storage::String(x),
+                    } => {
+                        println!("{x}");
+                        let mut log = self.log.take();
+                        log.push(x);
+                        self.log.set(log);
+                        Ok(Storage::Unit.into())
+                    }
+                    value => Err(interpreter::Error::TypeError {
+                        value,
+                        ty: Storage::StringType.into(),
+                    }),
+                }
+            }
+
+            fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "io.print")
+            }
+        }
+
+        let std = Std::default();
+
         assert!(
             interpreter::Function::try_from(
-                Program::try_from("with std; std()")
+                Program::try_from("with std; std.io.print \"Hello, world!\"")
                     .unwrap()
                     .eval()
                     .unwrap(),
             )
             .unwrap()
-            .piped(Storage::Borrow(&Std::default()).into())
+            .piped(Storage::Borrow(&std).into())
             .eval()
             .unwrap()
             .eq(Storage::Unit.into())
             .unwrap()
+                && std
+                    .io
+                    .print
+                    .log
+                    .take()
+                    .iter()
+                    .map(|s| &**s)
+                    .eq(["Hello, world!"])
         )
     }
 }

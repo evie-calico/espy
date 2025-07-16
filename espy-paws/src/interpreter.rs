@@ -468,7 +468,13 @@ impl Program {
                                 });
                             }
                         }
-                        (index, container) => {
+                        (
+                            Value {
+                                storage: Storage::Borrow(external),
+                            },
+                            index,
+                        ) => stack.push(external.index(index)?),
+                        (container, index) => {
                             return Err(Error::IndexNotFound { index, container });
                         }
                     }

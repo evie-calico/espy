@@ -6,6 +6,10 @@ pub trait Extern {
         Err(ExternError::MissingFunctionImpl)?
     }
 
+    fn index<'host>(&'host self, _index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        Err(ExternError::MissingIndexImpl)?
+    }
+
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{external value}}")
     }
@@ -14,6 +18,10 @@ pub trait Extern {
 pub trait ExternMut {
     fn call<'host>(&mut self, _argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         Err(ExternError::MissingFunctionImpl)?
+    }
+
+    fn index<'host>(&mut self, _index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        Err(ExternError::MissingIndexImpl)?
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
