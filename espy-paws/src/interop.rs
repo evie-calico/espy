@@ -2,7 +2,7 @@ use crate::*;
 use std::cell::RefCell;
 
 pub trait Extern {
-    fn call<'host>(&self, _argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+    fn call<'host>(&'host self, _argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         Err(ExternError::MissingFunctionImpl)?
     }
 
@@ -30,7 +30,7 @@ impl<T: ExternMut> From<T> for ExternCell<T> {
 }
 
 impl<T: ExternMut> Extern for ExternCell<T> {
-    fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         self.0
             .try_borrow_mut()
             .map_err(|_| ExternError::BorrowMutError)?

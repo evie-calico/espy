@@ -263,4 +263,48 @@ mod tests {
                 && &*message == "Hello, world!"
         )
     }
+
+    #[test]
+    fn std_io() {
+        #[derive(Default)]
+        struct Std {
+            io: Io,
+        }
+        #[derive(Default)]
+        struct Io;
+
+        impl interpreter::Extern for Std {
+            fn call<'host>(
+                &'host self,
+                _argument: Value<'host>,
+            ) -> Result<Value<'host>, espy_paws::Error<'host>> {
+                Ok(Storage::Borrow(&self.io).into())
+            }
+
+            fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "std module")
+            }
+        }
+
+        impl interpreter::Extern for Io {
+            fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "io module")
+            }
+        }
+
+        assert!(
+            interpreter::Function::try_from(
+                Program::try_from("with std; std()")
+                    .unwrap()
+                    .eval()
+                    .unwrap(),
+            )
+            .unwrap()
+            .piped(Storage::Borrow(&Std::default()).into())
+            .eval()
+            .unwrap()
+            .eq(Storage::Unit.into())
+            .unwrap()
+        )
+    }
 }
