@@ -1,0 +1,11 @@
+[package]
+name = "espygarten"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+espyscript.path = "../espyscript"
+wasm-bindgen = "0.2.100"

@@ -5,7 +5,7 @@ pub use espy_eyes as lexer;
 pub use espy_paws as interpreter;
 pub use espy_tail as compiler;
 
-pub use interpreter::Value;
+pub use interpreter::{Error, Extern, Function, Storage, Value, function, function_mut};
 
 #[derive(Debug)]
 pub struct Program(interpreter::Program);

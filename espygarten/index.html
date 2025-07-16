@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon">
+
+	<title>espygarten</title>
+	<link rel="stylesheet" href="site.css">
+	<script type="module" src="pkg/espygarten.js"></script>
+	<script type="module" src="index.js"></script>
+</head>
+
+<body>
+	<header>
+		<h1>espygarten</h1>
+	</header>
+	<main style="display: flex; flex-direction: column">
+		<p>
+			use <code>with std;</code> to recieve the "standard library" from the runtime.
+			<code>with</code> turns the rest of the scope into a function and returns it,
+			which the runtime will immediately call with the library as an argument.
+		</p>
+		<p>
+			this library provides <code>std.io.print</code>,
+			which can be used to append text to this page's "console output".
+			you may invoke a function by following it with a value, for example:
+			<code>std.io.print "Hello, world!"</code> calls <code>std.io.print</code>
+			with <code>"Hello, world!"</code> as its argument.
+		</p>
+		<p>
+			the value returned by your function will be displayed underneath the console output.
+		</p>
+
+		<textarea id="input" style="height: 16lh">
+with std;
+let print = std.io.print;
+
+print "Hello, world!";</textarea>
+		<output>
+			<h2> Console Output </h2>
+			<pre id="output" style="font-family: monospace"></pre>
+			<h2> Return Value </h2>
+			<pre id="result" style="font-family: monospace"></pre>
+		</output>
+	</main>
+	<footer></footer>
+</body>

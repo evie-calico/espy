@@ -5,12 +5,15 @@
       # load external libraries that you need in your rust project here
     ];
 in
-  pkgs.mkShell rec {
+  pkgs.mkShell {
     buildInputs = with pkgs; [
       clang
       llvmPackages_20.bintools
       llvmPackages_20.lldb
       rustup
+      wasm-pack
+      vscode-langservers-extracted
+      typescript-language-server
     ];
     RUSTC_VERSION = overrides.toolchain.channel;
     # https://github.com/rust-lang/rust-bindgen#environment-variables

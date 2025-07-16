@@ -1,4 +1,4 @@
 [workspace]
-members = ["espy-ears", "espy-eyes", "espy-heart", "espy-paws", "espy-tail", "espyscript"]
+members = ["espy-ears", "espy-eyes", "espy-heart", "espy-paws", "espy-tail", "espygarten", "espyscript"]
 
 resolver = "3"
