@@ -102,7 +102,7 @@ pub fn espyscript_eval(src: &str) -> String {
                             let output = std.io.print.output.into_inner();
 
                             format!(
-                                "<p id=\"console-output\"><pre>{output}</pre></p><p id=\"return-value\"><pre>{result}</pre></p>"
+                                "<pre id=\"console-output\">{output}</pre><pre id=\"return-value\">{result}</p>"
                             )
                         }
                         Err(e) => {
@@ -111,7 +111,7 @@ pub fn espyscript_eval(src: &str) -> String {
                     }
                 }
                 Err(espyscript::Error::ExpectedFunction(value)) => {
-                    format!("<p id=\"return-value\"><pre>{value:?}</pre></p>")
+                    format!("<pre id=\"return-value\">{value:?}</pre>")
                 }
                 Err(_) => unreachable!(),
             },
