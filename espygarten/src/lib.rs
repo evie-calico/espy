@@ -1,4 +1,4 @@
-use std::{cell::RefCell, sync::RwLock};
+use std::cell::RefCell;
 
 use wasm_bindgen::prelude::*;
 
@@ -85,30 +85,42 @@ impl espyscript::Extern for Print {
     }
 }
 
-static LAST_OUTPUT: RwLock<Option<String>> = RwLock::new(None);
-static LAST_RESULT: RwLock<Option<String>> = RwLock::new(None);
-
 #[wasm_bindgen]
-pub fn espyscript_eval(src: &str) {
-    let std = Std::default();
+pub fn espyscript_eval(src: &str) -> String {
+    match espyscript::Program::try_from(src) {
+        Ok(program) => match program.eval() {
+            Ok(result) => match espyscript::Function::try_from(result) {
+                Ok(function) => {
+                    let std = Std::default();
 
-    let result =
-        espyscript::Function::try_from(espyscript::Program::try_from(src).unwrap().eval().unwrap())
-            .unwrap()
-            .piped(espyscript::Storage::Borrow(&std).into())
-            .eval()
-            .unwrap();
+                    match function
+                        .piped(espyscript::Storage::Borrow(&std).into())
+                        .eval()
+                    {
+                        Ok(result) => {
+                            let result = format!("{result:#?}");
+                            let output = std.io.print.output.into_inner();
 
-    *LAST_RESULT.write().unwrap() = Some(format!("{result:#?}"));
-    *LAST_OUTPUT.write().unwrap() = Some(std.io.print.output.into_inner());
-}
-
-#[wasm_bindgen]
-pub fn espyscript_last_output() -> Option<String> {
-    LAST_OUTPUT.read().unwrap().clone()
-}
-
-#[wasm_bindgen]
-pub fn espyscript_last_result() -> Option<String> {
-    LAST_RESULT.read().unwrap().clone()
+                            format!(
+                                "<p id=\"console-output\"><pre>{output}</pre></p><p id=\"return-value\"><pre>{result}</pre></p>"
+                            )
+                        }
+                        Err(e) => {
+                            format!("<p id=\"eval-error\">Failed to evaluate program: {e:?}</p>")
+                        }
+                    }
+                }
+                Err(espyscript::Error::ExpectedFunction(value)) => {
+                    format!("<p id=\"return-value\"><pre>{value:?}</pre></p>")
+                }
+                Err(_) => unreachable!(),
+            },
+            Err(e) => {
+                format!("<p id=\"eval-error\">Failed to evaluate program: {e:?}</p>")
+            }
+        },
+        Err(e) => {
+            format!("<p id=\"parse-error\">Failed to parse program: {e:?}</p>")
+        }
+    }
 }

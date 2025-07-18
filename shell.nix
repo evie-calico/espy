@@ -14,6 +14,7 @@ in
       wasm-pack
       vscode-langservers-extracted
       typescript-language-server
+      live-server
     ];
     RUSTC_VERSION = overrides.toolchain.channel;
     # https://github.com/rust-lang/rust-bindgen#environment-variables
