@@ -395,7 +395,8 @@ impl<'source> Program<'source> {
                             .origin,
                     );
                 } else {
-                    block!().extend(Instruction::Pop)
+                    block!().extend(Instruction::Pop);
+                    scope.stack_pointer -= 1;
                 }
             }
             Action::For(For {
