@@ -11,19 +11,19 @@
 	<script type="module" src="index.js"></script>
 
 	<style>
-		output #console-output {
-			color: greenyellow;
+		output {
 			background-color: black;
 			padding: 1lh;
+			margin: 1lh 0;
+		}
+		output #console-output {
+			color: greenyellow;
+		}
+		output #return-value {
+			color: dodgerblue;
 		}
 		output #parse-error, #eval-error {
 			color: red;
-			background-color: black;
-			padding: 1lh;
-		}
-		output #return-value {
-			color: indigo;
-			padding: 0 1lh;
 		}
 	</style>
 </head>
@@ -44,6 +44,8 @@
 			you may invoke a function by following it with a value, for example:
 			<code>std.io.print "Hello, world!"</code> calls <code>std.io.print</code>
 			with <code>"Hello, world!"</code> as its argument.
+			more information on this library may be found in the
+			<a href="#runtime-interoperability">runtime interoperability</a> section.
 		</p>
 		<p>
 			the value returned by your function will be displayed underneath the console output.
@@ -55,6 +57,28 @@ let print = std.io.print;
 
 print "Hello, world!";</textarea>
 		<output id="output"></output>
-	</main>
+		<h2 id="runtime-interoperability"> runtime interoperability </h2>
+		<p>
+			an espyscript program's host (espygarten, in this page's case) may provide custom
+			structures to the program by passing them into a function as its argument.
+			these structures may be used to augment espyscript with functionality it does not
+			otherwise provide, such as io, string manipulation, or efficient data structures.
+		</p>
+		<p>
+			the libraries provided by espygarten are listed below.
+		</p>
+
+		<h3> io library </h3>
+		<p> facilitates input and output on this page </p>
+
+		<h4> io.print </h4>
+		<p>appends the provided string to this page's "console output" </p>
+
+		<h3> string library </h3>
+		<p> provides basic operations for dynamic creation and manipulation of strings. </p>
+
+		<h4> string.concat </h4>
+		<p> expects a tuple of strings as an argument and concatenates them into a single string </p>
+ 	</main>
 	<footer></footer>
 </body>
