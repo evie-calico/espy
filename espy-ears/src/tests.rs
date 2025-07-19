@@ -35,6 +35,13 @@ fn ident<'source>(origin: &'source str) -> Token<'source> {
     }
 }
 
+fn number<'source>(origin: &'source str) -> Token<'source> {
+    Token {
+        origin,
+        lexigram: Lexigram::Number,
+    }
+}
+
 macro_rules! node {
     ($name:ident: $node:ident = $origin:literal as $lexigram:ident) => {
         const $name: Node = Node::$node(Some(Token {
@@ -45,10 +52,7 @@ macro_rules! node {
 }
 
 fn number_node<'source>(origin: &'source str) -> Node<'source> {
-    Node::Number(Token {
-        origin,
-        lexigram: Lexigram::Number,
-    })
+    Node::Number(number(origin))
 }
 
 fn variable<'source>(origin: &'source str) -> Node<'source> {
@@ -304,10 +308,7 @@ fn forgotten_semicolon() {
             diagnostics: Diagnostics {
                 errors: vec![Diagnostic::Error(Error::MissingToken {
                     expected: &[Lexigram::SingleEqual, Lexigram::Semicolon],
-                    actual: Some(Token {
-                        origin: "2",
-                        lexigram: Lexigram::Number,
-                    }),
+                    actual: Some(number("2")),
                 })],
             },
         }],
@@ -458,17 +459,21 @@ fn nested_parens() {
 
 #[test]
 fn pipe_operator() {
-    let source = "1 |> 2 |> f x";
+    let source = "square 2 |> add 4 |> square ()";
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
         result: expression([
-            number_node("1"),
+            variable("square"),
             number_node("2"),
-            variable("f"),
+            Node::Call(Some(number("2"))),
+            variable("add"),
             PIPE,
+            number_node("4"),
+            Node::Call(Some(number("4"))),
+            variable("square"),
             PIPE,
-            variable("x"),
-            Node::Call(Some(ident("x"))),
+            Node::Unit,
+            Node::Call(Some(OPEN_PAREN)),
         ])
         .into(),
         ..Default::default()
@@ -730,10 +735,7 @@ fn tuple_indexing() {
             variable("x"),
             Node::Field {
                 dot_token: DOT,
-                index: Token {
-                    origin: "1",
-                    lexigram: Lexigram::Number,
-                },
+                index: number("1"),
             },
         ])
         .into(),

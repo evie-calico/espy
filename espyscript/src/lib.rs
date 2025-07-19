@@ -145,7 +145,7 @@ mod tests {
 
     #[test]
     fn options() {
-        let actual = Program::try_from("Some 1, None ()").unwrap();
+        let actual = Program::try_from("(Some 1), (None ())").unwrap();
         println!("{actual:?}");
         assert!(
             actual
@@ -372,14 +372,5 @@ mod tests {
                     .map(|s| &**s)
                     .eq(["Hello, world!"])
         )
-    }
-
-    #[test]
-    fn right_assoc_calls() {
-        let actual =
-            Program::try_from("let f = {with x; x * x}; let g = {with x; x + x}; f g 2").unwrap();
-        println!("{actual:?}");
-        let value = actual.eval().unwrap();
-        assert!(value.eq(Storage::I64(16).into()).unwrap())
     }
 }

@@ -163,25 +163,24 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
         impl<'source> Operation<'source> {
             fn precedence(self) -> usize {
                 match self {
-                    Operation::Field { .. } => 14,
-                    Operation::Pipe(_) => 13,
-                    Operation::Call(_) => 12,
-                    Operation::Positive(_) | Operation::Negative(_) => 11,
-                    Operation::Mul(_) | Operation::Div(_) => 10,
-                    Operation::Add(_) | Operation::Sub(_) => 9,
-                    Operation::BitwiseAnd(_) => 8,
-                    Operation::BitwiseXor(_) => 7,
-                    Operation::BitwiseOr(_) => 6,
+                    Operation::Field { .. } => 13,
+                    Operation::Positive(_) | Operation::Negative(_) => 12,
+                    Operation::Mul(_) | Operation::Div(_) => 11,
+                    Operation::Add(_) | Operation::Sub(_) => 10,
+                    Operation::BitwiseAnd(_) => 9,
+                    Operation::BitwiseXor(_) => 8,
+                    Operation::BitwiseOr(_) => 7,
                     Operation::EqualTo(_)
                     | Operation::NotEqualTo(_)
                     | Operation::Greater(_)
                     | Operation::GreaterEqual(_)
                     | Operation::Lesser(_)
-                    | Operation::LesserEqual(_) => 5,
-                    Operation::LogicalAnd(_) => 4,
-                    Operation::LogicalOr(_) => 3,
-                    Operation::Name { .. } => 2,
-                    Operation::Tuple(_) => 1,
+                    | Operation::LesserEqual(_) => 6,
+                    Operation::LogicalAnd(_) => 5,
+                    Operation::LogicalOr(_) => 4,
+                    Operation::Name { .. } => 3,
+                    Operation::Tuple(_) => 2,
+                    Operation::Pipe(_) | Operation::Call(_) => 1,
                     Operation::SubExpression(_) => 0,
                 }
             }
@@ -208,8 +207,9 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     | Operation::LogicalAnd(_)
                     | Operation::LogicalOr(_)
                     | Operation::Tuple(_)
-                    | Operation::SubExpression(_) => true,
-                    Operation::Call(_) | Operation::Pipe(_) => false,
+                    | Operation::SubExpression(_)
+                    | Operation::Call(_)
+                    | Operation::Pipe(_) => true,
                 }
             }
         }
@@ -251,7 +251,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
         let mut stack = Vec::new();
         let mut last_token = None;
         // Check if the last token implies the unary position.
-        // This is probably not the best way to do things.
+        // This is probably not the best way to do this.
         let unary_position = |last_token| {
             matches!(
                 last_token,
