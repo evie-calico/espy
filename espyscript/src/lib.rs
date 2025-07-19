@@ -54,21 +54,6 @@ mod tests {
     }
 
     #[test]
-    fn hang() {
-        let actual = Program::try_from("let x = \"").unwrap();
-        println!("{actual:?}");
-        assert!(
-            actual
-                .eval()
-                .unwrap()
-                .eq(Value {
-                    storage: Storage::I64(12),
-                })
-                .unwrap()
-        )
-    }
-
-    #[test]
     fn tuples() {
         let actual = Program::try_from("let x = 1, 2; let y = 3, 4; x.1 * y.0").unwrap();
         println!("{actual:?}");
@@ -387,5 +372,14 @@ mod tests {
                     .map(|s| &**s)
                     .eq(["Hello, world!"])
         )
+    }
+
+    #[test]
+    fn right_assoc_calls() {
+        let actual =
+            Program::try_from("let f = {with x; x * x}; let g = {with x; x + x}; f g 2").unwrap();
+        println!("{actual:?}");
+        let value = actual.eval().unwrap();
+        assert!(value.eq(Storage::I64(16).into()).unwrap())
     }
 }

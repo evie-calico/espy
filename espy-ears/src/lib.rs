@@ -189,7 +189,6 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
             fn left_associative(self) -> bool {
                 match self {
                     Operation::Field { .. }
-                    | Operation::Call(_)
                     | Operation::Positive(_)
                     | Operation::Negative(_)
                     | Operation::Mul(_)
@@ -210,7 +209,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     | Operation::LogicalOr(_)
                     | Operation::Tuple(_)
                     | Operation::SubExpression(_) => true,
-                    Operation::Pipe(_) => false,
+                    Operation::Call(_) | Operation::Pipe(_) => false,
                 }
             }
         }
