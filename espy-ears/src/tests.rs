@@ -279,7 +279,7 @@ fn incomplete_expression() {
         result: Expression {
             contents: vec![number_node("1"), number_node("2"), MUL],
             diagnostics: Diagnostics {
-                errors: vec![Diagnostic::Error(Error::IncompleteExpression)],
+                errors: vec![Error::IncompleteExpression],
             },
         }
         .into(),
@@ -306,10 +306,10 @@ fn forgotten_semicolon() {
             ),
             semicolon_token: None,
             diagnostics: Diagnostics {
-                errors: vec![Diagnostic::Error(Error::MissingToken {
+                errors: vec![Error::MissingToken {
                     expected: &[Lexigram::SingleEqual, Lexigram::Semicolon],
                     actual: Some(number("2")),
-                })],
+                }],
             },
         }],
         result: expression([number_node("2")]).into(),
@@ -364,10 +364,10 @@ fn reserved_symbol() {
             action: binding("class", [number_node("1")]),
             semicolon_token: Some(SEMICOLON),
             diagnostics: Diagnostics {
-                errors: vec![Diagnostic::Error(Error::Lexer(lexer::Error {
+                errors: vec![Error::Lexer(lexer::Error {
                     origin: "class",
                     kind: lexer::ErrorKind::ReservedSymbol,
-                }))],
+                })],
             },
         }],
         ..Default::default()

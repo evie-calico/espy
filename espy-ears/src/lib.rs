@@ -22,7 +22,7 @@ pub enum Diagnostic<'source> {
 
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Diagnostics<'source> {
-    pub errors: Vec<Diagnostic<'source>>,
+    pub errors: Vec<Error<'source>>,
 }
 
 impl<'source> Diagnostics<'source> {
@@ -35,8 +35,7 @@ impl<'source> Diagnostics<'source> {
         if actual.is_some_and(|actual| expected.contains(&actual.lexigram)) {
             actual
         } else {
-            self.errors
-                .push(Diagnostic::Error(Error::MissingToken { expected, actual }));
+            self.errors.push(Error::MissingToken { expected, actual });
             None
         }
     }
@@ -67,7 +66,7 @@ impl<'source> Diagnostics<'source> {
                 } else {
                     None
                 };
-                self.errors.push(Diagnostic::Error(Error::Lexer(e)));
+                self.errors.push(Error::Lexer(e));
                 t
             }
         }
@@ -456,14 +455,10 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     ) {
                         contents.push(Node::Unit);
                     } else {
-                        diagnostics
-                            .errors
-                            .push(Diagnostic::Error(Error::IncompleteExpression));
+                        diagnostics.errors.push(Error::IncompleteExpression);
                     }
                     if !matches!(stack.pop(), Some(Operation::SubExpression(_))) {
-                        diagnostics
-                            .errors
-                            .push(Diagnostic::Error(Error::UnexpectedCloseParen(t)))
+                        diagnostics.errors.push(Error::UnexpectedCloseParen(t))
                     }
                 }
                 lexi!(CloseParen) if !unary_position => {
@@ -472,9 +467,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         contents.push(op.into());
                     }
                     if !matches!(stack.pop(), Some(Operation::SubExpression(_))) {
-                        diagnostics
-                            .errors
-                            .push(Diagnostic::Error(Error::UnexpectedCloseParen(t)))
+                        diagnostics.errors.push(Error::UnexpectedCloseParen(t))
                     }
                 }
                 lexi!(If) => {
@@ -502,9 +495,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 _ => {
                     if unary_position {
                         if !contents.is_empty() || !stack.is_empty() {
-                            diagnostics
-                                .errors
-                                .push(Diagnostic::Error(Error::IncompleteExpression));
+                            diagnostics.errors.push(Error::IncompleteExpression);
                         }
                     } else {
                         loop {
@@ -1054,12 +1045,10 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
                     } else {
                         // The ident field of Binding is optional,
                         // so we could potentially keep parsing if the equal sign or semicolon is present.
-                        st_diagnostics
-                            .errors
-                            .push(Diagnostic::Error(Error::MissingToken {
-                                expected: &[Lexigram::Ident],
-                                actual: token,
-                            }));
+                        st_diagnostics.errors.push(Error::MissingToken {
+                            expected: &[Lexigram::Ident],
+                            actual: token,
+                        });
                         Statement {
                             action: Action::Evaluate(
                                 Some(Binding {

@@ -13,7 +13,7 @@
 //! let bytecode = program.compile();
 //! ```
 
-use espy_ears::{Action, Block, BlockResult, Expression, For, If, Node, Statement};
+use espy_ears::{Action, Block, BlockResult, Diagnostics, Expression, For, If, Node, Statement};
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;
 use std::{cell::Cell, iter, mem, num::ParseIntError};
@@ -28,11 +28,20 @@ pub enum Error<'source> {
     InvalidInteger(ParseIntError),
     UndefinedSymbol(&'source str),
     UnexpectedEnumResult,
+    InvalidAst(espy_ears::Error<'source>),
 }
 
 impl From<ParseIntError> for Error<'_> {
     fn from(e: ParseIntError) -> Self {
         Self::InvalidInteger(e)
+    }
+}
+
+fn try_validate(diagnostics: Diagnostics) -> Result<(), Error> {
+    if let Some(error) = diagnostics.errors.into_iter().next() {
+        Err(Error::InvalidAst(error))
+    } else {
+        Ok(())
     }
 }
 
@@ -306,6 +315,7 @@ impl<'source> Program<'source> {
         block: Block<'source>,
         scope: &mut Scope<'_, 'source>,
     ) -> Result<(), Error<'source>> {
+        try_validate(block.diagnostics)?;
         for i in block.statements {
             self.add_statement(block_id, i, scope)?;
         }
@@ -344,6 +354,7 @@ impl<'source> Program<'source> {
                 return Ok(());
             }
             BlockResult::Function(function) => {
+                try_validate(function.diagnostics)?;
                 let mut scope = scope.promote();
                 let captures = scope.stack_pointer;
                 // Note that, while a function takes a single argument,
@@ -381,6 +392,7 @@ impl<'source> Program<'source> {
                 self.blocks[block_id as usize]
             };
         }
+        try_validate(statement.diagnostics)?;
         match statement.action {
             Action::Evaluate(binding, expression) => {
                 // If the binding exists but not an expression, we need to generate a unit value.
@@ -403,8 +415,10 @@ impl<'source> Program<'source> {
                 binding,
                 iterator,
                 block,
+                diagnostics,
                 ..
             }) => {
+                try_validate(diagnostics)?;
                 self.add_expression(block_id, iterator, scope)?;
                 let for_address = block!().len();
                 block!().extend(Instruction::For(0));
@@ -451,6 +465,7 @@ impl<'source> Program<'source> {
                 block!().extend($instruction)
             }};
         }
+        try_validate(expression.diagnostics)?;
         if expression.contents.is_empty() {
             scope.stack_pointer += 1;
             block!().extend(Instruction::PushUnit);
@@ -521,18 +536,19 @@ impl<'source> Program<'source> {
                     self.add_block(block_id, block, scope.child())?;
                     scope.stack_pointer += 1;
                 }
-                Node::Bool(true, _) => {
+                Node::Bool(boolean, _) => {
                     scope.stack_pointer += 1;
-                    block!().extend(Instruction::PushTrue)
-                }
-                Node::Bool(false, _) => {
-                    scope.stack_pointer += 1;
-                    block!().extend(Instruction::PushFalse)
+                    block!().extend(if boolean {
+                        Instruction::PushTrue
+                    } else {
+                        Instruction::PushFalse
+                    })
                 }
                 Node::If(If {
                     condition,
                     first,
                     second,
+                    diagnostics,
                     ..
                 }) => {
                     // For retroactively filling in the jump instructions.
@@ -542,6 +558,7 @@ impl<'source> Program<'source> {
                             .copy_from_slice(&pc.to_le_bytes());
                     }
 
+                    try_validate(diagnostics)?;
                     self.add_expression(block_id, condition, scope)?;
                     block!().extend(Instruction::If(0));
                     let if_destination = block!().len() - size_of::<ProgramCounter>();
@@ -592,6 +609,7 @@ impl<'source> Program<'source> {
                     block!().extend(Instruction::Index)
                 }
                 Node::Struct(structure) => {
+                    try_validate(structure.diagnostics)?;
                     self.add_expression(block_id, structure.inner, scope)?;
                     // note that only one value (the inner value's type) exists on the current scope;
                     // this will be important later.
@@ -633,6 +651,7 @@ impl<'source> Program<'source> {
                     self.blocks[block_id as usize].extend(Instruction::PushStruct { statics });
                 }
                 Node::Enum(enumeration) => {
+                    try_validate(enumeration.diagnostics)?;
                     self.add_expression(block_id, enumeration.variants, scope)?;
                     // note that only one value (the variants) exists on the current scope;
                     // this will be important later.
