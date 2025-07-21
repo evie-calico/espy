@@ -195,12 +195,11 @@ impl<'source> Iterator for Lexer<'source> {
                 }
                 let ident = &root[0..length];
                 match ident {
-                    "array" | "as" | "async" | "await" | "case" | "char" | "class" | "const"
-                    | "continue" | "do" | "dyn" | "fixed" | "float" | "fn" | "import"
-                    | "include" | "integer" | "iterator" | "loop" | "macro" | "mod" | "move"
-                    | "mut" | "never" | "priv" | "pub" | "ref" | "require" | "return" | "safe"
-                    | "static" | "string" | "super" | "switch" | "table" | "trait" | "try"
-                    | "tuple" | "type" | "union" | "unit" | "unsafe" | "unsigned" | "use"
+                    "array" | "as" | "async" | "await" | "case" | "class" | "const"
+                    | "continue" | "do" | "dyn" | "fn" | "import" | "include" | "iterator"
+                    | "loop" | "macro" | "mod" | "move" | "mut" | "never" | "priv" | "pub"
+                    | "ref" | "require" | "return" | "safe" | "static" | "super" | "switch"
+                    | "trait" | "try" | "tuple" | "type" | "union" | "unit" | "unsafe" | "use"
                     | "where" | "while" | "yield" => {
                         return Some(Err(Error {
                             origin: ident,
