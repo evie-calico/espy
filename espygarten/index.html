@@ -12,9 +12,9 @@
 
 	<style>
 		output {
-			background-color: black;
+			font-size: 13pt;
+			background-color: color-mix(in srgb, var(--page-bg-color), black 60%);
 			padding: 1lh;
-			margin: 1lh 0;
 		}
 		output #console-output {
 			color: greenyellow;
@@ -51,11 +51,13 @@
 			the value returned by your function will be displayed underneath the console output.
 		</p>
 
+		<label for="input"> <h2> input </h2> </label>
 		<textarea id="input" style="height: 16lh">
 with std;
 let print = std.io.print;
 
 print "Hello, world!";</textarea>
+		<h2> output </h2>
 		<output id="output"></output>
 		<h2 id="runtime-interoperability"> runtime interoperability </h2>
 		<p>
