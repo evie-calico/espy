@@ -23,18 +23,23 @@ mod tests;
 
 #[derive(Debug)]
 pub enum Error<'source> {
+    /// Emitted when the program is too large (produced bytecode larger than 4GiB)
     ProgramLimitExceeded,
+    /// Attempted to break out of a scope, but no parent scope accepted unlabeled breaks.
     InvalidBreak(Token<'source>),
-    InvalidInteger(ParseIntError),
-    UndefinedSymbol(&'source str),
+    /// The AST contained an integer that did not fit into the expected type.
+    InvalidInteger(Token<'source>, ParseIntError),
+    /// A variable was referenced that did not exist.
+    UndefinedSymbol(Token<'source>),
+    /// An enum block resulted in something other than an expression.
+    // TODO: is there a way to make this a parse error? Or is accepting them in the AST desirable?
     UnexpectedEnumResult,
+    /// The AST contained errors.
+    ///
+    /// Note that this only contains the first error that the parser encounted.
+    /// Inspecting the AST directly allows you to see all of the errors the parser encountered
+    /// with some additional context.
     InvalidAst(espy_ears::Error<'source>),
-}
-
-impl From<ParseIntError> for Error<'_> {
-    fn from(e: ParseIntError) -> Self {
-        Self::InvalidInteger(e)
-    }
 }
 
 fn try_validate(diagnostics: Diagnostics) -> Result<(), Error> {
@@ -477,8 +482,11 @@ impl<'source> Program<'source> {
                     scope.stack_pointer += 1;
                     block!().extend(Instruction::PushUnit)
                 }
-                Node::Number(Token { origin, .. }) => {
-                    let integer = origin.parse()?;
+                Node::Number(token) => {
+                    let integer = token
+                        .origin
+                        .parse()
+                        .map_err(|e| Error::InvalidInteger(token, e))?;
                     scope.stack_pointer += 1;
                     block!().extend(Instruction::PushI64(integer))
                 }
@@ -489,8 +497,10 @@ impl<'source> Program<'source> {
                     scope.stack_pointer += 1;
                     block!().extend(Instruction::PushString(string))
                 }
-                Node::Variable(Token { origin, .. }) => {
-                    let value = scope.get(origin).ok_or(Error::UndefinedSymbol(origin))?;
+                Node::Variable(token) => {
+                    let value = scope
+                        .get(token.origin)
+                        .ok_or(Error::UndefinedSymbol(token))?;
                     scope.stack_pointer += 1;
                     block!().extend(Instruction::Clone(value.index))
                 }
@@ -592,11 +602,13 @@ impl<'source> Program<'source> {
                             let s = self.create_string(origin)?;
                             block!().extend(Instruction::PushString(s));
                         }
-                        Token {
+                        token @ Token {
                             lexigram: Lexigram::Number,
                             origin,
                         } => {
-                            let integer = origin.parse()?;
+                            let integer = origin
+                                .parse()
+                                .map_err(|e| Error::InvalidInteger(token, e))?;
                             block!().extend(Instruction::PushI64(integer));
                         }
                         _ => {

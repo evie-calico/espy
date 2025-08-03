@@ -144,9 +144,47 @@ impl espyscript::Extern for StringConcatFn {
     }
 }
 
+/// Returns a tuple of two tuples containing the line and column number for the start and end positions, respectively.
+pub fn find_location(start: usize, end: usize, source: &str) -> ((usize, usize), (usize, usize)) {
+    // Count all newlines that occur before the starting position...
+    let start_line = 1 + source[..start].chars().filter(|c| *c == '\n').count();
+    // ...and all characters that come before the start character and the last newline.
+    let start_column = 1 + source[..start]
+        .chars()
+        .rev()
+        .take_while(|c| *c != '\n')
+        .count();
+    // This is only counting the number of newlines between the start and end,
+    // and adding it the the starting position's line number.
+    let end_line = start_line + source[start..end].chars().filter(|c| *c == '\n').count();
+    // Unlike end_line, end_column cannot be offset by start_column because the start and end lines may differ.
+    let end_column = 1 + source[..end]
+        .chars()
+        .rev()
+        .take_while(|c| *c != '\n')
+        .count();
+    ((start_line, start_column), (end_line, end_column))
+}
+
+/// Returns the lines containing the provided range.
+pub fn expand_to_snippet(start: usize, end: usize, source: &str) -> &str {
+    let snippet_start = source[..start]
+        .char_indices()
+        .rev()
+        .find(|(_, c)| *c == '\n')
+        .map(|(at, _)| at + 1)
+        .unwrap_or(0);
+    let snippet_end = source[end..]
+        .char_indices()
+        .find(|(_, c)| *c == '\n')
+        .map(|(at, _)| at - 1)
+        .unwrap_or(source.len());
+    &source[snippet_start..snippet_end]
+}
+
 #[wasm_bindgen]
-pub fn espyscript_eval(src: &str) -> String {
-    match espyscript::Program::try_from(src) {
+pub fn espyscript_eval(source: &str) -> String {
+    match espyscript::Program::try_from(source) {
         Ok(program) => match program.eval() {
             Ok(result) => match espyscript::Function::try_from(result) {
                 Ok(function) => {
@@ -176,14 +214,46 @@ pub fn espyscript_eval(src: &str) -> String {
                 Err(espyscript::Error::ExpectedFunction(value)) => {
                     format!("<pre id=\"return-value\">{value:?}</pre>")
                 }
-                Err(_) => unreachable!(),
+                Err(_) => unreachable!("Function::try_from may only return ExpectedFunction"),
             },
             Err(e) => {
                 format!("<pre id=\"eval-error\">Failed to evaluate program: {e:?}</pre>")
             }
         },
-        Err(e) => {
-            format!("<pre id=\"parse-error\">Failed to parse program: {e:?}</pre>")
-        }
+        Err(e) => match e {
+            espyscript::compiler::Error::ProgramLimitExceeded => {
+                "<p id=\"compile-error\">Program limit exceeded (bytecode must be less than 4GiB)</p>"
+                    .to_string()
+            }
+            espyscript::compiler::Error::InvalidBreak(token) => {
+                let (start, end) = token.origin_range(source);
+                let snippet = expand_to_snippet(start, end, source);
+                let ((line, column), (_, _)) = find_location(start, end, source);
+                format!(
+                    "<p id=\"compile-error\">Attempted to break out of a scope, but no parent scope accepted unlabeled breaks.<figure><code>{snippet}</code><figcaption>at line {line} column {column}</figcaption></figure></p>"
+                )
+            }
+            espyscript::compiler::Error::InvalidInteger(token, e) => {
+                let (start, end) = token.origin_range(source);
+                let snippet = expand_to_snippet(start, end, source);
+                let ((line, column), (_, _)) = find_location(start, end, source);
+                format!(
+                    "<p id=\"compile-error\">Invalid integer literal: {e}.<figure><code>{snippet}</code><figcaption>at line {line} column {column}</figcaption></figure></p>"
+                )
+            }
+            espyscript::compiler::Error::UndefinedSymbol(token) => {
+                let symbol = token.origin;
+                let (start, end) = token.origin_range(source);
+                let snippet = expand_to_snippet(start, end, source);
+                let ((line, column), (_, _)) = find_location(start, end, source);
+                format!(
+                    "<p id=\"compile-error\">Undefined symbol \"{symbol}\".<figure><code>{snippet}</code><figcaption>at line {line} column {column}</figcaption></figure></p>"
+                )
+            }
+            espyscript::compiler::Error::UnexpectedEnumResult => todo!(),
+            espyscript::compiler::Error::InvalidAst(e) => {
+                format!("<p id=\"parse-error\">Failed to parse program:<br><pre>{e:#?}</pre></p>")
+            }
+        },
     }
 }
