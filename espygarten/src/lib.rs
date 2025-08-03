@@ -172,12 +172,13 @@ pub fn expand_to_snippet(start: usize, end: usize, source: &str) -> &str {
         .char_indices()
         .rev()
         .find(|(_, c)| *c == '\n')
-        .map(|(at, _)| at + 1)
+        .map(|(at, _)| at + "\n".len())
         .unwrap_or(0);
     let snippet_end = source[end..]
         .char_indices()
         .find(|(_, c)| *c == '\n')
-        .map(|(at, _)| at - 1)
+        // char_indices is treating `end` as the 0th position
+        .map(|(at, _)| at + end - "\n".len())
         .unwrap_or(source.len());
     &source[snippet_start..snippet_end]
 }
