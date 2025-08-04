@@ -1,0 +1,8 @@
+[package]
+name = "espysh"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.5.42", features = ["derive"] }
+espyscript = { version = "0.1.0", path = "../espyscript" }
