@@ -362,11 +362,15 @@ impl<'source> Program<'source> {
                 try_validate(function.diagnostics)?;
                 let mut scope = scope.promote();
                 let captures = scope.stack_pointer;
-                // Note that, while a function takes a single argument,
-                // the inner block recieves it destructured as expected by `with`.
-                for argument in function.arguments {
-                    scope.stack_pointer += 1;
-                    scope.insert(argument.origin);
+                scope.stack_pointer += 1;
+                if let Some(Token {
+                    origin,
+                    // Lexigram::Discard may also appear here,
+                    // but it should obviously be ignored.
+                    lexigram: Lexigram::Ident,
+                }) = function.argument
+                {
+                    scope.insert(origin);
                 }
                 let function_id = self.create_block()?;
                 self.add_block(function_id, function.block, scope)?;

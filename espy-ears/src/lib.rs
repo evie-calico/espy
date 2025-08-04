@@ -898,7 +898,7 @@ pub struct Statement<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct Function<'source> {
     pub with_token: Option<Token<'source>>,
-    pub arguments: Vec<Token<'source>>,
+    pub argument: Option<Token<'source>>,
     pub semicolon_token: Option<Token<'source>>,
     pub block: Block<'source>,
     pub diagnostics: Diagnostics<'source>,
@@ -1116,44 +1116,17 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
                 }) => {
                     lexer.next();
                     let mut st_diagnostics = Diagnostics::default();
-                    let mut arguments = Vec::new();
-                    let semicolon_token = loop {
-                        if let Some(arg) =
-                            st_diagnostics.expect(lexer.peek().copied(), &[Lexigram::Ident])
-                        {
-                            lexer.next();
-                            arguments.push(arg);
-                            match st_diagnostics.wrap(lexer.peek().copied()) {
-                                Some(Token {
-                                    lexigram: Lexigram::Comma,
-                                    ..
-                                }) => {
-                                    lexer.next();
-                                }
-                                semicolon_token @ Some(Token {
-                                    lexigram: Lexigram::Semicolon,
-                                    ..
-                                }) => {
-                                    lexer.next();
-                                    break semicolon_token;
-                                }
-                                _ => {
-                                    break st_diagnostics.expect(
-                                        lexer.peek().copied(),
-                                        &[Lexigram::Comma, Lexigram::Semicolon],
-                                    );
-                                }
-                            }
-                        }
-                    };
-
+                    let argument =
+                        st_diagnostics.next_if(&mut *lexer, &[Lexigram::Ident, Lexigram::Discard]);
+                    let semicolon_token =
+                        st_diagnostics.next_if(&mut *lexer, &[Lexigram::Semicolon]);
                     let block = Block::from(&mut *lexer);
 
                     return Self {
                         statements,
                         result: Function {
                             with_token,
-                            arguments,
+                            argument,
                             semicolon_token,
                             block,
                             diagnostics: st_diagnostics,
