@@ -273,26 +273,32 @@ fn incomplete_expression() {
 }
 
 #[test]
-fn forgotten_semicolon() {
+fn malformed_binding() {
     let source = "let x 2";
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
+        // Despite being malformed, this expression is still parsed correctly!
         statements: vec![Statement::Evaluation(Evaluation {
             binding: Some(Binding {
                 let_token: LET,
                 ident_token: Some(ident("x")),
                 equals_token: None,
             }),
-            expression: Expression::default(),
+            expression: expression([number_node("2")]),
             semicolon_token: None,
             diagnostics: Diagnostics {
-                errors: vec![Error::MissingToken {
-                    expected: &[Lexigram::SingleEqual, Lexigram::Semicolon],
-                    actual: Some(number("2")),
-                }],
+                errors: vec![
+                    Error::MissingToken {
+                        expected: &[Lexigram::SingleEqual],
+                        actual: Some(number("2")),
+                    },
+                    Error::MissingToken {
+                        expected: &[Lexigram::Semicolon],
+                        actual: None,
+                    },
+                ],
             },
         })],
-        result: expression([number_node("2")]).into(),
         ..Default::default()
     };
     assert_eq!(actual, expected);
@@ -300,7 +306,7 @@ fn forgotten_semicolon() {
 
 #[test]
 fn for_loop() {
-    let source = "for i in iter then print i; end;";
+    let source = "for i in iter then print i; end";
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
         statements: vec![Statement::For(For {
@@ -488,8 +494,20 @@ fn structure() {
                                 argument: Some(ident("pos")),
                                 semicolon_token: Some(SEMICOLON),
                                 block: Block {
-                                    result: expression([variable("x"), variable("y"), TUPLE])
-                                        .into(),
+                                    result: expression([
+                                        variable("pos"),
+                                        Node::Field {
+                                            dot_token: DOT,
+                                            index: number("0"),
+                                        },
+                                        variable("pos"),
+                                        Node::Field {
+                                            dot_token: DOT,
+                                            index: number("1"),
+                                        },
+                                        TUPLE,
+                                    ])
+                                    .into(),
                                     ..Default::default()
                                 },
                                 diagnostics: Diagnostics::default(),
@@ -583,7 +601,7 @@ fn enum_creation() {
 
 #[test]
 fn implementation() {
-    let source = "impl Iterator for Array then next: {with self; next} end;";
+    let source = "impl Iterator for Array then next: {with self; next} end";
     let actual = Block::from(&mut Lexer::from(source).peekable());
     let expected = Block {
         statements: vec![Statement::Implementation(Implementation {

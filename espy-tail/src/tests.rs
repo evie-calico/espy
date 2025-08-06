@@ -286,21 +286,8 @@ fn builtins() {
 }
 
 #[test]
-fn invalid_enum() {
-    let mut lexer = Lexer::from("enum then break 1 end").peekable();
-    let block = Block::from(&mut lexer);
-    let actual = Program::try_from(block);
-    if !matches!(actual, Err(Error::UnexpectedEnumResult)) {
-        panic!(
-            "actual: {actual:?}\nexpected: Err({:?})",
-            Error::UnexpectedEnumResult
-        );
-    }
-}
-
-#[test]
 fn for_loop() {
-    let mut lexer = Lexer::from("for i in 5 then Some i end;").peekable();
+    let mut lexer = Lexer::from("for i in 5 then Some i end").peekable();
     let block = Block::from(&mut lexer);
     let program = Program::try_from(block).unwrap();
     let actual = program.compile();
@@ -322,7 +309,7 @@ fn for_loop() {
 
 #[test]
 fn for_with_break() {
-    let mut lexer = Lexer::from("for i in 5 then break end;").peekable();
+    let mut lexer = Lexer::from("for i in 5 then break end").peekable();
     let block = Block::from(&mut lexer);
     let program = Program::try_from(block).unwrap();
     let actual = program.compile();

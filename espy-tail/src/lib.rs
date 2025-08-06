@@ -33,9 +33,6 @@ pub enum Error<'source> {
     InvalidInteger(Token<'source>, ParseIntError),
     /// A variable was referenced that did not exist.
     UndefinedSymbol(Token<'source>),
-    /// An enum block resulted in something other than an expression.
-    // TODO: is there a way to make this a parse error? Or is accepting them in the AST desirable?
-    UnexpectedEnumResult,
     /// The AST contained errors.
     ///
     /// Note that this only contains the first error that the parser encounted.

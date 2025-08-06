@@ -251,7 +251,6 @@ pub fn espyscript_eval(source: &str) -> String {
                     "<p id=\"compile-error\">Undefined symbol \"{symbol}\".<figure><code>{snippet}</code><figcaption>at line {line} column {column}</figcaption></figure></p>"
                 )
             }
-            espyscript::compiler::Error::UnexpectedEnumResult => todo!(),
             espyscript::compiler::Error::InvalidAst(e) => {
                 format!("<p id=\"parse-error\">Failed to parse program:<br><pre>{e:#?}</pre></p>")
             }
