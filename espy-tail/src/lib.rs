@@ -13,7 +13,9 @@
 //! let bytecode = program.compile();
 //! ```
 
-use espy_ears::{Action, Block, BlockResult, Diagnostics, Expression, For, If, Node, Statement};
+use espy_ears::{
+    Block, BlockResult, Diagnostics, Evaluation, Expression, For, If, Node, Statement,
+};
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;
 use std::{cell::Cell, iter, mem, num::ParseIntError};
@@ -401,13 +403,16 @@ impl<'source> Program<'source> {
                 self.blocks[block_id as usize]
             };
         }
-        try_validate(statement.diagnostics)?;
-        match statement.action {
-            Action::Evaluate(binding, expression) => {
+        match statement {
+            Statement::Evaluation(Evaluation {
+                binding,
+                expression,
+                diagnostics,
+                ..
+            }) => {
+                try_validate(diagnostics)?;
                 // If the binding exists but not an expression, we need to generate a unit value.
-                if expression.is_some() || binding.is_some() {
-                    self.add_expression(block_id, expression.unwrap_or_default(), scope)?;
-                }
+                self.add_expression(block_id, expression, scope)?;
                 if let Some(binding) = binding {
                     scope.insert(
                         binding
@@ -420,7 +425,7 @@ impl<'source> Program<'source> {
                     scope.stack_pointer -= 1;
                 }
             }
-            Action::For(For {
+            Statement::For(For {
                 binding,
                 iterator,
                 block,
@@ -450,7 +455,7 @@ impl<'source> Program<'source> {
                 // Remove the iterator from the stack.
                 block!().extend(Instruction::Pop);
             }
-            Action::Implementation(_) => todo!(),
+            Statement::Implementation(_) => todo!(),
         }
         Ok(())
     }
@@ -634,13 +639,7 @@ impl<'source> Program<'source> {
                         for i in members.statements {
                             self.add_statement(block_id, i, &mut child)?;
                         }
-                        match members.result {
-                            // Eventually this value will be the enum's methods. Force unit for now.
-                            BlockResult::Expression(expression) => {
-                                self.add_expression(block_id, expression, &mut child)?;
-                            }
-                            _ => return Err(Error::UnexpectedEnumResult),
-                        }
+                        self.add_expression(block_id, members.result, &mut child)?;
                         let set = child
                             .bindings
                             .into_iter()
@@ -676,13 +675,7 @@ impl<'source> Program<'source> {
                         for i in members.statements {
                             self.add_statement(block_id, i, &mut child)?;
                         }
-                        match members.result {
-                            // Eventually this value will be the enum's methods. Force unit for now.
-                            BlockResult::Expression(expression) => {
-                                self.add_expression(block_id, expression, &mut child)?;
-                            }
-                            _ => return Err(Error::UnexpectedEnumResult),
-                        }
+                        self.add_expression(block_id, members.result, &mut child)?;
                         let set = child
                             .bindings
                             .into_iter()
