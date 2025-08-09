@@ -23,7 +23,7 @@ impl<'source> TryFrom<&'source str> for Program {
         compiler::Program::try_from(parser::Block::from(&mut lexer::Lexer::from(s).peekable())).map(
             |program| {
                 Program(
-                    interpreter::Program::try_from(Rc::from(compiler::Program::compile(program)))
+                    interpreter::Program::try_from(Rc::from(program.compile()))
                         .expect("textual programs may not produce invalid bytecode"),
                 )
             },

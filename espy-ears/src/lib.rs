@@ -8,10 +8,11 @@ mod tests;
 pub enum Error<'source> {
     Lexer(lexer::Error<'source>),
     MissingToken {
+        /// Must contain at least one element.
         expected: &'static [Lexigram],
         actual: Option<Token<'source>>,
     },
-    UnexpectedCloseParen(Option<Token<'source>>),
+    UnexpectedCloseParen(Token<'source>),
     IncompleteExpression,
 }
 
@@ -120,6 +121,8 @@ pub enum Node<'source> {
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Expression<'source> {
     pub contents: Vec<Node<'source>>,
+    pub first_token: Option<Token<'source>>,
+    pub last_token: Option<Token<'source>>,
     pub diagnostics: Diagnostics<'source>,
 }
 
@@ -245,10 +248,11 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
             }
         }
 
+        let first_token = lexer.peek().copied().transpose().ok().flatten();
+        let mut last_token = None;
         let mut diagnostics = Diagnostics::default();
         let mut contents = Vec::new();
         let mut stack = Vec::new();
-        let mut last_token = None;
         // Check if the last token implies the unary position.
         // This is probably not the best way to do this.
         let unary_position = |last_token| {
@@ -445,7 +449,12 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                 lexi!(Or) if !unary_position => op!(LogicalOr),
                 lexi!(Triangle) if !unary_position => op!(Pipe),
                 lexi!(Comma) if !unary_position => op!(Tuple),
-                lexi!(CloseParen) if unary_position => {
+                Some(
+                    t @ Token {
+                        lexigram: Lexigram::CloseParen,
+                        ..
+                    },
+                ) if unary_position => {
                     if matches!(
                         last_token,
                         Some(Token {
@@ -461,7 +470,12 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         diagnostics.errors.push(Error::UnexpectedCloseParen(t))
                     }
                 }
-                lexi!(CloseParen) if !unary_position => {
+                Some(
+                    t @ Token {
+                        lexigram: Lexigram::CloseParen,
+                        ..
+                    },
+                ) if !unary_position => {
                     while let Some(op) = stack.pop_if(|x| !matches!(x, Operation::SubExpression(_)))
                     {
                         contents.push(op.into());
@@ -489,6 +503,8 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     }
                     return Expression {
                         contents,
+                        first_token,
+                        last_token,
                         diagnostics,
                     };
                 }
@@ -508,6 +524,8 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     }
                     return Expression {
                         contents,
+                        first_token,
+                        last_token,
                         diagnostics,
                     };
                 }
@@ -566,6 +584,8 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for If<'source> {
                         statements: Vec::new(),
                         result: Expression {
                             contents: vec![Self::from(&mut *lexer).into()],
+                            first_token: None,
+                            last_token: None,
                             diagnostics: Diagnostics::default(),
                         }
                         .into(),

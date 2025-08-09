@@ -12,9 +12,11 @@
 
 	<style>
 		output {
+			--error-color: var(--page-accent-color);
+
 			font-size: 13pt;
 			background-color: color-mix(in srgb, var(--page-bg-color), black 60%);
-			padding: 1lh;
+			padding: 1lh 2em;
 		}
 		output #console-output {
 			color: greenyellow;
@@ -22,8 +24,32 @@
 		output #return-value {
 			color: dodgerblue;
 		}
-		output #parse-error, #compile-error, #eval-error {
-			color: red;
+		output #compile-error, #eval-error {
+			color: var(--error-color);
+		}
+
+		output #parse-error {
+			h6 {
+				color: var(--error-color);
+				margin: 0;
+
+				font-size: 13pt;
+				font-weight: normal;
+
+				display: list-item;
+				list-style: disc;
+			}
+
+			ol {
+				margin: 0;
+				padding: 0;
+			}
+
+			figure {
+				margin-left: 0rem;
+				padding-left: 1rem;
+				border-left: 2px solid var(--page-accent-color);
+			}
 		}
 	</style>
 </head>

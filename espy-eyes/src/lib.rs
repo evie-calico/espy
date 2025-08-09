@@ -93,20 +93,6 @@ pub struct Token<'source> {
     pub lexigram: Lexigram,
 }
 
-impl Token<'_> {
-    /// # Panics
-    ///
-    /// Panics if provided a string slice that does not contain the token's `origin`.
-    pub fn origin_range(&self, source: &str) -> (usize, usize) {
-        let start = self.origin.as_ptr() as isize - source.as_ptr() as isize;
-        let end = start + self.origin.len() as isize;
-        if start < 0 || end - start > source.len() as isize {
-            panic!("source string does not contain token origin");
-        }
-        (start as usize, end as usize)
-    }
-}
-
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ErrorKind {
     /// A character with no meaning to the lexer.
