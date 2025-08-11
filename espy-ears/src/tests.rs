@@ -503,7 +503,7 @@ fn structure() {
             expression(
                 STRUCT,
                 END,
-                [Node::Struct(Struct {
+                [Node::Struct(Box::new(Struct {
                     struct_token: Some(STRUCT),
                     inner: expression(
                         ident("x"),
@@ -567,7 +567,7 @@ fn structure() {
                     )),
                     end_token: Some(END),
                     diagnostics: Diagnostics::default(),
-                })]
+                }))]
                 .into_iter(),
             ),
         )]
@@ -636,7 +636,7 @@ fn enum_creation() {
             expression(
                 ENUM,
                 END,
-                [Node::Enum(Enum {
+                [Node::Enum(Box::new(Enum {
                     enum_token: Some(ENUM),
                     variants: expression(
                         ident("Some"),
@@ -660,7 +660,7 @@ fn enum_creation() {
                     members: None,
                     end_token: Some(END),
                     diagnostics: Diagnostics::default(),
-                })]
+                }))]
                 .into_iter(),
             ),
         )]

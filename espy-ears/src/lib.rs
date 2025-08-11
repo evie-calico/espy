@@ -83,10 +83,10 @@ pub enum Node<'source> {
     String(Token<'source>),
     Variable(Token<'source>),
     Block(Box<Block<'source>>),
-    If(If<'source>),
-    Match(Match<'source>),
-    Struct(Struct<'source>),
-    Enum(Enum<'source>),
+    If(Box<If<'source>>),
+    Match(Box<Match<'source>>),
+    Struct(Box<Struct<'source>>),
+    Enum(Box<Enum<'source>>),
 
     Pipe(Option<Token<'source>>),
     Call(Option<Token<'source>>),
@@ -571,7 +571,7 @@ pub struct If<'source> {
 
 impl<'source> From<If<'source>> for Node<'source> {
     fn from(if_block: If<'source>) -> Self {
-        Self::If(if_block)
+        Self::If(Box::new(if_block))
     }
 }
 
@@ -660,7 +660,7 @@ pub struct Match<'source> {
 
 impl<'source> From<Match<'source>> for Node<'source> {
     fn from(struct_block: Match<'source>) -> Self {
-        Self::Match(struct_block)
+        Self::Match(Box::new(struct_block))
     }
 }
 
@@ -741,7 +741,7 @@ pub struct Struct<'source> {
 
 impl<'source> From<Struct<'source>> for Node<'source> {
     fn from(struct_block: Struct<'source>) -> Self {
-        Self::Struct(struct_block)
+        Self::Struct(Box::new(struct_block))
     }
 }
 
@@ -794,7 +794,7 @@ pub struct Enum<'source> {
 
 impl<'source> From<Enum<'source>> for Node<'source> {
     fn from(struct_block: Enum<'source>) -> Self {
-        Self::Enum(struct_block)
+        Self::Enum(Box::new(struct_block))
     }
 }
 

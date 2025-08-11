@@ -11,9 +11,7 @@
 //! let bytecode = program.compile();
 //! ```
 
-use espy_ears::{
-    Block, BlockResult, Diagnostics, Evaluation, Expression, For, If, Node, Statement,
-};
+use espy_ears::{Block, BlockResult, Diagnostics, Evaluation, Expression, For, Node, Statement};
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;
 use std::{cell::Cell, iter, mem, num::ParseIntError};
@@ -586,13 +584,7 @@ impl<'source> Program<'source> {
                         Instruction::PushFalse
                     })
                 }
-                Node::If(If {
-                    condition,
-                    first,
-                    second,
-                    diagnostics,
-                    ..
-                }) => {
+                Node::If(if_block) => {
                     // For retroactively filling in the jump instructions.
                     fn fill(block: &mut [u8], at: usize) {
                         let pc = block.len() as ProgramCounter;
@@ -600,11 +592,11 @@ impl<'source> Program<'source> {
                             .copy_from_slice(&pc.to_le_bytes());
                     }
 
-                    try_validate(diagnostics)?;
-                    self.add_expression(block_id, condition, scope)?;
+                    try_validate(if_block.diagnostics)?;
+                    self.add_expression(block_id, if_block.condition, scope)?;
                     block!().extend(Instruction::If(0));
                     let if_destination = block!().len() - size_of::<ProgramCounter>();
-                    self.add_block(block_id, first, scope.child())?;
+                    self.add_block(block_id, if_block.first, scope.child())?;
 
                     // the first block always returns a value (though it may be implicit unit)
                     // so there always needs to be an else block with some value as well,
@@ -618,7 +610,7 @@ impl<'source> Program<'source> {
                     // Now that the first block is complete,
                     // we can fill in the conditional jump's destination.
                     fill(&mut block!(), if_destination);
-                    self.add_block(block_id, second, scope.child())?;
+                    self.add_block(block_id, if_block.second, scope.child())?;
 
                     fill(&mut block!(), jump_destination);
                 }
