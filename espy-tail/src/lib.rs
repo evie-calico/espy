@@ -7,8 +7,6 @@
 //!
 //! let mut lexer = Lexer::from("1 + 2").peekable();
 //! let block = Block::new(&mut lexer);
-//! // note: this *may* panic if any branch of `block` contains error diagnostics.
-//! // even if it does not, a block containing error diagnostics may not produce the intended program.
 //! let program = Program::try_from(block).unwrap();
 //! let bytecode = program.compile();
 //! ```
