@@ -20,7 +20,7 @@ impl<'source> TryFrom<&'source str> for Program {
     type Error = compiler::Error<'source>;
 
     fn try_from(s: &'source str) -> Result<Self, Self::Error> {
-        compiler::Program::try_from(parser::Block::from(&mut lexer::Lexer::from(s).peekable())).map(
+        compiler::Program::try_from(parser::Block::new(&mut lexer::Lexer::from(s).peekable())).map(
             |program| {
                 Program(
                     interpreter::Program::try_from(Rc::from(program.compile()))

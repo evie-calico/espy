@@ -111,9 +111,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
+name = "dst-factory"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4861fb868c113e44b2f99710397a23ca0ea81bf469a122c9c97b7f564c8176b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "espy-ears"
 version = "0.1.0"
 dependencies = [
+ "dst-factory",
  "espy-eyes",
 ]
 

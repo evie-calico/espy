@@ -1,3 +1,4 @@
+use dst_factory::make_dst_factory;
 use espy_eyes::{self as lexer, Lexer, Lexigram, Token};
 use std::iter::Peekable;
 
@@ -81,7 +82,7 @@ pub enum Node<'source> {
     Number(Token<'source>),
     String(Token<'source>),
     Variable(Token<'source>),
-    Block(Block<'source>),
+    Block(Box<Block<'source>>),
     If(If<'source>),
     Match(Match<'source>),
     Struct(Struct<'source>),
@@ -118,17 +119,28 @@ pub enum Node<'source> {
 }
 
 /// This type must not contain any incomplete expressions.
-#[derive(Debug, Default, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
+#[make_dst_factory]
 pub struct Expression<'source> {
-    pub contents: Vec<Node<'source>>,
     pub first_token: Option<Token<'source>>,
     pub last_token: Option<Token<'source>>,
     pub diagnostics: Diagnostics<'source>,
+    pub contents: [Node<'source>],
+}
+
+impl Default for Box<Expression<'_>> {
+    fn default() -> Self {
+        Expression::unit()
+    }
 }
 
 /// Parse an expression until an unexpected token is upcoming (via peek).
-impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
-    fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
+impl<'source> Expression<'source> {
+    fn unit() -> Box<Self> {
+        Self::build(None, None, Diagnostics::default(), [])
+    }
+
+    fn new(lexer: &mut Peekable<Lexer<'source>>) -> Box<Self> {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         enum Operation<'source> {
             Call(Option<Token<'source>>),
@@ -425,7 +437,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                         push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
                     lexer.next();
-                    contents.push(Node::Block(Block::from(&mut *lexer)));
+                    contents.push(Node::Block(Block::new(&mut *lexer)));
                     diagnostics.expect(lexer.peek().copied(), &[Lexigram::CloseBrace]);
                 }
 
@@ -501,12 +513,16 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                     if !stack.is_empty() {
                         diagnostics.expect(None, &[Lexigram::CloseParen]);
                     }
-                    return Expression {
-                        contents,
-                        first_token,
+                    return Expression::build(
+                        if contents.is_empty() {
+                            None
+                        } else {
+                            first_token
+                        },
                         last_token,
                         diagnostics,
-                    };
+                        contents,
+                    );
                 }
                 _ => {
                     if unary_position {
@@ -522,12 +538,16 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
                             diagnostics.expect(None, &[Lexigram::CloseParen]);
                         }
                     }
-                    return Expression {
-                        contents,
-                        first_token,
+                    return Expression::build(
+                        if contents.is_empty() {
+                            None
+                        } else {
+                            first_token
+                        },
                         last_token,
                         diagnostics,
-                    };
+                        contents,
+                    );
                 }
             }
             // This is sometimes skipped with a continue!
@@ -539,12 +559,12 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Expression<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct If<'source> {
     pub if_token: Option<Token<'source>>,
-    pub condition: Expression<'source>,
+    pub condition: Box<Expression<'source>>,
     pub then_token: Option<Token<'source>>,
-    pub first: Block<'source>,
+    pub first: Box<Block<'source>>,
     pub else_token: Option<Token<'source>>,
     pub else_kind: Option<Token<'source>>,
-    pub second: Block<'source>,
+    pub second: Box<Block<'source>>,
     pub end_token: Option<Token<'source>>,
     pub diagnostics: Diagnostics<'source>,
 }
@@ -559,9 +579,9 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for If<'source> {
     fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
         let if_token = lexer.next().transpose().ok().flatten();
         let mut diagnostics = Diagnostics::default();
-        let condition = Expression::from(&mut *lexer);
+        let condition = Expression::new(&mut *lexer);
         let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
-        let first = Block::from(&mut *lexer);
+        let first = Block::new(&mut *lexer);
         let (second, else_token, else_kind) = if let else_token @ Some(Token {
             lexigram: Lexigram::Else,
             ..
@@ -574,33 +594,33 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for If<'source> {
                     ..
                 }) => {
                     lexer.next();
-                    (Block::from(&mut *lexer), else_kind)
+                    (Block::new(&mut *lexer), else_kind)
                 }
                 else_kind @ Some(Token {
                     lexigram: Lexigram::If,
                     ..
                 }) => (
-                    Block {
-                        statements: Vec::new(),
-                        result: Expression {
-                            contents: vec![Self::from(&mut *lexer).into()],
-                            first_token: None,
-                            last_token: None,
-                            diagnostics: Diagnostics::default(),
-                        }
+                    Block::build(
+                        Expression::build(
+                            None,
+                            None,
+                            Diagnostics::default(),
+                            [Self::from(&mut *lexer).into()],
+                        )
                         .into(),
-                        diagnostics: Diagnostics::default(),
-                    },
+                        Diagnostics::default(),
+                        [],
+                    ),
                     else_kind,
                 ),
                 _ => {
                     diagnostics.expect(lexer.peek().copied(), &[Lexigram::Then, Lexigram::If]);
-                    (Block::default(), None)
+                    (Default::default(), None)
                 }
             };
             (second, else_token, else_kind)
         } else {
-            (Block::default(), None, None)
+            (Default::default(), None, None)
         };
         let end_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
         Self {
@@ -622,16 +642,16 @@ pub struct MatchCase<'source> {
     let_token: Option<Token<'source>>,
     binding: Option<Token<'source>>,
     equals_token: Option<Token<'source>>,
-    case: Option<Expression<'source>>,
+    case: Option<Box<Expression<'source>>>,
     arrow_token: Option<Token<'source>>,
-    expression: Expression<'source>,
+    expression: Box<Expression<'source>>,
     semicolon_token: Option<Token<'source>>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Match<'source> {
     match_token: Option<Token<'source>>,
-    expression: Expression<'source>,
+    expression: Box<Expression<'source>>,
     then_token: Option<Token<'source>>,
     cases: Vec<MatchCase<'source>>,
     end_token: Option<Token<'source>>,
@@ -649,7 +669,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Match<'source> {
         let match_token = lexer.next().transpose().ok().flatten();
         let mut diagnostics = Diagnostics::default();
 
-        let expression = Expression::from(&mut *lexer);
+        let expression = Expression::new(&mut *lexer);
         let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
         let mut cases = Vec::new();
 
@@ -668,17 +688,17 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Match<'source> {
                 }) = diagnostics.wrap(lexer.peek().copied())
                 {
                     lexer.next();
-                    (equal_token, Some(Expression::from(&mut *lexer)))
+                    (equal_token, Some(Expression::new(&mut *lexer)))
                 } else {
                     (None, None)
                 };
                 (let_token, binding, equal_token, case)
             } else {
-                let case = Expression::from(&mut *lexer);
+                let case = Expression::new(&mut *lexer);
                 (None, None, None, Some(case))
             };
             let arrow_token = diagnostics.next_if(lexer, &[Lexigram::DoubleArrow]);
-            let expression = Expression::from(&mut *lexer);
+            let expression = Expression::new(&mut *lexer);
             let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
             cases.push(MatchCase {
                 let_token,
@@ -712,9 +732,9 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Match<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct Struct<'source> {
     pub struct_token: Option<Token<'source>>,
-    pub inner: Expression<'source>,
+    pub inner: Box<Expression<'source>>,
     pub then_token: Option<Token<'source>>,
-    pub members: Option<BlockExpression<'source>>,
+    pub members: Option<Box<BlockExpression<'source>>>,
     pub end_token: Option<Token<'source>>,
     pub diagnostics: Diagnostics<'source>,
 }
@@ -729,7 +749,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Struct<'source> {
     fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
         let struct_token = lexer.next().transpose().ok().flatten();
         let mut diagnostics = Diagnostics::default();
-        let inner = Expression::from(&mut *lexer);
+        let inner = Expression::new(&mut *lexer);
         let (then_token, members) = match lexer.peek().copied() {
             Some(Ok(
                 then_token @ Token {
@@ -738,7 +758,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Struct<'source> {
                 },
             )) => {
                 lexer.next();
-                let members = BlockExpression::from(&mut *lexer);
+                let members = BlockExpression::new(&mut *lexer);
                 (Some(then_token), Some(members))
             }
             Some(Ok(Token {
@@ -765,9 +785,9 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Struct<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct Enum<'source> {
     pub enum_token: Option<Token<'source>>,
-    pub variants: Expression<'source>,
+    pub variants: Box<Expression<'source>>,
     pub then_token: Option<Token<'source>>,
-    pub members: Option<BlockExpression<'source>>,
+    pub members: Option<Box<BlockExpression<'source>>>,
     pub end_token: Option<Token<'source>>,
     pub diagnostics: Diagnostics<'source>,
 }
@@ -782,7 +802,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Enum<'source> {
     fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
         let enum_token = lexer.next().transpose().ok().flatten();
         let mut diagnostics = Diagnostics::default();
-        let variants = Expression::from(&mut *lexer);
+        let variants = Expression::new(&mut *lexer);
         let (then_token, members) = match lexer.peek().copied() {
             Some(Ok(
                 then_token @ Token {
@@ -791,7 +811,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Enum<'source> {
                 },
             )) => {
                 lexer.next();
-                let members = BlockExpression::from(&mut *lexer);
+                let members = BlockExpression::new(&mut *lexer);
                 (Some(then_token), Some(members))
             }
             Some(Ok(Token {
@@ -825,7 +845,7 @@ pub enum Statement<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct Evaluation<'source> {
     pub binding: Option<Binding<'source>>,
-    pub expression: Expression<'source>,
+    pub expression: Option<Box<Expression<'source>>>,
     pub semicolon_token: Option<Token<'source>>,
     pub diagnostics: Diagnostics<'source>,
 }
@@ -841,7 +861,7 @@ impl<'source> Evaluation<'source> {
             .expect("caller must have peeked a token");
         let ident_token = diagnostics.next_if(lexer, &[Lexigram::Ident]);
         let equals_token = diagnostics.next_if(lexer, &[Lexigram::SingleEqual]);
-        let expression = Expression::from(&mut *lexer);
+        let expression = Expression::new(&mut *lexer);
         let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
 
         Evaluation {
@@ -850,14 +870,17 @@ impl<'source> Evaluation<'source> {
                 ident_token,
                 equals_token,
             }),
-            expression,
+            // TODO: empty/missing expressions should be none.
+            expression: Some(expression),
             semicolon_token,
             diagnostics,
         }
     }
 
-    fn try_expression(lexer: &mut Peekable<Lexer<'source>>) -> Result<Self, Expression<'source>> {
-        let expression = Expression::from(&mut *lexer);
+    fn try_expression(
+        lexer: &mut Peekable<Lexer<'source>>,
+    ) -> Result<Self, Box<Expression<'source>>> {
+        let expression = Expression::new(&mut *lexer);
         if let Some(Ok(
             semicolon_token @ Token {
                 lexigram: Lexigram::Semicolon,
@@ -868,7 +891,7 @@ impl<'source> Evaluation<'source> {
             lexer.next();
             Ok(Evaluation {
                 binding: None,
-                expression,
+                expression: Some(expression),
                 semicolon_token: Some(semicolon_token),
                 diagnostics: Diagnostics::default(),
             })
@@ -890,9 +913,9 @@ pub struct For<'source> {
     pub for_token: Token<'source>,
     pub binding: Option<Token<'source>>,
     pub in_token: Option<Token<'source>>,
-    pub iterator: Expression<'source>,
+    pub iterator: Box<Expression<'source>>,
     pub then_token: Option<Token<'source>>,
-    pub block: Block<'source>,
+    pub block: Box<Block<'source>>,
     pub end_token: Option<Token<'source>>,
     pub diagnostics: Diagnostics<'source>,
 }
@@ -909,9 +932,9 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for For<'source> {
 
         let binding = diagnostics.next_if(lexer, &[Lexigram::Ident, Lexigram::Discard]);
         let in_token = diagnostics.next_if(lexer, &[Lexigram::In]);
-        let iterator = Expression::from(&mut *lexer);
+        let iterator = Expression::new(&mut *lexer);
         let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
-        let first = Block::from(&mut *lexer);
+        let first = Block::new(&mut *lexer);
         let end_token = diagnostics.next_if(lexer, &[Lexigram::End]);
 
         For {
@@ -930,11 +953,11 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for For<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct Implementation<'source> {
     pub impl_token: Token<'source>,
-    pub trait_expression: Expression<'source>,
+    pub trait_expression: Box<Expression<'source>>,
     pub for_token: Option<Token<'source>>,
-    pub struct_expression: Expression<'source>,
+    pub struct_expression: Box<Expression<'source>>,
     pub then_token: Option<Token<'source>>,
-    pub block: Block<'source>,
+    pub block: Box<Block<'source>>,
     pub end_token: Option<Token<'source>>,
     pub diagnostics: Diagnostics<'source>,
 }
@@ -948,11 +971,11 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Implementation<'source> {
             .ok()
             .flatten()
             .expect("caller must have peeked an impl token");
-        let trait_expression = Expression::from(&mut *lexer);
+        let trait_expression = Expression::new(&mut *lexer);
         let for_token = diagnostics.next_if(lexer, &[Lexigram::For]);
-        let struct_expression = Expression::from(&mut *lexer);
+        let struct_expression = Expression::new(&mut *lexer);
         let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
-        let block = Block::from(&mut *lexer);
+        let block = Block::new(&mut *lexer);
         let end_token = diagnostics.next_if(lexer, &[Lexigram::End]);
         Self {
             impl_token,
@@ -972,20 +995,18 @@ pub struct Function<'source> {
     pub with_token: Option<Token<'source>>,
     pub argument: Option<Token<'source>>,
     pub semicolon_token: Option<Token<'source>>,
-    pub block: Block<'source>,
+    pub block: Box<Block<'source>>,
     pub diagnostics: Diagnostics<'source>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum BlockResult<'source> {
-    Expression(Expression<'source>),
+    Expression(Box<Expression<'source>>),
     Break {
         break_token: Token<'source>,
-        expression: Expression<'source>,
+        expression: Box<Expression<'source>>,
     },
-    // This box resolves the recursive relationship between block -> result -> function -> block.
-    // You could also put it on `Function`'s `block`, but putting it here shrinks the enum.
-    Function(Box<Function<'source>>),
+    Function(Function<'source>),
 }
 
 impl BlockResult<'_> {
@@ -999,38 +1020,46 @@ impl BlockResult<'_> {
 
 impl Default for BlockResult<'_> {
     fn default() -> Self {
-        Self::Expression(Expression::default())
+        Self::Expression(Expression::unit())
     }
 }
 
-impl<'source> From<Expression<'source>> for BlockResult<'source> {
-    fn from(expression: Expression<'source>) -> Self {
+impl<'source> From<Box<Expression<'source>>> for BlockResult<'source> {
+    fn from(expression: Box<Expression<'source>>) -> Self {
         Self::Expression(expression)
     }
 }
 
 impl<'source> From<Function<'source>> for BlockResult<'source> {
     fn from(function: Function<'source>) -> Self {
-        Self::Function(Box::new(function))
+        Self::Function(function)
     }
 }
 
-#[derive(Debug, Default, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
+#[make_dst_factory]
 pub struct Block<'source> {
-    pub statements: Vec<Statement<'source>>,
     pub result: BlockResult<'source>,
     pub diagnostics: Diagnostics<'source>,
+    pub statements: [Statement<'source>],
 }
 
-#[derive(Debug, Default, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
+#[make_dst_factory]
 pub struct BlockExpression<'source> {
-    pub statements: Vec<Statement<'source>>,
-    pub result: Expression<'source>,
+    pub result: Box<Expression<'source>>,
     pub diagnostics: Diagnostics<'source>,
+    pub statements: [Statement<'source>],
 }
 
-impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
-    fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
+impl Default for Box<Block<'_>> {
+    fn default() -> Self {
+        Block::build(Expression::unit().into(), Diagnostics::default(), [])
+    }
+}
+
+impl<'source> Block<'source> {
+    pub fn new(lexer: &mut Peekable<Lexer<'source>>) -> Box<Self> {
         let mut diagnostics = Diagnostics::default();
         let mut statements = Vec::new();
         loop {
@@ -1054,15 +1083,15 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
                     },
                 ) => {
                     lexer.next();
-                    let expression = Expression::from(&mut *lexer);
-                    return Self {
-                        statements,
-                        result: BlockResult::Break {
+                    let expression = Expression::new(&mut *lexer);
+                    return Self::build(
+                        BlockResult::Break {
                             break_token,
                             expression,
                         },
                         diagnostics,
-                    };
+                        statements,
+                    );
                 }
                 with_token @ Some(Token {
                     lexigram: Lexigram::With,
@@ -1074,11 +1103,10 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
                         st_diagnostics.next_if(&mut *lexer, &[Lexigram::Ident, Lexigram::Discard]);
                     let semicolon_token =
                         st_diagnostics.next_if(&mut *lexer, &[Lexigram::Semicolon]);
-                    let block = Block::from(&mut *lexer);
+                    let block = Block::new(&mut *lexer);
 
-                    return Self {
-                        statements,
-                        result: Function {
+                    return Self::build(
+                        Function {
                             with_token,
                             argument,
                             semicolon_token,
@@ -1087,16 +1115,13 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
                         }
                         .into(),
                         diagnostics,
-                    };
+                        statements,
+                    );
                 }
                 _ => match Evaluation::try_expression(&mut *lexer) {
                     Ok(evaluation) => Statement::Evaluation(evaluation),
                     Err(expression) => {
-                        return Self {
-                            statements,
-                            result: expression.into(),
-                            diagnostics,
-                        };
+                        return Self::build(expression.into(), diagnostics, statements);
                     }
                 },
             };
@@ -1105,8 +1130,8 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Block<'source> {
     }
 }
 
-impl<'source> From<&mut Peekable<Lexer<'source>>> for BlockExpression<'source> {
-    fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
+impl<'source> BlockExpression<'source> {
+    fn new(lexer: &mut Peekable<Lexer<'source>>) -> Box<Self> {
         let mut diagnostics = Diagnostics::default();
         let mut statements = Vec::new();
         loop {
@@ -1126,11 +1151,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for BlockExpression<'source> {
                 _ => match Evaluation::try_expression(&mut *lexer) {
                     Ok(evaluation) => Statement::Evaluation(evaluation),
                     Err(expression) => {
-                        return Self {
-                            statements,
-                            result: expression,
-                            diagnostics,
-                        };
+                        return Self::build(expression, diagnostics, statements);
                     }
                 },
             };

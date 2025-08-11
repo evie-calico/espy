@@ -6,7 +6,7 @@
 //! use espy_tail::Program;
 //!
 //! let mut lexer = Lexer::from("1 + 2").peekable();
-//! let block = Block::from(&mut lexer);
+//! let block = Block::new(&mut lexer);
 //! // note: this *may* panic if any branch of `block` contains error diagnostics.
 //! // even if it does not, a block containing error diagnostics may not produce the intended program.
 //! let program = Program::try_from(block).unwrap();
@@ -305,7 +305,7 @@ impl<'source> Program<'source> {
     fn add_block(
         &mut self,
         block_id: BlockId,
-        block: Block<'source>,
+        block: Box<Block<'source>>,
         mut scope: Scope<'_, 'source>,
     ) -> Result<(), Error<'source>> {
         self.insert_block(block_id, block, &mut scope)?;
@@ -316,12 +316,23 @@ impl<'source> Program<'source> {
     fn insert_block(
         &mut self,
         block_id: BlockId,
-        block: Block<'source>,
+        #[expect(
+            clippy::boxed_local,
+            reason = "callers prefer passing an owned expression"
+        )]
+        mut block: Box<Block<'source>>,
         scope: &mut Scope<'_, 'source>,
     ) -> Result<(), Error<'source>> {
         try_validate(block.diagnostics)?;
-        for i in block.statements {
-            self.add_statement(block_id, i, scope)?;
+        for i in &mut block.statements {
+            let mut statement = Statement::Evaluation(Evaluation {
+                binding: None,
+                expression: None,
+                semicolon_token: None,
+                diagnostics: Diagnostics::default(),
+            });
+            std::mem::swap(&mut statement, i);
+            self.add_statement(block_id, statement, scope)?;
         }
         // Collapse the scope if any additional values are left the stack.
         // This occurs when statements bind variables.
@@ -408,8 +419,13 @@ impl<'source> Program<'source> {
                 ..
             }) => {
                 try_validate(diagnostics)?;
-                // If the binding exists but not an expression, we need to generate a unit value.
-                self.add_expression(block_id, expression, scope)?;
+                if let Some(expression) = expression {
+                    self.add_expression(block_id, expression, scope)?;
+                } else {
+                    // If the binding exists but not an expression, we need to generate a unit value.
+                    scope.stack_pointer += 1;
+                    block!().extend(Instruction::PushUnit)
+                }
                 if let Some(binding) = binding {
                     scope.insert(
                         binding
@@ -460,7 +476,14 @@ impl<'source> Program<'source> {
     fn add_expression(
         &mut self,
         block_id: BlockId,
-        expression: Expression<'source>,
+        // i actually think this might be a false positive because Expression
+        // is !Sized and try_validate takes ownership of diagnostics,
+        // but whatever.
+        #[expect(
+            clippy::boxed_local,
+            reason = "callers prefer passing an owned expression"
+        )]
+        mut expression: Box<Expression<'source>>,
         scope: &mut Scope<'_, 'source>,
     ) -> Result<(), Error<'source>> {
         // Shortcut for re-indexing self.blocks.
@@ -482,7 +505,12 @@ impl<'source> Program<'source> {
             block!().extend(Instruction::PushUnit);
             return Ok(());
         }
-        for node in expression.contents {
+        for old_node in &mut expression.contents {
+            // There's no reason for this swap as far as i can tell,
+            // but contents doesn't implement IntoIterator because it can't be owned.
+            // TODO: I think it might be possible for dst-factory to generate an owned iterator.
+            let mut node = Node::Unit;
+            std::mem::swap(&mut node, old_node);
             match node {
                 Node::Unit => {
                     scope.stack_pointer += 1;
@@ -632,9 +660,16 @@ impl<'source> Program<'source> {
                     // note that only one value (the inner value's type) exists on the current scope;
                     // this will be important later.
                     let mut child = scope.child();
-                    let statics = if let Some(members) = structure.members {
-                        for i in members.statements {
-                            self.add_statement(block_id, i, &mut child)?;
+                    let statics = if let Some(mut members) = structure.members {
+                        for i in &mut members.statements {
+                            let mut statement = Statement::Evaluation(Evaluation {
+                                binding: None,
+                                expression: None,
+                                semicolon_token: None,
+                                diagnostics: Diagnostics::default(),
+                            });
+                            std::mem::swap(&mut statement, i);
+                            self.add_statement(block_id, statement, &mut child)?;
                         }
                         self.add_expression(block_id, members.result, &mut child)?;
                         let set = child
@@ -668,9 +703,16 @@ impl<'source> Program<'source> {
                     // note that only one value (the variants) exists on the current scope;
                     // this will be important later.
                     let mut child = scope.child();
-                    let statics = if let Some(members) = enumeration.members {
-                        for i in members.statements {
-                            self.add_statement(block_id, i, &mut child)?;
+                    let statics = if let Some(mut members) = enumeration.members {
+                        for i in &mut members.statements {
+                            let mut statement = Statement::Evaluation(Evaluation {
+                                binding: None,
+                                expression: None,
+                                semicolon_token: None,
+                                diagnostics: Diagnostics::default(),
+                            });
+                            std::mem::swap(&mut statement, i);
+                            self.add_statement(block_id, statement, &mut child)?;
                         }
                         self.add_expression(block_id, members.result, &mut child)?;
                         let set = child
@@ -705,9 +747,9 @@ impl<'source> Program<'source> {
     }
 }
 
-impl<'source> TryFrom<Block<'source>> for Program<'source> {
+impl<'source> TryFrom<Box<Block<'source>>> for Program<'source> {
     type Error = Error<'source>;
-    fn try_from(block: Block<'source>) -> Result<Self, Self::Error> {
+    fn try_from(block: Box<Block<'source>>) -> Result<Self, Self::Error> {
         let mut this = Self::default();
         let block_id = this.create_block()?;
         this.add_block(block_id, block, Scope::default())?;

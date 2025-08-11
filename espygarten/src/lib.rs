@@ -242,7 +242,7 @@ impl std::fmt::Display for MaybeSnippetFmt<'_> {
 #[wasm_bindgen]
 pub fn espyscript_eval(source: &str) -> String {
     let ast =
-        espyscript::parser::Block::from(&mut espyscript::lexer::Lexer::from(source).peekable());
+        espyscript::parser::Block::new(&mut espyscript::lexer::Lexer::from(source).peekable());
     let mut parser_diagnostics = None;
     diagnostics::for_each(source, &ast, |diagnostic| {
         let f =

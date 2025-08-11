@@ -212,7 +212,8 @@ fn diagnose_statement(source: &str, statement: &Statement, for_each: &mut impl F
                 .map(|binding| origin_range(binding.let_token.origin, source));
             let anchored_range = evaluation
                 .expression
-                .first_token
+                .as_ref()
+                .and_then(|x| x.first_token)
                 .map(|first_token| {
                     let (first, last) = origin_range(first_token.origin, source);
                     (let_range.map_or(first, |(x, _)| x), last)
@@ -238,7 +239,9 @@ fn diagnose_statement(source: &str, statement: &Statement, for_each: &mut impl F
                 }
                 for_each(diagnostic);
             }
-            diagnose_expression(source, &evaluation.expression, &mut *for_each);
+            if let Some(expression) = &evaluation.expression {
+                diagnose_expression(source, expression, &mut *for_each);
+            }
         }
         Statement::For(for_loop) => {
             for error in &for_loop.diagnostics.errors {
