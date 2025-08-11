@@ -54,8 +54,7 @@ pub mod instruction {
     pub const TUPLE: u8 = 0x41;
     pub const INDEX: u8 = 0x42;
     pub const NAME: u8 = 0x43;
-    pub const POSITIVE: u8 = 0x44;
-    pub const NEGATIVE: u8 = 0x45;
+    pub const NEGATIVE: u8 = 0x44;
 }
 
 // TODO: Reorder these before release.

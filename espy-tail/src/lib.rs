@@ -131,7 +131,6 @@ pub enum Instruction {
     /// Pop a value off the stack and turn it into a named tuple with a single value,
     /// and a name according to the following string id.
     Name(StringId),
-    Positive,
     Negative,
     Pipe,
     BitwiseAnd,
@@ -199,7 +198,6 @@ impl Iterator for InstructionIter {
             Instruction::Index => decompose!(instruction::INDEX,),
             Instruction::Tuple => decompose!(instruction::TUPLE,),
             Instruction::Name(name) => decompose!(instruction::NAME, name as 1..=4),
-            Instruction::Positive => decompose!(instruction::POSITIVE,),
             Instruction::Negative => decompose!(instruction::NEGATIVE,),
             Instruction::Pipe => decompose!(instruction::PIPE,),
             Instruction::BitwiseAnd => decompose!(instruction::BITWISE_AND,),
@@ -557,7 +555,7 @@ impl<'source> Program<'source> {
                 // and say "+= 0" to make this clear.
                 Node::Positive(_) => {
                     scope.stack_pointer += 0;
-                    block!().extend(Instruction::Positive);
+                    // + is a no-op
                 }
                 Node::Negative(_) => {
                     scope.stack_pointer += 0;

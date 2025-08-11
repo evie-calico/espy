@@ -85,6 +85,7 @@ pub struct Token<'source> {
     ///
     /// Pointer arithmetic may be used to derive the range of the source string that the represents;
     /// use the `origin_range` function for this purpose.
+    // TODO: An AST's memory footprint could be reduced substantially by shrinking this field. (u32s = half, u32 with u16 len = one third)
     pub origin: &'source str,
     /// The semantic meaning of the token.
     ///

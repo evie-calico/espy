@@ -489,8 +489,6 @@ impl Program {
                     let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     stack.push(Storage::Tuple(Tuple::from((name, value))).into())
                 }
-                // TODO: This instruction shouldn't be emitted; unary + is a no-op
-                instruction::POSITIVE => {}
                 instruction::NEGATIVE => {
                     let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let Value {
