@@ -13,6 +13,7 @@ pub enum Error<'source> {
         expected: &'static [Lexigram],
         actual: Option<Token<'source>>,
     },
+    ExpectedExpression,
     UnexpectedCloseParen(Token<'source>),
     IncompleteExpression,
 }
@@ -128,19 +129,9 @@ pub struct Expression<'source> {
     pub contents: [Node<'source>],
 }
 
-impl Default for Box<Expression<'_>> {
-    fn default() -> Self {
-        Expression::unit()
-    }
-}
-
 /// Parse an expression until an unexpected token is upcoming (via peek).
 impl<'source> Expression<'source> {
-    fn unit() -> Box<Self> {
-        Self::build(None, None, Diagnostics::default(), [])
-    }
-
-    fn new(lexer: &mut Peekable<Lexer<'source>>) -> Box<Self> {
+    fn new(lexer: &mut Peekable<Lexer<'source>>) -> Option<Box<Self>> {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         enum Operation<'source> {
             Call(Option<Token<'source>>),
@@ -519,16 +510,16 @@ impl<'source> Expression<'source> {
                             diagnostics.errors.push(Error::IncompleteExpression);
                         }
                     }
-                    return Expression::build(
-                        if contents.is_empty() {
-                            None
-                        } else {
-                            first_token
-                        },
-                        last_token,
-                        diagnostics,
-                        contents,
-                    );
+                    if contents.is_empty() && diagnostics.errors.is_empty() {
+                        return None;
+                    } else {
+                        return Some(Expression::build(
+                            first_token,
+                            last_token,
+                            diagnostics,
+                            contents,
+                        ));
+                    }
                 }
             }
             // This is sometimes skipped with a continue!
@@ -539,8 +530,8 @@ impl<'source> Expression<'source> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct If<'source> {
-    pub if_token: Option<Token<'source>>,
-    pub condition: Box<Expression<'source>>,
+    pub if_token: Token<'source>,
+    pub condition: Option<Box<Expression<'source>>>,
     pub then_token: Option<Token<'source>>,
     pub first: Box<Block<'source>>,
     pub else_token: Option<Token<'source>>,
@@ -558,9 +549,17 @@ impl<'source> From<If<'source>> for Node<'source> {
 
 impl<'source> From<&mut Peekable<Lexer<'source>>> for If<'source> {
     fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
-        let if_token = lexer.next().transpose().ok().flatten();
+        let if_token = lexer
+            .next()
+            .transpose()
+            .ok()
+            .flatten()
+            .expect("caller must have peeked a token");
         let mut diagnostics = Diagnostics::default();
         let condition = Expression::new(&mut *lexer);
+        if condition.is_none() {
+            diagnostics.errors.push(Error::ExpectedExpression);
+        }
         let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
         let first = Block::new(&mut *lexer);
         let (second, else_token, else_kind) = if let else_token @ Some(Token {
@@ -625,14 +624,14 @@ pub struct MatchCase<'source> {
     equals_token: Option<Token<'source>>,
     case: Option<Box<Expression<'source>>>,
     arrow_token: Option<Token<'source>>,
-    expression: Box<Expression<'source>>,
+    expression: Option<Box<Expression<'source>>>,
     semicolon_token: Option<Token<'source>>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Match<'source> {
-    match_token: Option<Token<'source>>,
-    expression: Box<Expression<'source>>,
+    match_token: Token<'source>,
+    expression: Option<Box<Expression<'source>>>,
     then_token: Option<Token<'source>>,
     cases: Vec<MatchCase<'source>>,
     end_token: Option<Token<'source>>,
@@ -647,10 +646,18 @@ impl<'source> From<Match<'source>> for Node<'source> {
 
 impl<'source> From<&mut Peekable<Lexer<'source>>> for Match<'source> {
     fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
-        let match_token = lexer.next().transpose().ok().flatten();
+        let match_token = lexer
+            .next()
+            .transpose()
+            .ok()
+            .flatten()
+            .expect("caller must have peeked a token");
         let mut diagnostics = Diagnostics::default();
 
         let expression = Expression::new(&mut *lexer);
+        if expression.is_none() {
+            diagnostics.errors.push(Error::ExpectedExpression);
+        }
         let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
         let mut cases = Vec::new();
 
@@ -669,17 +676,27 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Match<'source> {
                 }) = diagnostics.wrap(lexer.peek().copied())
                 {
                     lexer.next();
-                    (equal_token, Some(Expression::new(&mut *lexer)))
+                    let case = Expression::new(&mut *lexer);
+                    if case.is_none() {
+                        diagnostics.errors.push(Error::ExpectedExpression);
+                    }
+                    (equal_token, case)
                 } else {
                     (None, None)
                 };
                 (let_token, binding, equal_token, case)
             } else {
                 let case = Expression::new(&mut *lexer);
-                (None, None, None, Some(case))
+                if case.is_none() {
+                    diagnostics.errors.push(Error::ExpectedExpression);
+                }
+                (None, None, None, case)
             };
             let arrow_token = diagnostics.next_if(lexer, &[Lexigram::DoubleArrow]);
             let expression = Expression::new(&mut *lexer);
+            if expression.is_none() {
+                diagnostics.errors.push(Error::ExpectedExpression);
+            }
             let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
             cases.push(MatchCase {
                 let_token,
@@ -713,7 +730,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Match<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct Struct<'source> {
     pub struct_token: Option<Token<'source>>,
-    pub inner: Box<Expression<'source>>,
+    pub inner: Option<Box<Expression<'source>>>,
     pub then_token: Option<Token<'source>>,
     pub members: Option<Box<BlockExpression<'source>>>,
     pub end_token: Option<Token<'source>>,
@@ -731,6 +748,9 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Struct<'source> {
         let struct_token = lexer.next().transpose().ok().flatten();
         let mut diagnostics = Diagnostics::default();
         let inner = Expression::new(&mut *lexer);
+        if inner.is_none() {
+            diagnostics.errors.push(Error::ExpectedExpression);
+        }
         let (then_token, members) = match lexer.peek().copied() {
             Some(Ok(
                 then_token @ Token {
@@ -766,7 +786,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Struct<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct Enum<'source> {
     pub enum_token: Option<Token<'source>>,
-    pub variants: Box<Expression<'source>>,
+    pub variants: Option<Box<Expression<'source>>>,
     pub then_token: Option<Token<'source>>,
     pub members: Option<Box<BlockExpression<'source>>>,
     pub end_token: Option<Token<'source>>,
@@ -784,6 +804,9 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Enum<'source> {
         let enum_token = lexer.next().transpose().ok().flatten();
         let mut diagnostics = Diagnostics::default();
         let variants = Expression::new(&mut *lexer);
+        if variants.is_none() {
+            diagnostics.errors.push(Error::ExpectedExpression);
+        }
         let (then_token, members) = match lexer.peek().copied() {
             Some(Ok(
                 then_token @ Token {
@@ -843,6 +866,9 @@ impl<'source> Evaluation<'source> {
         let ident_token = diagnostics.next_if(lexer, &[Lexigram::Ident]);
         let equals_token = diagnostics.next_if(lexer, &[Lexigram::SingleEqual]);
         let expression = Expression::new(&mut *lexer);
+        if expression.is_none() {
+            diagnostics.errors.push(Error::ExpectedExpression);
+        }
         let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
 
         Evaluation {
@@ -851,8 +877,7 @@ impl<'source> Evaluation<'source> {
                 ident_token,
                 equals_token,
             }),
-            // TODO: empty/missing expressions should be none.
-            expression: Some(expression),
+            expression,
             semicolon_token,
             diagnostics,
         }
@@ -860,7 +885,7 @@ impl<'source> Evaluation<'source> {
 
     fn try_expression(
         lexer: &mut Peekable<Lexer<'source>>,
-    ) -> Result<Self, Box<Expression<'source>>> {
+    ) -> Result<Self, Option<Box<Expression<'source>>>> {
         let expression = Expression::new(&mut *lexer);
         if let Some(Ok(
             semicolon_token @ Token {
@@ -872,7 +897,7 @@ impl<'source> Evaluation<'source> {
             lexer.next();
             Ok(Evaluation {
                 binding: None,
-                expression: Some(expression),
+                expression,
                 semicolon_token: Some(semicolon_token),
                 diagnostics: Diagnostics::default(),
             })
@@ -894,7 +919,7 @@ pub struct For<'source> {
     pub for_token: Token<'source>,
     pub binding: Option<Token<'source>>,
     pub in_token: Option<Token<'source>>,
-    pub iterator: Box<Expression<'source>>,
+    pub iterator: Option<Box<Expression<'source>>>,
     pub then_token: Option<Token<'source>>,
     pub block: Box<Block<'source>>,
     pub end_token: Option<Token<'source>>,
@@ -914,6 +939,9 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for For<'source> {
         let binding = diagnostics.next_if(lexer, &[Lexigram::Ident, Lexigram::Discard]);
         let in_token = diagnostics.next_if(lexer, &[Lexigram::In]);
         let iterator = Expression::new(&mut *lexer);
+        if iterator.is_none() {
+            diagnostics.errors.push(Error::ExpectedExpression);
+        }
         let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
         let first = Block::new(&mut *lexer);
         let end_token = diagnostics.next_if(lexer, &[Lexigram::End]);
@@ -934,9 +962,9 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for For<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct Implementation<'source> {
     pub impl_token: Token<'source>,
-    pub trait_expression: Box<Expression<'source>>,
+    pub trait_expression: Option<Box<Expression<'source>>>,
     pub for_token: Option<Token<'source>>,
-    pub struct_expression: Box<Expression<'source>>,
+    pub struct_expression: Option<Box<Expression<'source>>>,
     pub then_token: Option<Token<'source>>,
     pub block: Box<Block<'source>>,
     pub end_token: Option<Token<'source>>,
@@ -953,8 +981,14 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Implementation<'source> {
             .flatten()
             .expect("caller must have peeked an impl token");
         let trait_expression = Expression::new(&mut *lexer);
+        if trait_expression.is_none() {
+            diagnostics.errors.push(Error::ExpectedExpression);
+        }
         let for_token = diagnostics.next_if(lexer, &[Lexigram::For]);
         let struct_expression = Expression::new(&mut *lexer);
+        if struct_expression.is_none() {
+            diagnostics.errors.push(Error::ExpectedExpression);
+        }
         let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
         let block = Block::new(&mut *lexer);
         let end_token = diagnostics.next_if(lexer, &[Lexigram::End]);
@@ -982,10 +1016,10 @@ pub struct Function<'source> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum BlockResult<'source> {
-    Expression(Box<Expression<'source>>),
+    Expression(Option<Box<Expression<'source>>>),
     Break {
         break_token: Token<'source>,
-        expression: Box<Expression<'source>>,
+        expression: Option<Box<Expression<'source>>>,
     },
     Function(Function<'source>),
 }
@@ -993,7 +1027,7 @@ pub enum BlockResult<'source> {
 impl BlockResult<'_> {
     pub fn is_empty(&self) -> bool {
         match self {
-            BlockResult::Expression(expression) => expression.contents.is_empty(),
+            BlockResult::Expression(expression) => expression.is_none(),
             BlockResult::Break { .. } | BlockResult::Function(_) => false,
         }
     }
@@ -1001,13 +1035,13 @@ impl BlockResult<'_> {
 
 impl Default for BlockResult<'_> {
     fn default() -> Self {
-        Self::Expression(Expression::unit())
+        Self::Expression(None)
     }
 }
 
 impl<'source> From<Box<Expression<'source>>> for BlockResult<'source> {
     fn from(expression: Box<Expression<'source>>) -> Self {
-        Self::Expression(expression)
+        Self::Expression(Some(expression))
     }
 }
 
@@ -1028,14 +1062,14 @@ pub struct Block<'source> {
 #[derive(Debug, Eq, PartialEq)]
 #[make_dst_factory]
 pub struct BlockExpression<'source> {
-    pub result: Box<Expression<'source>>,
+    pub result: Option<Box<Expression<'source>>>,
     pub diagnostics: Diagnostics<'source>,
     pub statements: [Statement<'source>],
 }
 
 impl Default for Box<Block<'_>> {
     fn default() -> Self {
-        Block::build(Expression::unit().into(), Diagnostics::default(), [])
+        Block::build(BlockResult::Expression(None), Diagnostics::default(), [])
     }
 }
 
@@ -1102,7 +1136,11 @@ impl<'source> Block<'source> {
                 _ => match Evaluation::try_expression(&mut *lexer) {
                     Ok(evaluation) => Statement::Evaluation(evaluation),
                     Err(expression) => {
-                        return Self::build(expression.into(), diagnostics, statements);
+                        return Self::build(
+                            BlockResult::Expression(expression),
+                            diagnostics,
+                            statements,
+                        );
                     }
                 },
             };

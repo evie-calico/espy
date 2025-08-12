@@ -149,6 +149,13 @@ impl Diagnostic {
                 },
                 secondary: Vec::new(),
             },
+            Error::ExpectedExpression => Self {
+                primary: Comment {
+                    message: "expected expression".to_string(),
+                    range: None,
+                },
+                secondary: Vec::new(),
+            },
         }
     }
 }
@@ -239,9 +246,7 @@ fn diagnose_statement(source: &str, statement: &Statement, for_each: &mut impl F
                 }
                 for_each(diagnostic);
             }
-            if let Some(expression) = &evaluation.expression {
-                diagnose_expression(source, expression, &mut *for_each);
-            }
+            diagnose_expression(source, &evaluation.expression, &mut *for_each);
         }
         Statement::For(for_loop) => {
             for error in &for_loop.diagnostics.errors {
@@ -263,9 +268,12 @@ fn diagnose_statement(source: &str, statement: &Statement, for_each: &mut impl F
 
 fn diagnose_expression(
     source: &str,
-    expression: &Expression,
+    expression: &Option<Box<Expression>>,
     for_each: &mut impl FnMut(Diagnostic),
 ) {
+    let Some(expression) = expression else {
+        return;
+    };
     let range = expression_origin(expression, source);
     for error in &expression.diagnostics.errors {
         let mut diagnostic = Diagnostic::from_error(error, source);

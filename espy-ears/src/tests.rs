@@ -112,7 +112,7 @@ fn statements<'source>(
     statements: impl ExactSizeIterator<Item = Statement<'source>>,
 ) -> Box<Block<'source>> {
     Block::build(
-        Expression::unit().into(),
+        BlockResult::Expression(None),
         Diagnostics::default(),
         statements,
     )
@@ -189,12 +189,12 @@ fn if_expression() {
                 IF,
                 END,
                 [If {
-                    if_token: Some(IF),
-                    condition: expression(
+                    if_token: IF,
+                    condition: Some(expression(
                         ident("condition"),
                         ident("condition"),
                         [variable("condition")].into_iter(),
-                    ),
+                    )),
                     then_token: Some(THEN),
                     first: result(expression(
                         number("1"),
@@ -231,12 +231,12 @@ fn if_else() {
                 IF,
                 END,
                 [If {
-                    if_token: Some(IF),
-                    condition: expression(
+                    if_token: IF,
+                    condition: Some(expression(
                         ident("condition"),
                         ident("condition"),
                         [variable("condition")].into_iter(),
-                    ),
+                    )),
                     then_token: Some(THEN),
                     first: result(expression(
                         number("1"),
@@ -249,12 +249,12 @@ fn if_else() {
                         None,
                         None,
                         [If {
-                            if_token: Some(IF),
-                            condition: expression(
+                            if_token: IF,
+                            condition: Some(expression(
                                 ident("other"),
                                 ident("other"),
                                 [variable("other")].into_iter(),
-                            ),
+                            )),
                             then_token: Some(THEN),
                             first: result(expression(
                                 number("2"),
@@ -346,7 +346,11 @@ fn for_loop() {
             for_token: FOR,
             binding: Some(ident("i")),
             in_token: Some(IN),
-            iterator: expression(ident("iter"), ident("iter"), [variable("iter")].into_iter()),
+            iterator: Some(expression(
+                ident("iter"),
+                ident("iter"),
+                [variable("iter")].into_iter(),
+            )),
             then_token: Some(THEN),
             block: statements(
                 [evaluation(expression(
@@ -505,7 +509,7 @@ fn structure() {
                 END,
                 [Node::Struct(Box::new(Struct {
                     struct_token: Some(STRUCT),
-                    inner: expression(
+                    inner: Some(expression(
                         ident("x"),
                         ident("u32"),
                         [
@@ -522,10 +526,10 @@ fn structure() {
                             TUPLE,
                         ]
                         .into_iter(),
-                    ),
+                    )),
                     then_token: Some(THEN),
                     members: Some(BlockExpression::build(
-                        Expression::unit(),
+                        None,
                         Diagnostics::default(),
                         [binding(
                             "new",
@@ -584,8 +588,12 @@ fn match_expression() {
         MATCH,
         END,
         [Match {
-            match_token: Some(MATCH),
-            expression: expression(number("0"), number("0"), [number_node("0")].into_iter()),
+            match_token: MATCH,
+            expression: Some(expression(
+                number("0"),
+                number("0"),
+                [number_node("0")].into_iter(),
+            )),
             then_token: Some(THEN),
             cases: vec![
                 MatchCase {
@@ -595,11 +603,11 @@ fn match_expression() {
                     case: expression(number("1"), number("1"), [number_node("1")].into_iter())
                         .into(),
                     arrow_token: Some(DOUBLE_ARROW),
-                    expression: expression(
+                    expression: Some(expression(
                         ident("x"),
                         number("2"),
                         [variable("x"), number_node("2"), MUL].into_iter(),
-                    ),
+                    )),
                     semicolon_token: Some(SEMICOLON),
                 },
                 MatchCase {
@@ -609,11 +617,11 @@ fn match_expression() {
                     case: expression(number("3"), number("3"), [number_node("3")].into_iter())
                         .into(),
                     arrow_token: Some(DOUBLE_ARROW),
-                    expression: expression(
+                    expression: Some(expression(
                         number("4"),
                         number("4"),
                         [number_node("4")].into_iter(),
-                    ),
+                    )),
                     semicolon_token: Some(SEMICOLON),
                 },
             ],
@@ -638,7 +646,7 @@ fn enum_creation() {
                 END,
                 [Node::Enum(Box::new(Enum {
                     enum_token: Some(ENUM),
-                    variants: expression(
+                    variants: Some(expression(
                         ident("Some"),
                         CLOSE_PAREN,
                         [
@@ -655,7 +663,7 @@ fn enum_creation() {
                             TUPLE,
                         ]
                         .into_iter(),
-                    ),
+                    )),
                     then_token: None,
                     members: None,
                     end_token: Some(END),
@@ -676,17 +684,17 @@ fn implementation() {
     let expected = statements(
         [Statement::Implementation(Implementation {
             impl_token: IMPL,
-            trait_expression: expression(
+            trait_expression: Some(expression(
                 ident("Iterator"),
                 ident("Iterator"),
                 [variable("Iterator")].into_iter(),
-            ),
+            )),
             for_token: Some(FOR),
-            struct_expression: expression(
+            struct_expression: Some(expression(
                 ident("Array"),
                 ident("Array"),
                 [variable("Array")].into_iter(),
-            ),
+            )),
             then_token: Some(THEN),
             block: result(expression(
                 ident("next"),

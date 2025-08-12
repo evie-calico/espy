@@ -470,14 +470,7 @@ impl<'source> Program<'source> {
     fn add_expression(
         &mut self,
         block_id: BlockId,
-        // i actually think this might be a false positive because Expression
-        // is !Sized and try_validate takes ownership of diagnostics,
-        // but whatever.
-        #[expect(
-            clippy::boxed_local,
-            reason = "callers prefer passing an owned expression"
-        )]
-        mut expression: Box<Expression<'source>>,
+        expression: impl Into<Option<Box<Expression<'source>>>>,
         scope: &mut Scope<'_, 'source>,
     ) -> Result<(), Error<'source>> {
         // Shortcut for re-indexing self.blocks.
@@ -493,12 +486,12 @@ impl<'source> Program<'source> {
                 block!().extend($instruction)
             }};
         }
-        try_validate(expression.diagnostics)?;
-        if expression.contents.is_empty() {
+        let Some(mut expression) = expression.into() else {
             scope.stack_pointer += 1;
             block!().extend(Instruction::PushUnit);
             return Ok(());
-        }
+        };
+        try_validate(expression.diagnostics)?;
         for old_node in &mut expression.contents {
             // There's no reason for this swap as far as i can tell,
             // but contents doesn't implement IntoIterator because it can't be owned.
