@@ -619,23 +619,24 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for If<'source> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct MatchCase<'source> {
-    let_token: Option<Token<'source>>,
-    binding: Option<Token<'source>>,
-    equals_token: Option<Token<'source>>,
-    case: Option<Box<Expression<'source>>>,
-    arrow_token: Option<Token<'source>>,
-    expression: Option<Box<Expression<'source>>>,
-    semicolon_token: Option<Token<'source>>,
+    pub let_token: Option<Token<'source>>,
+    pub binding: Option<Token<'source>>,
+    pub equals_token: Option<Token<'source>>,
+    pub case: Option<Box<Expression<'source>>>,
+    pub arrow_token: Option<Token<'source>>,
+    pub expression: Option<Box<Expression<'source>>>,
+    pub semicolon_token: Option<Token<'source>>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Match<'source> {
-    match_token: Token<'source>,
-    expression: Option<Box<Expression<'source>>>,
-    then_token: Option<Token<'source>>,
-    cases: Vec<MatchCase<'source>>,
-    end_token: Option<Token<'source>>,
-    diagnostics: Diagnostics<'source>,
+    pub match_token: Token<'source>,
+    pub expression: Option<Box<Expression<'source>>>,
+    pub then_token: Option<Token<'source>>,
+    // TODO: this could be a dst field since Match is always boxed.
+    pub cases: Vec<MatchCase<'source>>,
+    pub end_token: Option<Token<'source>>,
+    pub diagnostics: Diagnostics<'source>,
 }
 
 impl<'source> From<Match<'source>> for Node<'source> {
@@ -729,7 +730,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Match<'source> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Struct<'source> {
-    pub struct_token: Option<Token<'source>>,
+    pub struct_token: Token<'source>,
     pub inner: Option<Box<Expression<'source>>>,
     pub then_token: Option<Token<'source>>,
     pub members: Option<Box<BlockExpression<'source>>>,
@@ -745,7 +746,12 @@ impl<'source> From<Struct<'source>> for Node<'source> {
 
 impl<'source> From<&mut Peekable<Lexer<'source>>> for Struct<'source> {
     fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
-        let struct_token = lexer.next().transpose().ok().flatten();
+        let struct_token = lexer
+            .next()
+            .transpose()
+            .ok()
+            .flatten()
+            .expect("caller must have peeked a token");
         let mut diagnostics = Diagnostics::default();
         let inner = Expression::new(&mut *lexer);
         if inner.is_none() {
@@ -785,7 +791,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Struct<'source> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Enum<'source> {
-    pub enum_token: Option<Token<'source>>,
+    pub enum_token: Token<'source>,
     pub variants: Option<Box<Expression<'source>>>,
     pub then_token: Option<Token<'source>>,
     pub members: Option<Box<BlockExpression<'source>>>,
@@ -801,7 +807,12 @@ impl<'source> From<Enum<'source>> for Node<'source> {
 
 impl<'source> From<&mut Peekable<Lexer<'source>>> for Enum<'source> {
     fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
-        let enum_token = lexer.next().transpose().ok().flatten();
+        let enum_token = lexer
+            .next()
+            .transpose()
+            .ok()
+            .flatten()
+            .expect("caller must have peeked a token");
         let mut diagnostics = Diagnostics::default();
         let variants = Expression::new(&mut *lexer);
         if variants.is_none() {
@@ -979,7 +990,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Implementation<'source> {
             .transpose()
             .ok()
             .flatten()
-            .expect("caller must have peeked an impl token");
+            .expect("caller must have peeked a token");
         let trait_expression = Expression::new(&mut *lexer);
         if trait_expression.is_none() {
             diagnostics.errors.push(Error::ExpectedExpression);

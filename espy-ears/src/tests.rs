@@ -508,7 +508,7 @@ fn structure() {
                 STRUCT,
                 END,
                 [Node::Struct(Box::new(Struct {
-                    struct_token: Some(STRUCT),
+                    struct_token: STRUCT,
                     inner: Some(expression(
                         ident("x"),
                         ident("u32"),
@@ -645,7 +645,7 @@ fn enum_creation() {
                 ENUM,
                 END,
                 [Node::Enum(Box::new(Enum {
-                    enum_token: Some(ENUM),
+                    enum_token: ENUM,
                     variants: Some(expression(
                         ident("Some"),
                         CLOSE_PAREN,

@@ -285,4 +285,94 @@ fn diagnose_expression(
         }
         for_each(diagnostic);
     }
+    for node in &expression.contents {
+        match node {
+            espyscript::parser::Node::Block(block) => diagnose_block(source, block, for_each),
+            espyscript::parser::Node::If(if_node) => {
+                let mut range = origin_range(if_node.if_token.origin, source);
+                if let Some(token) = if_node
+                    .end_token
+                    .or(if_node.else_token)
+                    .or(if_node.then_token)
+                {
+                    range.1 = origin_range(token.origin, source).1;
+                }
+                for error in &if_node.diagnostics.errors {
+                    let mut diagnostic = Diagnostic::from_error(error, source);
+                    diagnostic.secondary.push(Comment {
+                        message: "in this conditional block".to_string(),
+                        range: Some(range),
+                    })
+                }
+                diagnose_expression(source, &if_node.condition, for_each);
+                diagnose_block(source, &if_node.first, for_each);
+                diagnose_block(source, &if_node.second, for_each);
+            }
+            espyscript::parser::Node::Match(match_node) => {
+                let mut range = origin_range(match_node.match_token.origin, source);
+                if let Some(token) = match_node.end_token.or(match_node.then_token) {
+                    range.1 = origin_range(token.origin, source).1;
+                }
+                for error in &match_node.diagnostics.errors {
+                    let mut diagnostic = Diagnostic::from_error(error, source);
+                    diagnostic.secondary.push(Comment {
+                        message: "in this match block".to_string(),
+                        range: Some(range),
+                    })
+                }
+                diagnose_expression(source, &match_node.expression, for_each);
+                for case in &match_node.cases {
+                    diagnose_expression(source, &case.case, for_each);
+                    diagnose_expression(source, &case.expression, for_each);
+                }
+            }
+            espyscript::parser::Node::Struct(struct_node) => {
+                let mut range = origin_range(struct_node.struct_token.origin, source);
+                if let Some(token) = struct_node.end_token.or(struct_node.then_token) {
+                    range.1 = origin_range(token.origin, source).1;
+                }
+                for error in &struct_node.diagnostics.errors {
+                    let mut diagnostic = Diagnostic::from_error(error, source);
+                    diagnostic.secondary.push(Comment {
+                        message: "in this structure definition".to_string(),
+                        range: Some(range),
+                    })
+                }
+                diagnose_expression(source, &struct_node.inner, for_each);
+                if let Some(members) = &struct_node.members {
+                    for error in &members.diagnostics.errors {
+                        for_each(Diagnostic::from_error(error, source));
+                    }
+                    for statement in &members.statements {
+                        diagnose_statement(source, statement, for_each)
+                    }
+                    diagnose_expression(source, &members.result, for_each);
+                }
+            }
+            espyscript::parser::Node::Enum(enum_node) => {
+                let mut range = origin_range(enum_node.enum_token.origin, source);
+                if let Some(token) = enum_node.end_token.or(enum_node.then_token) {
+                    range.1 = origin_range(token.origin, source).1;
+                }
+                for error in &enum_node.diagnostics.errors {
+                    let mut diagnostic = Diagnostic::from_error(error, source);
+                    diagnostic.secondary.push(Comment {
+                        message: "in this structure definition".to_string(),
+                        range: Some(range),
+                    })
+                }
+                diagnose_expression(source, &enum_node.variants, for_each);
+                if let Some(members) = &enum_node.members {
+                    for error in &members.diagnostics.errors {
+                        for_each(Diagnostic::from_error(error, source));
+                    }
+                    for statement in &members.statements {
+                        diagnose_statement(source, statement, for_each)
+                    }
+                    diagnose_expression(source, &members.result, for_each);
+                }
+            }
+            _ => {}
+        }
+    }
 }
