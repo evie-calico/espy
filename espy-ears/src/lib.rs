@@ -508,34 +508,15 @@ impl<'source> Expression<'source> {
                 lexi!(Enum) => {
                     contents.push(Enum::from(&mut *lexer).into());
                 }
-                _ if !unary_position => {
-                    flush(&mut contents, &mut stack);
-                    if !stack.is_empty() {
-                        diagnostics.expect(None, &[Lexigram::CloseParen]);
-                    }
-                    return Expression::build(
-                        if contents.is_empty() {
-                            None
-                        } else {
-                            first_token
-                        },
-                        last_token,
-                        diagnostics,
-                        contents,
-                    );
-                }
                 _ => {
                     if unary_position {
                         if !contents.is_empty() || !stack.is_empty() {
                             diagnostics.errors.push(Error::IncompleteExpression);
                         }
                     } else {
-                        loop {
-                            flush(&mut contents, &mut stack);
-                            if stack.is_empty() {
-                                break;
-                            }
-                            diagnostics.expect(None, &[Lexigram::CloseParen]);
+                        flush(&mut contents, &mut stack);
+                        if !stack.is_empty() {
+                            diagnostics.errors.push(Error::IncompleteExpression);
                         }
                     }
                     return Expression::build(
