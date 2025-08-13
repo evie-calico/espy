@@ -210,10 +210,7 @@ fn option_enum() {
             PushUnit,
             Name(none),
             Tuple,
-            PushUnit,
-            PushEnum {
-                statics: 0,
-            },
+            PushEnum,
             PushUnit,
         }
     ];

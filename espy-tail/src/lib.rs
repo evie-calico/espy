@@ -79,21 +79,11 @@ pub enum Instruction {
     PushTrue,
     PushFalse,
     /// Pop the top value off the stack;
-    /// it should be unit or a named tuple of functions.
-    /// Use this value as the enum's methods.
-    ///
-    /// Then, pop a value off the stack for each string in the string set `statics`.
-    /// Each of these values is a static member of the enum;
-    /// any functions may construct this enum and access its fields.
-    ///
-    /// Pop the next value off the stack;
     /// it should be unit or a named tuple of types.
     /// Use this value as the enum's variants.
     ///
     /// Push the resulting enum type to the stack.
-    PushEnum {
-        statics: StringSet,
-    },
+    PushEnum,
     /// Pop the top value off the stack;
     /// it should be unit or a named tuple of functions.
     /// Use this value as the struct's methods.
@@ -181,13 +171,10 @@ impl Iterator for InstructionIter {
             }
             Instruction::PushTrue => decompose!(instruction::PUSH_TRUE,),
             Instruction::PushFalse => decompose!(instruction::PUSH_FALSE,),
-            Instruction::PushEnum { statics } => {
-                decompose!(instruction::PUSH_ENUM, statics as 1..=4)
-            }
+            Instruction::PushEnum => decompose!(instruction::PUSH_ENUM,),
             Instruction::PushStruct { statics } => {
                 decompose!(instruction::PUSH_STRUCT, statics as 1..=4)
             }
-
             Instruction::PushString(s) => decompose!(instruction::PUSH_STRING, s as 1..=4),
 
             Instruction::Add => decompose!(instruction::ADD,),
@@ -681,45 +668,11 @@ impl<'source> Program<'source> {
                 Node::Enum(enumeration) => {
                     try_validate(enumeration.diagnostics)?;
                     self.add_expression(block_id, enumeration.variants, scope)?;
-                    // note that only one value (the variants) exists on the current scope;
-                    // this will be important later.
-                    let mut child = scope.child();
-                    let statics = if let Some(mut members) = enumeration.members {
-                        for i in &mut members.statements {
-                            let mut statement = Statement::Evaluation(Evaluation {
-                                binding: None,
-                                expression: None,
-                                semicolon_token: None,
-                                diagnostics: Diagnostics::default(),
-                            });
-                            std::mem::swap(&mut statement, i);
-                            self.add_statement(block_id, statement, &mut child)?;
-                        }
-                        self.add_expression(block_id, members.result, &mut child)?;
-                        let set = child
-                            .bindings
-                            .into_iter()
-                            .rev()
-                            .map(|(case, _)| self.create_string(case))
-                            .collect::<Result<Vec<_>, Error<'source>>>()?;
-                        if set.is_empty() {
-                            0
-                        } else {
-                            self.string_sets.push(set);
-                            // this happens after because string sets start at 1;
-                            // 0 is an empty set!
-                            self.string_sets.len() as StringSet
-                        }
-                    } else {
-                        // missing methods should be treated as none (unit) (obviously)
-                        self.blocks[block_id as usize].extend(Instruction::PushUnit);
-                        0
-                    };
                     // at this point, the stack has grown by 2 + statics.
                     // however only the variants (bottom of the stack) are accounted for in our scope,
                     // and the resulting enum will replace it.
                     scope.stack_pointer += 0;
-                    self.blocks[block_id as usize].extend(Instruction::PushEnum { statics });
+                    self.blocks[block_id as usize].extend(Instruction::PushEnum);
                 }
                 Node::Match(_) => todo!(),
             };

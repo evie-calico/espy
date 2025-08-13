@@ -354,7 +354,7 @@ fn diagnose_expression(
             }
             espyscript::parser::Node::Enum(enum_node) => {
                 let mut range = origin_range(enum_node.enum_token.origin, source);
-                if let Some(token) = enum_node.end_token.or(enum_node.then_token) {
+                if let Some(token) = enum_node.end_token {
                     range.1 = origin_range(token.origin, source).1;
                 }
                 for error in &enum_node.diagnostics.errors {
@@ -366,15 +366,6 @@ fn diagnose_expression(
                     for_each(diagnostic);
                 }
                 diagnose_expression(source, &enum_node.variants, for_each);
-                if let Some(members) = &enum_node.members {
-                    for error in &members.diagnostics.errors {
-                        for_each(Diagnostic::from_error(error, source));
-                    }
-                    for statement in &members.statements {
-                        diagnose_statement(source, statement, for_each)
-                    }
-                    diagnose_expression(source, &members.result, for_each);
-                }
             }
             _ => {}
         }

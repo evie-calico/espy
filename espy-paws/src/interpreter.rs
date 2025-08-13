@@ -260,25 +260,6 @@ impl Program {
                     );
                 }
                 instruction::PUSH_ENUM => {
-                    let methods = stack
-                        .pop()
-                        .ok_or(InvalidBytecode::StackUnderflow)?
-                        .into_tuple_or_unit()?;
-                    let mut statics = set(&self.bytes, program.next4()?)?
-                        .chunks(4)
-                        .map(|name| {
-                            let name = name
-                                .try_into()
-                                .map_err(|_| InvalidBytecode::MalformedHeader)?;
-                            let name = self
-                                .owned_strings
-                                .get(u32::from_le_bytes(name) as usize)
-                                .ok_or(InvalidBytecode::UnexpectedStringId)?
-                                .clone();
-                            Ok((name, stack.pop().ok_or(InvalidBytecode::StackUnderflow)?))
-                        })
-                        .collect::<Result<Vec<_>, Error>>()?;
-                    statics.reverse();
                     let variants = stack
                         .pop()
                         .ok_or(InvalidBytecode::StackUnderflow)?

@@ -664,8 +664,6 @@ fn enum_creation() {
                         ]
                         .into_iter(),
                     )),
-                    then_token: None,
-                    members: None,
                     end_token: Some(END),
                     diagnostics: Diagnostics::default(),
                 }))]

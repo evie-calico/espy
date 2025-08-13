@@ -43,6 +43,17 @@ impl<'source> Diagnostics<'source> {
         }
     }
 
+    fn expect_expression(
+        &mut self,
+        lexer: &mut Peekable<Lexer<'source>>,
+    ) -> Option<Box<Expression<'source>>> {
+        let expression = Expression::new(lexer);
+        if expression.is_none() {
+            self.errors.push(Error::ExpectedExpression);
+        }
+        expression
+    }
+
     fn next_if(
         &mut self,
         lexer: &mut Peekable<Lexer<'source>>,
@@ -556,10 +567,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for If<'source> {
             .flatten()
             .expect("caller must have peeked a token");
         let mut diagnostics = Diagnostics::default();
-        let condition = Expression::new(&mut *lexer);
-        if condition.is_none() {
-            diagnostics.errors.push(Error::ExpectedExpression);
-        }
+        let condition = diagnostics.expect_expression(lexer);
         let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
         let first = Block::new(&mut *lexer);
         let (second, else_token, else_kind) = if let else_token @ Some(Token {
@@ -655,13 +663,11 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Match<'source> {
             .expect("caller must have peeked a token");
         let mut diagnostics = Diagnostics::default();
 
-        let expression = Expression::new(&mut *lexer);
-        if expression.is_none() {
-            diagnostics.errors.push(Error::ExpectedExpression);
-        }
+        let expression = diagnostics.expect_expression(lexer);
         let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
         let mut cases = Vec::new();
 
+        // ew
         loop {
             let (let_token, binding, equals_token, case) = if let let_token @ Some(Token {
                 lexigram: Lexigram::Let,
@@ -677,27 +683,18 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Match<'source> {
                 }) = diagnostics.wrap(lexer.peek().copied())
                 {
                     lexer.next();
-                    let case = Expression::new(&mut *lexer);
-                    if case.is_none() {
-                        diagnostics.errors.push(Error::ExpectedExpression);
-                    }
+                    let case = diagnostics.expect_expression(lexer);
                     (equal_token, case)
                 } else {
                     (None, None)
                 };
                 (let_token, binding, equal_token, case)
             } else {
-                let case = Expression::new(&mut *lexer);
-                if case.is_none() {
-                    diagnostics.errors.push(Error::ExpectedExpression);
-                }
+                let case = diagnostics.expect_expression(lexer);
                 (None, None, None, case)
             };
             let arrow_token = diagnostics.next_if(lexer, &[Lexigram::DoubleArrow]);
-            let expression = Expression::new(&mut *lexer);
-            if expression.is_none() {
-                diagnostics.errors.push(Error::ExpectedExpression);
-            }
+            let expression = diagnostics.expect_expression(lexer);
             let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
             cases.push(MatchCase {
                 let_token,
@@ -753,10 +750,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Struct<'source> {
             .flatten()
             .expect("caller must have peeked a token");
         let mut diagnostics = Diagnostics::default();
-        let inner = Expression::new(&mut *lexer);
-        if inner.is_none() {
-            diagnostics.errors.push(Error::ExpectedExpression);
-        }
+        let inner = diagnostics.expect_expression(lexer);
         let (then_token, members) = match lexer.peek().copied() {
             Some(Ok(
                 then_token @ Token {
@@ -793,8 +787,6 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Struct<'source> {
 pub struct Enum<'source> {
     pub enum_token: Token<'source>,
     pub variants: Option<Box<Expression<'source>>>,
-    pub then_token: Option<Token<'source>>,
-    pub members: Option<Box<BlockExpression<'source>>>,
     pub end_token: Option<Token<'source>>,
     pub diagnostics: Diagnostics<'source>,
 }
@@ -814,36 +806,11 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Enum<'source> {
             .flatten()
             .expect("caller must have peeked a token");
         let mut diagnostics = Diagnostics::default();
-        let variants = Expression::new(&mut *lexer);
-        if variants.is_none() {
-            diagnostics.errors.push(Error::ExpectedExpression);
-        }
-        let (then_token, members) = match lexer.peek().copied() {
-            Some(Ok(
-                then_token @ Token {
-                    lexigram: Lexigram::Then,
-                    ..
-                },
-            )) => {
-                lexer.next();
-                let members = BlockExpression::new(&mut *lexer);
-                (Some(then_token), Some(members))
-            }
-            Some(Ok(Token {
-                lexigram: Lexigram::End,
-                ..
-            })) => (None, None),
-            t => {
-                diagnostics.expect(t, &[Lexigram::Then, Lexigram::End]);
-                (None, None)
-            }
-        };
+        let variants = diagnostics.expect_expression(lexer);
         let end_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
         Self {
             enum_token,
             variants,
-            then_token,
-            members,
             end_token,
             diagnostics,
         }
@@ -876,10 +843,7 @@ impl<'source> Evaluation<'source> {
             .expect("caller must have peeked a token");
         let ident_token = diagnostics.next_if(lexer, &[Lexigram::Ident]);
         let equals_token = diagnostics.next_if(lexer, &[Lexigram::SingleEqual]);
-        let expression = Expression::new(&mut *lexer);
-        if expression.is_none() {
-            diagnostics.errors.push(Error::ExpectedExpression);
-        }
+        let expression = diagnostics.expect_expression(lexer);
         let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
 
         Evaluation {
@@ -939,20 +903,17 @@ pub struct For<'source> {
 
 impl<'source> From<&mut Peekable<Lexer<'source>>> for For<'source> {
     fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
+        let mut diagnostics = Diagnostics::default();
+
         let for_token = lexer
             .next()
             .transpose()
             .ok()
             .flatten()
             .expect("caller must have peeked a token");
-        let mut diagnostics = Diagnostics::default();
-
         let binding = diagnostics.next_if(lexer, &[Lexigram::Ident, Lexigram::Discard]);
         let in_token = diagnostics.next_if(lexer, &[Lexigram::In]);
-        let iterator = Expression::new(&mut *lexer);
-        if iterator.is_none() {
-            diagnostics.errors.push(Error::ExpectedExpression);
-        }
+        let iterator = diagnostics.expect_expression(lexer);
         let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
         let first = Block::new(&mut *lexer);
         let end_token = diagnostics.next_if(lexer, &[Lexigram::End]);
@@ -985,24 +946,20 @@ pub struct Implementation<'source> {
 impl<'source> From<&mut Peekable<Lexer<'source>>> for Implementation<'source> {
     fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
         let mut diagnostics = Diagnostics::default();
+
         let impl_token = lexer
             .next()
             .transpose()
             .ok()
             .flatten()
             .expect("caller must have peeked a token");
-        let trait_expression = Expression::new(&mut *lexer);
-        if trait_expression.is_none() {
-            diagnostics.errors.push(Error::ExpectedExpression);
-        }
+        let trait_expression = diagnostics.expect_expression(lexer);
         let for_token = diagnostics.next_if(lexer, &[Lexigram::For]);
-        let struct_expression = Expression::new(&mut *lexer);
-        if struct_expression.is_none() {
-            diagnostics.errors.push(Error::ExpectedExpression);
-        }
+        let struct_expression = diagnostics.expect_expression(lexer);
         let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
         let block = Block::new(&mut *lexer);
         let end_token = diagnostics.next_if(lexer, &[Lexigram::End]);
+
         Self {
             impl_token,
             trait_expression,
