@@ -302,7 +302,8 @@ fn diagnose_expression(
                     diagnostic.secondary.push(Comment {
                         message: "in this conditional block".to_string(),
                         range: Some(range),
-                    })
+                    });
+                    for_each(diagnostic);
                 }
                 diagnose_expression(source, &if_node.condition, for_each);
                 diagnose_block(source, &if_node.first, for_each);
@@ -318,7 +319,8 @@ fn diagnose_expression(
                     diagnostic.secondary.push(Comment {
                         message: "in this match block".to_string(),
                         range: Some(range),
-                    })
+                    });
+                    for_each(diagnostic);
                 }
                 diagnose_expression(source, &match_node.expression, for_each);
                 for case in &match_node.cases {
@@ -336,7 +338,8 @@ fn diagnose_expression(
                     diagnostic.secondary.push(Comment {
                         message: "in this structure definition".to_string(),
                         range: Some(range),
-                    })
+                    });
+                    for_each(diagnostic);
                 }
                 diagnose_expression(source, &struct_node.inner, for_each);
                 if let Some(members) = &struct_node.members {
@@ -359,7 +362,8 @@ fn diagnose_expression(
                     diagnostic.secondary.push(Comment {
                         message: "in this structure definition".to_string(),
                         range: Some(range),
-                    })
+                    });
+                    for_each(diagnostic);
                 }
                 diagnose_expression(source, &enum_node.variants, for_each);
                 if let Some(members) = &enum_node.members {
