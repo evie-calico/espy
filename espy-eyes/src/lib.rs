@@ -186,8 +186,8 @@ impl<'source> Iterator for Lexer<'source> {
                     | "continue" | "do" | "dyn" | "fn" | "import" | "include" | "iterator"
                     | "loop" | "macro" | "mod" | "move" | "mut" | "never" | "priv" | "pub"
                     | "ref" | "require" | "return" | "safe" | "static" | "super" | "switch"
-                    | "trait" | "try" | "tuple" | "type" | "union" | "unit" | "unsafe" | "use"
-                    | "where" | "while" | "yield" => {
+                    | "trait" | "try" | "tuple" | "type" | "union" | "unsafe" | "use" | "where"
+                    | "while" | "yield" => {
                         return Some(Err(Error {
                             origin: ident,
                             kind: ErrorKind::ReservedSymbol,

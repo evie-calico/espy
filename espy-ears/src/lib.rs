@@ -89,8 +89,8 @@ impl<'source> Diagnostics<'source> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Node<'source> {
-    Unit,
-    Bool(bool, Option<Token<'source>>),
+    Unit(Token<'source>, Token<'source>),
+    Bool(bool, Token<'source>),
     Number(Token<'source>),
     String(Token<'source>),
     Variable(Token<'source>),
@@ -100,25 +100,25 @@ pub enum Node<'source> {
     Struct(Box<Struct<'source>>),
     Enum(Box<Enum<'source>>),
 
-    Pipe(Option<Token<'source>>),
-    Call(Option<Token<'source>>),
-    Positive(Option<Token<'source>>),
-    Negative(Option<Token<'source>>),
-    Mul(Option<Token<'source>>),
-    Div(Option<Token<'source>>),
-    Add(Option<Token<'source>>),
-    Sub(Option<Token<'source>>),
-    BitwiseAnd(Option<Token<'source>>),
-    BitwiseOr(Option<Token<'source>>),
-    BitwiseXor(Option<Token<'source>>),
-    EqualTo(Option<Token<'source>>),
-    NotEqualTo(Option<Token<'source>>),
-    Greater(Option<Token<'source>>),
-    GreaterEqual(Option<Token<'source>>),
-    Lesser(Option<Token<'source>>),
-    LesserEqual(Option<Token<'source>>),
-    LogicalAnd(Option<Token<'source>>),
-    LogicalOr(Option<Token<'source>>),
+    Pipe(Token<'source>),
+    Call(Token<'source>),
+    Positive(Token<'source>),
+    Negative(Token<'source>),
+    Mul(Token<'source>),
+    Div(Token<'source>),
+    Add(Token<'source>),
+    Sub(Token<'source>),
+    BitwiseAnd(Token<'source>),
+    BitwiseOr(Token<'source>),
+    BitwiseXor(Token<'source>),
+    EqualTo(Token<'source>),
+    NotEqualTo(Token<'source>),
+    Greater(Token<'source>),
+    GreaterEqual(Token<'source>),
+    Lesser(Token<'source>),
+    LesserEqual(Token<'source>),
+    LogicalAnd(Token<'source>),
+    LogicalOr(Token<'source>),
     Name {
         name: Token<'source>,
         colon_token: Token<'source>,
@@ -127,7 +127,7 @@ pub enum Node<'source> {
         dot_token: Token<'source>,
         index: Token<'source>,
     },
-    Tuple(Option<Token<'source>>),
+    Tuple(Token<'source>),
 }
 
 /// This type must not contain any incomplete expressions.
@@ -145,25 +145,25 @@ impl<'source> Expression<'source> {
     fn new(lexer: &mut Peekable<Lexer<'source>>) -> Option<Box<Self>> {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         enum Operation<'source> {
-            Call(Option<Token<'source>>),
-            Pipe(Option<Token<'source>>),
-            Positive(Option<Token<'source>>),
-            Negative(Option<Token<'source>>),
-            Mul(Option<Token<'source>>),
-            Div(Option<Token<'source>>),
-            Add(Option<Token<'source>>),
-            Sub(Option<Token<'source>>),
-            BitwiseAnd(Option<Token<'source>>),
-            BitwiseXor(Option<Token<'source>>),
-            BitwiseOr(Option<Token<'source>>),
-            EqualTo(Option<Token<'source>>),
-            NotEqualTo(Option<Token<'source>>),
-            Greater(Option<Token<'source>>),
-            GreaterEqual(Option<Token<'source>>),
-            Lesser(Option<Token<'source>>),
-            LesserEqual(Option<Token<'source>>),
-            LogicalAnd(Option<Token<'source>>),
-            LogicalOr(Option<Token<'source>>),
+            Call(Token<'source>),
+            Pipe(Token<'source>),
+            Positive(Token<'source>),
+            Negative(Token<'source>),
+            Mul(Token<'source>),
+            Div(Token<'source>),
+            Add(Token<'source>),
+            Sub(Token<'source>),
+            BitwiseAnd(Token<'source>),
+            BitwiseXor(Token<'source>),
+            BitwiseOr(Token<'source>),
+            EqualTo(Token<'source>),
+            NotEqualTo(Token<'source>),
+            Greater(Token<'source>),
+            GreaterEqual(Token<'source>),
+            Lesser(Token<'source>),
+            LesserEqual(Token<'source>),
+            LogicalAnd(Token<'source>),
+            LogicalOr(Token<'source>),
             Name {
                 name: Token<'source>,
                 colon_token: Token<'source>,
@@ -172,8 +172,8 @@ impl<'source> Expression<'source> {
                 dot_token: Token<'source>,
                 index: Token<'source>,
             },
-            Tuple(Option<Token<'source>>),
-            SubExpression(Option<Token<'source>>),
+            Tuple(Token<'source>),
+            SubExpression(Token<'source>),
         }
 
         impl<'source> Operation<'source> {
@@ -321,16 +321,16 @@ impl<'source> Expression<'source> {
             let unary_position = unary_position(last_token);
             let t = diagnostics.wrap(lexer.peek().copied());
             macro_rules! lexi {
-                ($lexi:ident) => {
-                    Some(Token {
+                ($($name:ident)? @ $lexi:ident) => {
+                    Some($($name @)? Token {
                         lexigram: Lexigram::$lexi,
                         ..
                     })
                 };
             }
             macro_rules! op {
-                ($op:ident) => {
-                    push_with_precedence(&mut contents, &mut stack, Operation::$op(t))
+                ($op:ident($name:ident)) => {
+                    push_with_precedence(&mut contents, &mut stack, Operation::$op($name))
                 };
             }
             match t {
@@ -338,36 +338,21 @@ impl<'source> Expression<'source> {
                 //
                 // A terminal value outside of unary position implies a function call,
                 // so flush the operator stack in this case.
-                Some(
-                    number @ Token {
-                        lexigram: Lexigram::Number,
-                        ..
-                    },
-                ) => {
+                lexi!(number @ Number) => {
                     if !unary_position {
-                        push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
+                        op!(Call(number));
                     }
                     contents.push(Node::Number(number));
                 }
-                Some(
-                    string @ Token {
-                        lexigram: Lexigram::String,
-                        ..
-                    },
-                ) => {
+                lexi!(string @ String) => {
                     if !unary_position {
-                        push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
+                        op!(Call(string));
                     }
                     contents.push(Node::String(string));
                 }
-                Some(
-                    ident @ Token {
-                        lexigram: Lexigram::Ident,
-                        ..
-                    },
-                ) => {
+                lexi!(ident @ Ident) => {
                     if !unary_position {
-                        push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
+                        op!(Call(ident));
                     }
                     last_token = lexer.next().transpose().ok().flatten();
                     if let Some(Ok(
@@ -391,12 +376,7 @@ impl<'source> Expression<'source> {
                     }
                     continue;
                 }
-                Some(
-                    dot_token @ Token {
-                        lexigram: Lexigram::Dot,
-                        ..
-                    },
-                ) if !unary_position => {
+                lexi!(dot_token @ Dot) if !unary_position => {
                     last_token = lexer.next().transpose().ok().flatten();
                     if let Some(index) =
                         diagnostics.next_if(lexer, &[Lexigram::Ident, Lexigram::Number])
@@ -410,31 +390,25 @@ impl<'source> Expression<'source> {
                     }
                     continue;
                 }
-                Some(Token {
-                    lexigram: Lexigram::True,
-                    ..
-                }) => {
+                lexi!(t @ True) => {
                     if !unary_position {
                         push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
                     contents.push(Node::Bool(true, t));
                 }
-                Some(Token {
-                    lexigram: Lexigram::False,
-                    ..
-                }) => {
+                lexi!(t @ False) => {
                     if !unary_position {
                         push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
                     contents.push(Node::Bool(false, t));
                 }
-                lexi!(OpenParen) => {
+                lexi!(t @ OpenParen) => {
                     if !unary_position {
                         push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
                     stack.push(Operation::SubExpression(t));
                 }
-                lexi!(OpenBrace) => {
+                lexi!(t @ OpenBrace) => {
                     if !unary_position {
                         push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
@@ -444,39 +418,38 @@ impl<'source> Expression<'source> {
                 }
 
                 // # Operators
-                lexi!(Plus) if unary_position => op!(Positive),
-                lexi!(Plus) if !unary_position => op!(Add),
-                lexi!(Minus) if unary_position => op!(Negative),
-                lexi!(Minus) if !unary_position => op!(Sub),
-                lexi!(Star) if !unary_position => op!(Mul),
-                lexi!(Slash) if !unary_position => op!(Div),
-                lexi!(Ampersand) if !unary_position => op!(BitwiseAnd),
-                lexi!(Caret) if !unary_position => op!(BitwiseXor),
-                lexi!(Pipe) if !unary_position => op!(BitwiseOr),
-                lexi!(DoubleEqual) if !unary_position => op!(EqualTo),
-                lexi!(BangEqual) if !unary_position => op!(NotEqualTo),
-                lexi!(Greater) if !unary_position => op!(Greater),
-                lexi!(GreaterEqual) if !unary_position => op!(GreaterEqual),
-                lexi!(Lesser) if !unary_position => op!(Lesser),
-                lexi!(LesserEqual) if !unary_position => op!(LesserEqual),
-                lexi!(And) if !unary_position => op!(LogicalAnd),
-                lexi!(Or) if !unary_position => op!(LogicalOr),
-                lexi!(Triangle) if !unary_position => op!(Pipe),
-                lexi!(Comma) if !unary_position => op!(Tuple),
-                Some(
-                    t @ Token {
-                        lexigram: Lexigram::CloseParen,
-                        ..
-                    },
-                ) if unary_position => {
-                    if matches!(
-                        last_token,
-                        Some(Token {
+                lexi!(t @ Plus) if unary_position => op!(Positive(t)),
+                lexi!(t @ Plus) if !unary_position => op!(Add(t)),
+                lexi!(t @ Minus) if unary_position => op!(Negative(t)),
+                lexi!(t @ Minus) if !unary_position => op!(Sub(t)),
+                lexi!(t @ Star) if !unary_position => op!(Mul(t)),
+                lexi!(t @ Slash) if !unary_position => op!(Div(t)),
+                lexi!(t @ Ampersand) if !unary_position => op!(BitwiseAnd(t)),
+                lexi!(t @ Caret) if !unary_position => op!(BitwiseXor(t)),
+                lexi!(t @ Pipe) if !unary_position => op!(BitwiseOr(t)),
+                lexi!(t @ DoubleEqual) if !unary_position => op!(EqualTo(t)),
+                lexi!(t @ BangEqual) if !unary_position => op!(NotEqualTo(t)),
+                lexi!(t @ Greater) if !unary_position => op!(Greater(t)),
+                lexi!(t @ GreaterEqual) if !unary_position => op!(GreaterEqual(t)),
+                lexi!(t @ Lesser) if !unary_position => op!(Lesser(t)),
+                lexi!(t @ LesserEqual) if !unary_position => op!(LesserEqual(t)),
+                lexi!(t @ And) if !unary_position => op!(LogicalAnd(t)),
+                lexi!(t @ Or) if !unary_position => op!(LogicalOr(t)),
+                lexi!(t @ Triangle) if !unary_position => op!(Pipe(t)),
+                lexi!(t @ Comma) if !unary_position => op!(Tuple(t)),
+                lexi!(  @ If) => contents.push(If::from(&mut *lexer).into()),
+                lexi!(  @ Match) => contents.push(Match::from(&mut *lexer).into()),
+                lexi!(  @ Struct) => contents.push(Struct::from(&mut *lexer).into()),
+                lexi!(  @ Enum) => contents.push(Enum::from(&mut *lexer).into()),
+                lexi!(t @ CloseParen) if unary_position => {
+                    if let Some(
+                        last_token @ Token {
                             lexigram: Lexigram::OpenParen,
                             ..
-                        })
-                    ) {
-                        contents.push(Node::Unit);
+                        },
+                    ) = last_token
+                    {
+                        contents.push(Node::Unit(last_token, t));
                     } else {
                         diagnostics.errors.push(Error::IncompleteExpression);
                     }
@@ -484,12 +457,7 @@ impl<'source> Expression<'source> {
                         diagnostics.errors.push(Error::UnexpectedCloseParen(t))
                     }
                 }
-                Some(
-                    t @ Token {
-                        lexigram: Lexigram::CloseParen,
-                        ..
-                    },
-                ) if !unary_position => {
+                lexi!(t @ CloseParen) if !unary_position => {
                     while let Some(op) = stack.pop_if(|x| !matches!(x, Operation::SubExpression(_)))
                     {
                         contents.push(op.into());
@@ -497,18 +465,6 @@ impl<'source> Expression<'source> {
                     if !matches!(stack.pop(), Some(Operation::SubExpression(_))) {
                         diagnostics.errors.push(Error::UnexpectedCloseParen(t))
                     }
-                }
-                lexi!(If) => {
-                    contents.push(If::from(&mut *lexer).into());
-                }
-                lexi!(Match) => {
-                    contents.push(Match::from(&mut *lexer).into());
-                }
-                lexi!(Struct) => {
-                    contents.push(Struct::from(&mut *lexer).into());
-                }
-                lexi!(Enum) => {
-                    contents.push(Enum::from(&mut *lexer).into());
                 }
                 _ => {
                     if unary_position {

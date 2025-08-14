@@ -483,10 +483,19 @@ impl<'source> Program<'source> {
             // There's no reason for this swap as far as i can tell,
             // but contents doesn't implement IntoIterator because it can't be owned.
             // TODO: I think it might be possible for dst-factory to generate an owned iterator.
-            let mut node = Node::Unit;
+            let mut node = Node::Unit(
+                Token {
+                    origin: "(",
+                    lexigram: Lexigram::OpenParen,
+                },
+                Token {
+                    origin: ")",
+                    lexigram: Lexigram::CloseParen,
+                },
+            );
             std::mem::swap(&mut node, old_node);
             match node {
-                Node::Unit => {
+                Node::Unit(_, _) => {
                     scope.stack_pointer += 1;
                     block!().extend(Instruction::PushUnit)
                 }

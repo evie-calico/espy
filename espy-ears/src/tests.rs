@@ -48,10 +48,10 @@ fn number<'source>(origin: &'source str) -> Token<'source> {
 
 macro_rules! node {
     ($name:ident: $node:ident = $origin:literal as $lexigram:ident) => {
-        const $name: Node = Node::$node(Some(Token {
+        const $name: Node = Node::$node(Token {
             origin: $origin,
             lexigram: Lexigram::$lexigram,
-        }));
+        });
     };
 }
 
@@ -356,12 +356,7 @@ fn for_loop() {
                 [evaluation(expression(
                     ident("print"),
                     ident("i"),
-                    [
-                        variable("print"),
-                        variable("i"),
-                        Node::Call(Some(ident("i"))),
-                    ]
-                    .into_iter(),
+                    [variable("print"), variable("i"), Node::Call(ident("i"))].into_iter(),
                 ))]
                 .into_iter(),
             ),
@@ -456,15 +451,15 @@ fn pipe_operator() {
         [
             variable("square"),
             number_node("2"),
-            Node::Call(Some(number("2"))),
+            Node::Call(number("2")),
             variable("add"),
             PIPE,
             number_node("4"),
-            Node::Call(Some(number("4"))),
+            Node::Call(number("4")),
             variable("square"),
             PIPE,
-            Node::Unit,
-            Node::Call(Some(OPEN_PAREN)),
+            Node::Unit(OPEN_PAREN, CLOSE_PAREN),
+            Node::Call(OPEN_PAREN),
         ]
         .into_iter(),
     ));
@@ -655,7 +650,7 @@ fn enum_creation() {
                                 name: ident("Some"),
                                 colon_token: COLON,
                             },
-                            Node::Unit,
+                            Node::Unit(OPEN_PAREN, CLOSE_PAREN),
                             Node::Name {
                                 name: ident("None"),
                                 colon_token: COLON,
@@ -748,8 +743,8 @@ fn field_precedence() {
                 index: ident("next"),
             },
             PIPE,
-            Node::Unit,
-            Node::Call(Some(OPEN_PAREN)),
+            Node::Unit(OPEN_PAREN, CLOSE_PAREN),
+            Node::Call(OPEN_PAREN),
         ]
         .into_iter(),
     ));
