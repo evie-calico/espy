@@ -19,13 +19,13 @@ impl espyscript::Extern for StdLib {
         match index {
             espyscript::Value {
                 storage: espyscript::Storage::String(index),
-            } if &*index == "io" => Ok(espyscript::Storage::Borrow(&self.io).into()),
+            } if &*index == "io" => Ok(espyscript::Value::borrow(&self.io)),
             espyscript::Value {
                 storage: espyscript::Storage::String(index),
-            } if &*index == "string" => Ok(espyscript::Storage::Borrow(&self.string).into()),
+            } if &*index == "string" => Ok(espyscript::Value::borrow(&self.string)),
             index => Err(espyscript::Error::IndexNotFound {
                 index,
-                container: espyscript::Storage::Borrow(self).into(),
+                container: espyscript::Value::borrow(self),
             }),
         }
     }
@@ -48,7 +48,7 @@ impl espyscript::Extern for IoLib {
         match index {
             espyscript::Value {
                 storage: espyscript::Storage::String(index),
-            } if &*index == "print" => Ok(espyscript::Storage::Borrow(&self.print).into()),
+            } if &*index == "print" => Ok(espyscript::Value::borrow(&self.print)),
             index => Err(espyscript::Error::IndexNotFound {
                 index,
                 container: espyscript::Storage::Borrow(self).into(),
@@ -69,22 +69,13 @@ struct IoPrintFn {
 impl espyscript::Extern for IoPrintFn {
     fn call<'host>(
         &'host self,
-        argument: espyscript::Value<'host>,
+        message: espyscript::Value<'host>,
     ) -> Result<espyscript::Value<'host>, espyscript::Error<'host>> {
-        match argument {
-            espyscript::Value {
-                storage: espyscript::Storage::String(message),
-            } => {
-                let mut output = self.output.borrow_mut();
-                output.push_str(&message);
-                output.push('\n');
-                Ok(espyscript::Storage::Unit.into())
-            }
-            argument => Err(espyscript::Error::TypeError {
-                value: argument,
-                ty: espyscript::Storage::StringType.into(),
-            }),
-        }
+        let message = message.into_str()?;
+        let mut output = self.output.borrow_mut();
+        output.push_str(&message);
+        output.push('\n');
+        Ok(().into())
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -105,10 +96,10 @@ impl espyscript::Extern for StringLib {
         match index {
             espyscript::Value {
                 storage: espyscript::Storage::String(index),
-            } if &*index == "concat" => Ok(espyscript::Storage::Borrow(&self.concat).into()),
+            } if &*index == "concat" => Ok(espyscript::Value::borrow(&self.concat)),
             index => Err(espyscript::Error::IndexNotFound {
                 index,
-                container: espyscript::Storage::Borrow(self).into(),
+                container: espyscript::Value::borrow(self),
             }),
         }
     }
@@ -129,17 +120,13 @@ impl espyscript::Extern for StringConcatFn {
         argument
             .into_tuple()?
             .values()
-            .map(|value| match value {
-                espyscript::Value {
-                    storage: espyscript::Storage::String(s),
-                } => Ok(s as &str),
-                value => Err(espyscript::Error::TypeError {
-                    value: value.clone(),
-                    ty: espyscript::Storage::StringType.into(),
-                }),
+            .map(|s| {
+                s.as_str().ok_or_else(|| {
+                    espyscript::Error::type_error(s.clone(), espyscript::Type::String)
+                })
             })
             .collect::<Result<String, _>>()
-            .map(|s| espyscript::Storage::String(s.into()).into())
+            .map(|s| espyscript::Value::from(Rc::from(s.as_str())))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -273,7 +260,7 @@ pub fn espyscript_eval(source: &str) -> String {
                     let std = StdLib::default();
 
                     match function
-                        .piped(espyscript::Storage::Borrow(&std).into())
+                        .piped(espyscript::Value::borrow(&std))
                         .eval()
                     {
                         Ok(result) => {

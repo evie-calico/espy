@@ -65,7 +65,8 @@ pub mod builtins {
     pub const SOME: StackPointer = -2;
     pub const NONE: StackPointer = -3;
     pub const ANY: StackPointer = -4;
-    pub const I64: StackPointer = -5;
+    pub const UNIT: StackPointer = -5;
+    pub const I64: StackPointer = -6;
 
     pub fn from_str(s: &str) -> Option<StackPointer> {
         match s {
@@ -73,6 +74,7 @@ pub mod builtins {
             "Some" => Some(SOME),
             "None" => Some(NONE),
             "any" => Some(ANY),
+            "unit" => Some(UNIT),
             "i64" => Some(I64),
             _ => None,
         }

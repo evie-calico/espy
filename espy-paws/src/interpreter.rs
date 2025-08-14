@@ -165,19 +165,22 @@ impl Program {
                             stack.push(value.clone());
                         }
                         builtins::ANY => {
-                            stack.push(Storage::Any.into());
+                            stack.push(Type::Any.into());
+                        }
+                        builtins::UNIT => {
+                            stack.push(Type::Unit.into());
                         }
                         builtins::I64 => {
-                            stack.push(Storage::I64Type.into());
+                            stack.push(Type::I64.into());
                         }
                         builtins::OPTION => {
-                            stack.push(Storage::Option.into());
+                            stack.push(Type::Option.into());
                         }
                         builtins::SOME => {
                             stack.push(
                                 Storage::Function(Rc::new(Function {
                                     action: FunctionAction::Some,
-                                    argument: Storage::Unit.into(),
+                                    argument: ().into(),
                                 }))
                                 .into(),
                             );
@@ -186,7 +189,7 @@ impl Program {
                             stack.push(
                                 Storage::Function(Rc::new(Function {
                                     action: FunctionAction::None,
-                                    argument: Storage::Unit.into(),
+                                    argument: ().into(),
                                 }))
                                 .into(),
                             );
@@ -220,16 +223,16 @@ impl Program {
                 instruction::FOR => todo!(),
 
                 instruction::PUSH_UNIT => {
-                    stack.push(Storage::Unit.into());
+                    stack.push(().into());
                 }
                 instruction::PUSH_TRUE => {
-                    stack.push(Storage::Bool(true).into());
+                    stack.push(true.into());
                 }
                 instruction::PUSH_FALSE => {
-                    stack.push(Storage::Bool(false).into());
+                    stack.push(false.into());
                 }
                 instruction::PUSH_I64 => {
-                    stack.push(Storage::I64(program.next_i64()?).into());
+                    stack.push(program.next_i64()?.into());
                 }
                 instruction::PUSH_STRING => {
                     let string_id = program.next4()?;
@@ -238,7 +241,7 @@ impl Program {
                         .get(string_id)
                         .ok_or(InvalidBytecode::UnexpectedStringId)?
                         .clone();
-                    stack.push(Storage::String(string).into());
+                    stack.push(string.into());
                 }
                 instruction::PUSH_FUNCTION => {
                     let captures = program.next4()?;
@@ -252,9 +255,7 @@ impl Program {
                                 captures: new_stack,
                             },
                             // will be ignored by concatenation
-                            argument: Value {
-                                storage: Storage::Unit,
-                            },
+                            argument: ().into(),
                         }))
                         .into(),
                     );
@@ -263,8 +264,9 @@ impl Program {
                     let variants = stack
                         .pop()
                         .ok_or(InvalidBytecode::StackUnderflow)?
-                        .into_tuple()?;
-                    stack.push(Storage::EnumType(Rc::new(EnumType { variants })).into());
+                        .into_tuple()?
+                        .try_into()?;
+                    stack.push(Type::from(EnumType { variants }).into());
                 }
                 instruction::PUSH_STRUCT => {
                     let methods = stack
@@ -286,8 +288,11 @@ impl Program {
                         })
                         .collect::<Result<Vec<_>, Error>>()?;
                     statics.reverse();
-                    let inner = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Storage::StructType(Rc::new(StructType { inner })).into());
+                    let inner = stack
+                        .pop()
+                        .ok_or(InvalidBytecode::StackUnderflow)?
+                        .into_complex_type()?;
+                    stack.push(Type::from(StructType { inner }).into());
                 }
 
                 instruction::ADD => bi_num!(let l, r => l + r),
@@ -304,12 +309,12 @@ impl Program {
                 instruction::EQUAL_TO => {
                     let r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let l = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Storage::Bool(l.eq(r)?).into());
+                    stack.push(l.eq(r)?.into());
                 }
                 instruction::NOT_EQUAL_TO => {
                     let r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let l = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Storage::Bool(!l.eq(r)?).into());
+                    stack.push((!l.eq(r)?).into());
                 }
                 instruction::LOGICAL_AND => bi_op!(let l, r: Bool => Bool: *l && *r),
                 instruction::LOGICAL_OR => bi_op!(let l, r: Bool => Bool: *l || *r),
@@ -319,7 +324,7 @@ impl Program {
                     match function.storage {
                         Storage::Function(mut function) => {
                             let function_mut = Rc::make_mut(&mut function);
-                            let mut arguments = Value::from(Storage::Unit);
+                            let mut arguments = ().into();
                             mem::swap(&mut arguments, &mut function_mut.argument);
                             arguments = Value::concat(arguments, argument);
                             mem::swap(&mut arguments, &mut function_mut.argument);
@@ -365,11 +370,9 @@ impl Program {
                         ) => {
                             stack.push(tuple.value(i as usize).cloned().ok_or(
                                 Error::IndexNotFound {
-                                    index: Value {
-                                        storage: Storage::Tuple(tuple),
-                                    },
+                                    index: i.into(),
                                     container: Value {
-                                        storage: Storage::I64(i),
+                                        storage: Storage::Tuple(tuple),
                                     },
                                 },
                             )?);
@@ -384,18 +387,16 @@ impl Program {
                         ) => {
                             stack.push(tuple.find_value(&i).cloned().ok_or(
                                 Error::IndexNotFound {
-                                    index: Value {
-                                        storage: Storage::Tuple(tuple),
-                                    },
+                                    index: i.into(),
                                     container: Value {
-                                        storage: Storage::String(i),
+                                        storage: Storage::Tuple(tuple),
                                     },
                                 },
                             )?);
                         }
                         (
                             Value {
-                                storage: Storage::EnumType(ty),
+                                storage: Storage::Type(Type::Enum(ty)),
                             },
                             Value {
                                 storage: Storage::I64(i),
@@ -406,13 +407,13 @@ impl Program {
                                     variant: i as usize,
                                     definition: ty,
                                 },
-                                argument: Storage::Unit.into(),
+                                argument: ().into(),
                             }))
                             .into(),
                         ),
                         (
                             Value {
-                                storage: Storage::EnumType(ty),
+                                storage: Storage::Type(Type::Enum(ty)),
                             },
                             Value {
                                 storage: Storage::String(name),
@@ -434,14 +435,14 @@ impl Program {
                                             variant: variant_id,
                                             definition: ty,
                                         },
-                                        argument: Storage::Unit.into(),
+                                        argument: ().into(),
                                     }))
                                     .into(),
                                 );
                             } else {
                                 return Err(Error::IndexNotFound {
                                     index: Value {
-                                        storage: Storage::EnumType(ty),
+                                        storage: Storage::Type(Type::Enum(ty)),
                                     },
                                     container: Value {
                                         storage: Storage::String(name),
@@ -471,17 +472,11 @@ impl Program {
                     stack.push(Storage::Tuple(Tuple::from((name, value))).into())
                 }
                 instruction::NEGATIVE => {
-                    let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let Value {
-                        storage: Storage::I64(value),
-                    } = value
-                    else {
-                        return Err(Error::TypeError {
-                            value,
-                            ty: Storage::I64Type.into(),
-                        });
-                    };
-                    stack.push(Storage::I64(-value).into());
+                    let value = stack
+                        .pop()
+                        .ok_or(InvalidBytecode::StackUnderflow)?
+                        .into_i64()?;
+                    stack.push((-value).into());
                 }
 
                 _ => Err(InvalidBytecode::InvalidInstruction)?,

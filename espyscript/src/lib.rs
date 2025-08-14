@@ -5,13 +5,13 @@ pub use espy_eyes as lexer;
 pub use espy_paws as interpreter;
 pub use espy_tail as compiler;
 
-pub use interpreter::{Error, Extern, Function, Storage, Value, function, function_mut};
+pub use interpreter::{Error, Extern, Function, Storage, Type, Value, function, function_mut};
 
 #[derive(Debug)]
 pub struct Program(interpreter::Program);
 
 impl Program {
-    pub fn eval<'host>(&self) -> Result<Value<'host>, interpreter::Error<'host>> {
+    pub fn eval<'host>(&self) -> Result<Value<'host>, Error<'host>> {
         self.0.eval(0, Vec::new())
     }
 }
@@ -33,39 +33,20 @@ impl<'source> TryFrom<&'source str> for Program {
 
 #[cfg(test)]
 mod tests {
-    use interpreter::Storage;
-    use std::rc::Rc;
-
     use super::*;
 
     #[test]
     fn arithmetic() {
         let actual = Program::try_from("(1 + 2) * 4").unwrap();
         println!("{actual:?}");
-        assert!(
-            actual
-                .eval()
-                .unwrap()
-                .eq(Value {
-                    storage: Storage::I64(12),
-                })
-                .unwrap()
-        )
+        assert!(actual.eval().unwrap().eq(12.into()).unwrap())
     }
 
     #[test]
     fn tuples() {
         let actual = Program::try_from("let x = 1, 2; let y = 3, 4; x.1 * y.0").unwrap();
         println!("{actual:?}");
-        assert!(
-            actual
-                .eval()
-                .unwrap()
-                .eq(Value {
-                    storage: Storage::I64(6),
-                })
-                .unwrap()
-        )
+        assert!(actual.eval().unwrap().eq(6.into()).unwrap())
     }
 
     #[test]
@@ -75,72 +56,41 @@ mod tests {
         )
         .unwrap();
         println!("{actual:?}");
-        assert!(
-            actual
-                .eval()
-                .unwrap()
-                .eq(Value {
-                    storage: Storage::I64(6),
-                })
-                .unwrap()
-        )
+        assert!(actual.eval().unwrap().eq(6.into()).unwrap())
     }
 
     #[test]
     fn functions() {
         let actual = Program::try_from("let f = {with x; x * x}; f 4").unwrap();
         println!("{actual:?}");
-        assert!(
-            actual
-                .eval()
-                .unwrap()
-                .eq(Value {
-                    storage: Storage::I64(16),
-                })
-                .unwrap()
-        )
+        assert!(actual.eval().unwrap().eq(16.into()).unwrap())
     }
 
     #[test]
     fn closures() {
         let actual = Program::try_from("let f = {let y = 10; with x; x * y}; f 4").unwrap();
         println!("{actual:?}");
-        assert!(
-            actual
-                .eval()
-                .unwrap()
-                .eq(Value {
-                    storage: Storage::I64(40),
-                })
-                .unwrap()
-        )
+        assert!(actual.eval().unwrap().eq(40.into()).unwrap())
     }
 
     #[test]
     fn pipes() {
         let actual = Program::try_from("let f = {with args; args.0 * args.1}; 2 |> f 128").unwrap();
         println!("{actual:?}");
-        assert!(
-            actual
-                .eval()
-                .unwrap()
-                .eq(Value {
-                    storage: Storage::I64(256),
-                })
-                .unwrap()
-        )
+        assert!(actual.eval().unwrap().eq(256.into()).unwrap())
     }
 
     #[test]
     fn enums_usage() {
         let actual =
-            Program::try_from("let Option = enum Some: any, None: () end; Option.Some 1").unwrap();
+            Program::try_from("let Option = enum Some: any, None: unit end; Option.Some 1")
+                .unwrap();
         println!("{actual:?}");
         let (variant, value) = interpreter::EnumVariant::try_from(actual.eval().unwrap())
             .unwrap()
             .unwrap();
         assert_eq!(variant, Some("Some".into()));
-        assert!(value.eq(Storage::I64(1).into()).unwrap());
+        assert!(value.eq(1.into()).unwrap());
     }
 
     #[test]
@@ -152,8 +102,8 @@ mod tests {
                 .eval()
                 .unwrap()
                 .eq(Value::concat(
-                    Storage::Some(Rc::new(Storage::I64(1).into())).into(),
-                    Storage::None.into()
+                    Some(Value::from(1)).into(),
+                    None::<()>.into()
                 ))
                 .unwrap()
         )
@@ -164,101 +114,70 @@ mod tests {
         let actual = Program::try_from("struct x: any, y: any end").unwrap();
         println!("{actual:?}");
         let value = actual.eval().unwrap();
-        let struct_type = interpreter::StructType::try_from(value).unwrap();
-        assert!(
-            struct_type
-                .inner
-                .eq(Storage::Tuple(interpreter::Tuple::from([
-                    (Some(Rc::from("x")), Storage::Any.into()),
-                    (Some(Rc::from("y")), Storage::Any.into()),
-                ]))
-                .into())
-                .unwrap()
+        let struct_type = value.into_struct_type().unwrap();
+        assert_eq!(
+            struct_type.inner,
+            interpreter::ComplexType::from(interpreter::Tuple::from([
+                (Some(Rc::from("x")), Type::Any.into()),
+                (Some(Rc::from("y")), Type::Any.into()),
+            ]))
         )
     }
 
     #[test]
     fn rust_function() {
-        fn f(arg: Value) -> Result<Value, interpreter::Error> {
-            match arg {
-                Value {
-                    storage: Storage::I64(i),
-                } => Ok(Storage::I64(i * 4).into()),
-                arg => Err(interpreter::Error::TypeError {
-                    value: arg,
-                    ty: Storage::I64Type.into(),
-                }),
-            }
+        fn f(arg: Value) -> Result<Value, Error> {
+            Ok(Value::from(arg.into_i64()? * 4))
         }
 
         assert!(
-            interpreter::Function::try_from(
-                Program::try_from("with f; f(3)").unwrap().eval().unwrap(),
-            )
-            .unwrap()
-            .piped(Storage::Borrow(&interpreter::function(f)).into())
-            .eval()
-            .unwrap()
-            .eq(Storage::I64(12).into())
-            .unwrap()
+            Function::try_from(Program::try_from("with f; f(3)").unwrap().eval().unwrap(),)
+                .unwrap()
+                .piped(Value::borrow(&function(f)))
+                .eval()
+                .unwrap()
+                .eq(12.into())
+                .unwrap()
         )
     }
 
     #[test]
     fn rust_closure() {
         let four = 4;
-        let f = interpreter::function(|arg| match arg {
-            Value {
-                storage: Storage::I64(i),
-            } => Ok(Storage::I64(i * four).into()),
-            arg => Err(interpreter::Error::TypeError {
-                value: arg,
-                ty: Storage::I64Type.into(),
-            }),
-        });
+        let f = function(|arg| Ok(Value::from(arg.into_i64()? * four)));
 
         assert!(
-            interpreter::Function::try_from(
-                Program::try_from("with f; f(3)").unwrap().eval().unwrap(),
-            )
-            .unwrap()
-            .piped(Storage::Borrow(&f).into())
-            .eval()
-            .unwrap()
-            .eq(Storage::I64(12).into())
-            .unwrap()
+            Function::try_from(Program::try_from("with f; f(3)").unwrap().eval().unwrap(),)
+                .unwrap()
+                .piped(Value::borrow(&f))
+                .eval()
+                .unwrap()
+                .eq(12.into())
+                .unwrap()
         )
     }
 
     #[test]
     fn hello_world() {
         let mut message = Rc::from("");
-        let print = interpreter::function_mut(|arg| match arg {
-            Value {
-                storage: Storage::String(i),
-            } => {
-                println!("{i}");
-                message = i.clone();
-                Ok(Storage::Unit.into())
-            }
-            arg => Err(interpreter::Error::TypeError {
-                value: arg,
-                ty: Storage::StringType.into(),
-            }),
+        let print = function_mut(|arg| {
+            message = arg.into_str()?;
+            println!("{message}");
+            Ok(().into())
         });
 
         assert!(
-            interpreter::Function::try_from(
+            Function::try_from(
                 Program::try_from("with print; print \"Hello, world!\"")
                     .unwrap()
                     .eval()
                     .unwrap(),
             )
             .unwrap()
-            .piped(Storage::Borrow(&print).into())
+            .piped(Value::borrow(&print))
             .eval()
             .unwrap()
-            .eq(Storage::Unit.into())
+            .eq(().into())
             .unwrap()
                 && &*message == "Hello, world!"
         )
@@ -279,18 +198,18 @@ mod tests {
             log: std::cell::Cell<Vec<Rc<str>>>,
         }
 
-        impl interpreter::Extern for Std {
+        impl Extern for Std {
             fn index<'host>(
                 &'host self,
                 index: Value<'host>,
-            ) -> Result<Value<'host>, interpreter::Error<'host>> {
+            ) -> Result<Value<'host>, Error<'host>> {
                 match index {
                     Value {
                         storage: Storage::String(x),
-                    } if &*x == "io" => Ok(Storage::Borrow(&self.io).into()),
-                    index => Err(interpreter::Error::IndexNotFound {
+                    } if &*x == "io" => Ok(Value::borrow(&self.io)),
+                    index => Err(Error::IndexNotFound {
                         index,
-                        container: Storage::Borrow(self).into(),
+                        container: Value::borrow(self),
                     }),
                 }
             }
@@ -300,18 +219,18 @@ mod tests {
             }
         }
 
-        impl interpreter::Extern for Io {
+        impl Extern for Io {
             fn index<'host>(
                 &'host self,
                 index: Value<'host>,
-            ) -> Result<Value<'host>, interpreter::Error<'host>> {
+            ) -> Result<Value<'host>, Error<'host>> {
                 match index {
                     Value {
                         storage: Storage::String(x),
-                    } if &*x == "print" => Ok(Storage::Borrow(&self.print).into()),
-                    index => Err(interpreter::Error::IndexNotFound {
+                    } if &*x == "print" => Ok(Value::borrow(&self.print)),
+                    index => Err(Error::IndexNotFound {
                         index,
-                        container: Storage::Borrow(self).into(),
+                        container: Value::borrow(self),
                     }),
                 }
             }
@@ -321,26 +240,17 @@ mod tests {
             }
         }
 
-        impl interpreter::Extern for Print {
+        impl Extern for Print {
             fn call<'host>(
                 &'host self,
                 message: Value<'host>,
-            ) -> Result<Value<'host>, interpreter::Error<'host>> {
-                match message {
-                    Value {
-                        storage: Storage::String(x),
-                    } => {
-                        println!("{x}");
-                        let mut log = self.log.take();
-                        log.push(x);
-                        self.log.set(log);
-                        Ok(Storage::Unit.into())
-                    }
-                    value => Err(interpreter::Error::TypeError {
-                        value,
-                        ty: Storage::StringType.into(),
-                    }),
-                }
+            ) -> Result<Value<'host>, Error<'host>> {
+                let message = message.into_str()?;
+                println!("{message}");
+                let mut log = self.log.take();
+                log.push(message);
+                self.log.set(log);
+                Ok(().into())
             }
 
             fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -351,17 +261,17 @@ mod tests {
         let std = Std::default();
 
         assert!(
-            interpreter::Function::try_from(
+            Function::try_from(
                 Program::try_from("with std; std.io.print \"Hello, world!\"")
                     .unwrap()
                     .eval()
                     .unwrap(),
             )
             .unwrap()
-            .piped(Storage::Borrow(&std).into())
+            .piped(Value::borrow(&std))
             .eval()
             .unwrap()
-            .eq(Storage::Unit.into())
+            .eq(().into())
             .unwrap()
                 && std
                     .io

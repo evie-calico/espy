@@ -5,6 +5,30 @@ pub use interpreter::*;
 mod interop;
 pub use interop::{Extern, ExternCell, ExternMut, function, function_mut};
 
+fn rc_slice_try_from_iter<T, E>(
+    len: usize,
+    iter: impl Iterator<Item = Result<T, E>>,
+) -> Result<Rc<[T]>, E> {
+    let mut tuple = Rc::new_uninit_slice(len);
+    // SAFETY: `get_mut` only returns `None` if the `Rc` has been cloned.
+    let mutable_tuple = unsafe { Rc::get_mut(&mut tuple).unwrap_unchecked() };
+    let mut count = 0;
+    for (entry, value) in mutable_tuple.iter_mut().zip(iter) {
+        entry.write(value?);
+        count += 1;
+    }
+    assert!(
+        count == len,
+        "iter did not produce enough values ({count}) to initialize slice of length {len}"
+    );
+    // SAFETY: Since `count` == `len`, the slice is initialized.
+    unsafe { Ok(tuple.assume_init()) }
+}
+
+fn rc_slice_from_iter<T>(len: usize, iter: impl Iterator<Item = T>) -> Rc<[T]> {
+    rc_slice_try_from_iter(len, iter.map(Ok::<_, ()>)).expect("iter is always Ok")
+}
+
 #[derive(Clone, Debug)]
 pub struct Value<'host> {
     pub storage: Storage<'host>,
@@ -13,11 +37,10 @@ pub struct Value<'host> {
 // Cloning this type should be cheap;
 // every binding usage is a clone in espyscript!
 // Use Rcs over boxes and try to put allocations as far up as possible.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub enum Storage<'host> {
     /// Unit is the absense of a value.
     /// It can be thought of as both an empty tuple and an empty named tuple.
-    #[default]
     Unit,
     Tuple(Tuple<Value<'host>>),
 
@@ -30,16 +53,50 @@ pub enum Storage<'host> {
     Some(Rc<Value<'host>>),
     None,
 
+    Type(Type),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Type {
+    /// Any is the type of a value with unknown capabilities.
+    ///
+    /// Any may be downcasted to another type or trait object to observe its properties,
+    /// but a value of type Any otherwise has no functionality.
+    ///
+    /// Any is the type of all external values because they have arbitrary, unknowable properties.
+    /// This means that external values must be casted to trait objects to interact with them.
     Any,
-    I64Type,
-    BoolType,
-    StringType,
+    I64,
+    Bool,
+    String,
     // TODO: FunctionType
-    StructType(Rc<StructType<'host>>),
-    EnumType(Rc<EnumType<'host>>),
+    Struct(Rc<StructType>),
+    Enum(Rc<EnumType>),
     Option,
+
     /// The type of types.
     Type,
+    Unit,
+}
+
+/// ComplexType is usually the only form of [`Type`] that the espyscript interpreter is concerned with,
+/// but it cannot be represented within espyscript itself (tuples of types represent Complex, instead).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ComplexType {
+    Simple(Type),
+    Complex(Tuple<ComplexType>),
+}
+
+impl From<Type> for ComplexType {
+    fn from(value: Type) -> Self {
+        Self::Simple(value)
+    }
+}
+
+impl From<Tuple<ComplexType>> for ComplexType {
+    fn from(value: Tuple<ComplexType>) -> Self {
+        Self::Complex(value)
+    }
 }
 
 impl std::fmt::Debug for Storage<'_> {
@@ -59,14 +116,7 @@ impl std::fmt::Debug for Storage<'_> {
             Storage::EnumVariant(enum_variant) => write!(f, "EnumVariant({enum_variant:?})"),
             Storage::Some(value) => write!(f, "Some({value:?})"),
             Storage::None => write!(f, "None"),
-            Storage::Any => write!(f, "Any"),
-            Storage::I64Type => write!(f, "I64Type"),
-            Storage::BoolType => write!(f, "BoolType"),
-            Storage::StringType => write!(f, "StringType"),
-            Storage::StructType(struct_type) => write!(f, "StructType({struct_type:?})"),
-            Storage::EnumType(enum_type) => write!(f, "EnumType({enum_type:?})"),
-            Storage::Option => write!(f, "Option"),
-            Storage::Type => write!(f, "Type"),
+            Storage::Type(t) => write!(f, "{t:?}"),
         }
     }
 }
@@ -74,6 +124,18 @@ impl std::fmt::Debug for Storage<'_> {
 impl<'host> From<Storage<'host>> for Value<'host> {
     fn from(storage: Storage<'host>) -> Self {
         Self { storage }
+    }
+}
+
+impl<'host> From<Type> for Value<'host> {
+    fn from(t: Type) -> Self {
+        Self { storage: t.into() }
+    }
+}
+
+impl<'host> From<Type> for Storage<'host> {
+    fn from(t: Type) -> Self {
+        Self::Type(t)
     }
 }
 
@@ -153,113 +215,108 @@ impl<'host> Value<'host> {
 
             (
                 Value {
-                    storage: Storage::Any,
+                    storage: Storage::Type(Type::Any),
                 },
                 Value {
-                    storage: Storage::Any,
-                },
-            ) => Ok(true),
-            (
-                Value {
-                    storage: Storage::I64Type,
-                },
-                Value {
-                    storage: Storage::I64Type,
+                    storage: Storage::Type(Type::Any),
                 },
             ) => Ok(true),
             (
                 Value {
-                    storage: Storage::BoolType,
+                    storage: Storage::Type(Type::I64),
                 },
                 Value {
-                    storage: Storage::BoolType,
-                },
-            ) => Ok(true),
-            (
-                Value {
-                    storage: Storage::StringType,
-                },
-                Value {
-                    storage: Storage::StringType,
+                    storage: Storage::Type(Type::I64),
                 },
             ) => Ok(true),
             (
                 Value {
-                    storage: Storage::StructType(l),
+                    storage: Storage::Type(Type::Bool),
                 },
                 Value {
-                    storage: Storage::StructType(r),
+                    storage: Storage::Type(Type::Bool),
+                },
+            ) => Ok(true),
+            (
+                Value {
+                    storage: Storage::Type(Type::String),
+                },
+                Value {
+                    storage: Storage::Type(Type::String),
+                },
+            ) => Ok(true),
+            (
+                Value {
+                    storage: Storage::Type(Type::Struct(l)),
+                },
+                Value {
+                    storage: Storage::Type(Type::Struct(r)),
                 },
             ) => Ok(Rc::ptr_eq(&l, &r)),
             (
                 Value {
-                    storage: Storage::EnumType(l),
+                    storage: Storage::Type(Type::Enum(l)),
                 },
                 Value {
-                    storage: Storage::EnumType(r),
+                    storage: Storage::Type(Type::Enum(r)),
                 },
             ) => Ok(Rc::ptr_eq(&l, &r)),
             (
                 Value {
-                    storage: Storage::Option,
+                    storage: Storage::Type(Type::Option),
                 },
                 Value {
-                    storage: Storage::Option,
+                    storage: Storage::Type(Type::Option),
                 },
             ) => Ok(true),
             (
                 Value {
-                    storage: Storage::Type,
+                    storage: Storage::Type(Type::Type),
                 },
                 Value {
-                    storage: Storage::Type,
+                    storage: Storage::Type(Type::Type),
                 },
             ) => Ok(true),
             (this, other) => Err(Error::IncomparableValues(this, other)),
         }
     }
 
-    fn type_cmp(&self, ty: &Self) -> bool {
-        match (&self.storage, &ty.storage) {
-            (_, Storage::Any) => true,
-            (
-                Storage::Type
-                | Storage::Any
-                | Storage::Unit
-                | Storage::I64Type
-                | Storage::EnumType { .. },
-                Storage::Type,
-            ) => true,
-            (Storage::Unit, Storage::Unit) => true,
-            (Storage::I64(_), Storage::I64Type) => true,
-            (Storage::Bool(_), Storage::BoolType) => true,
-            (Storage::String(_), Storage::StringType) => true,
-            (Storage::EnumVariant(variant), Storage::EnumType(ty)) => {
-                Rc::ptr_eq(&variant.definition, ty)
+    fn type_of(&self) -> ComplexType {
+        match &self.storage {
+            Storage::Unit => ComplexType::Simple(Type::Unit),
+            Storage::Tuple(tuple) => {
+                let complex = rc_slice_from_iter(
+                    tuple.len(),
+                    tuple
+                        .0
+                        .iter()
+                        .map(|(name, value)| (name.clone(), value.type_of())),
+                );
+                // The type of a tuple containing only types is `type`, not `(type, type, ..)`
+                if complex
+                    .iter()
+                    .all(|x| matches!(x.1, ComplexType::Simple(Type::Type)))
+                {
+                    Type::Type.into()
+                } else {
+                    Tuple(complex).into()
+                }
             }
-            (_, _) => false,
+            Storage::Borrow(_) => ComplexType::Simple(Type::Any),
+            Storage::I64(_) => ComplexType::Simple(Type::I64),
+            Storage::Bool(_) => ComplexType::Simple(Type::Bool),
+            Storage::String(_) => ComplexType::Simple(Type::String),
+            Storage::Function(function) => todo!(),
+            Storage::EnumVariant(enum_variant) => {
+                ComplexType::Simple(Type::Enum(enum_variant.definition.clone()))
+            }
+            Storage::Some(_) => ComplexType::Simple(Type::Option),
+            Storage::None => ComplexType::Simple(Type::Option),
+            Storage::Type(_) => ComplexType::Simple(Type::Type),
         }
     }
 
     pub fn concat(self, r: Self) -> Self {
-        fn rc_slice_from_iter<T>(len: usize, iter: impl Iterator<Item = T>) -> Rc<[T]> {
-            let mut tuple = Rc::new_uninit_slice(len);
-            // SAFETY: `get_mut` only returns `None` if the `Rc` has been cloned.
-            let mutable_tuple = unsafe { Rc::get_mut(&mut tuple).unwrap_unchecked() };
-            let count = mutable_tuple
-                .iter_mut()
-                .zip(iter)
-                .map(|(entry, value)| {
-                    entry.write(value);
-                })
-                .count();
-            assert!(
-                count == len,
-                "iter did not produce enough values ({count}) to initialize slice of length {len}"
-            );
-            // SAFETY: Since `count` == `len`, the slice is initialized.
-            unsafe { tuple.assume_init() }
-        }
         match (self, r) {
             (
                 Value {
@@ -320,6 +377,10 @@ impl<'host> Value<'host> {
         }
     }
 
+    pub fn into_unit(self) -> Result<(), Error<'host>> {
+        self.try_into()
+    }
+
     pub fn into_tuple(self) -> Result<Tuple<Value<'host>>, Error<'host>> {
         self.try_into()
     }
@@ -334,6 +395,26 @@ impl<'host> Value<'host> {
         }
     }
 
+    pub fn into_i64(self) -> Result<i64, Error<'host>> {
+        self.try_into()
+    }
+
+    pub fn into_str(self) -> Result<Rc<str>, Error<'host>> {
+        self.try_into()
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
+        if let Storage::String(s) = &self.storage {
+            Some(s)
+        } else {
+            None
+        }
+    }
+
+    pub fn borrow(external: &'host dyn Extern) -> Self {
+        Storage::Borrow(external).into()
+    }
+
     pub fn into_function(self) -> Result<Rc<Function<'host>>, Error<'host>> {
         self.try_into()
     }
@@ -342,12 +423,62 @@ impl<'host> Value<'host> {
         self.try_into()
     }
 
-    pub fn into_enum_type(self) -> Result<Rc<EnumType<'host>>, Error<'host>> {
+    pub fn into_complex_type(self) -> Result<ComplexType, Error<'host>> {
         self.try_into()
     }
 
-    pub fn into_struct_type(self) -> Result<Rc<StructType<'host>>, Error<'host>> {
+    pub fn into_enum_type(self) -> Result<Rc<EnumType>, Error<'host>> {
         self.try_into()
+    }
+
+    pub fn into_struct_type(self) -> Result<Rc<StructType>, Error<'host>> {
+        self.try_into()
+    }
+}
+
+impl From<()> for Value<'_> {
+    fn from(_: ()) -> Self {
+        Storage::Unit.into()
+    }
+}
+
+impl From<bool> for Value<'_> {
+    fn from(value: bool) -> Self {
+        Storage::Bool(value).into()
+    }
+}
+
+impl From<i64> for Value<'_> {
+    fn from(i: i64) -> Self {
+        Storage::I64(i).into()
+    }
+}
+
+impl From<Rc<str>> for Value<'_> {
+    fn from(s: Rc<str>) -> Self {
+        Storage::String(s).into()
+    }
+}
+
+impl<'host, T: Into<Value<'host>>> From<Option<T>> for Value<'host> {
+    fn from(value: Option<T>) -> Self {
+        if let Some(value) = value {
+            Storage::Some(Rc::new(value.into())).into()
+        } else {
+            Storage::None.into()
+        }
+    }
+}
+
+impl<'host> TryFrom<Value<'host>> for () {
+    type Error = Error<'host>;
+
+    fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
+        if let Storage::Unit = value.storage {
+            Ok(())
+        } else {
+            Err(Error::type_error(value, Type::I64))
+        }
     }
 }
 
@@ -359,6 +490,30 @@ impl<'host> TryFrom<Value<'host>> for Tuple<Value<'host>> {
             Ok(value)
         } else {
             Err(Error::ExpectedTuple(value))
+        }
+    }
+}
+
+impl<'host> TryFrom<Value<'host>> for i64 {
+    type Error = Error<'host>;
+
+    fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
+        if let Storage::I64(value) = value.storage {
+            Ok(value)
+        } else {
+            Err(Error::type_error(value, Type::I64))
+        }
+    }
+}
+
+impl<'host> TryFrom<Value<'host>> for Rc<str> {
+    type Error = Error<'host>;
+
+    fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
+        if let Storage::String(value) = value.storage {
+            Ok(value)
+        } else {
+            Err(Error::type_error(value, Type::String))
         }
     }
 }
@@ -407,11 +562,27 @@ impl<'host> TryFrom<Value<'host>> for EnumVariant<'host> {
     }
 }
 
-impl<'host> TryFrom<Value<'host>> for Rc<EnumType<'host>> {
+impl<'host> TryFrom<Value<'host>> for ComplexType {
+    type Error = Error<'host>;
+
+    fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
+        match value {
+            Value {
+                storage: Storage::Type(t),
+            } => Ok(t.into()),
+            Value {
+                storage: Storage::Tuple(tuple),
+            } => Ok(ComplexType::Complex(tuple.try_into()?)),
+            _ => Err(Error::type_error(value, Type::Type)),
+        }
+    }
+}
+
+impl<'host> TryFrom<Value<'host>> for Rc<EnumType> {
     type Error = Error<'host>;
     fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
         if let Value {
-            storage: Storage::EnumType(value),
+            storage: Storage::Type(Type::Enum(value)),
         } = value
         {
             Ok(value)
@@ -421,7 +592,7 @@ impl<'host> TryFrom<Value<'host>> for Rc<EnumType<'host>> {
     }
 }
 
-impl<'host> TryFrom<Value<'host>> for EnumType<'host> {
+impl<'host> TryFrom<Value<'host>> for EnumType {
     type Error = Error<'host>;
 
     fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
@@ -429,11 +600,11 @@ impl<'host> TryFrom<Value<'host>> for EnumType<'host> {
     }
 }
 
-impl<'host> TryFrom<Value<'host>> for Rc<StructType<'host>> {
+impl<'host> TryFrom<Value<'host>> for Rc<StructType> {
     type Error = Error<'host>;
     fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
         if let Value {
-            storage: Storage::StructType(value),
+            storage: Storage::Type(Type::Struct(value)),
         } = value
         {
             Ok(value)
@@ -443,7 +614,7 @@ impl<'host> TryFrom<Value<'host>> for Rc<StructType<'host>> {
     }
 }
 
-impl<'host> TryFrom<Value<'host>> for StructType<'host> {
+impl<'host> TryFrom<Value<'host>> for StructType {
     type Error = Error<'host>;
 
     fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
@@ -451,7 +622,7 @@ impl<'host> TryFrom<Value<'host>> for StructType<'host> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tuple<T>(Rc<[(Option<Rc<str>>, T)]>);
 
 impl<T> Tuple<T> {
@@ -479,6 +650,21 @@ impl<T> Tuple<T> {
 
     pub fn values(&self) -> impl Iterator<Item = &T> {
         self.0.iter().map(|(_name, value)| value)
+    }
+}
+
+impl<'host> TryFrom<Tuple<Value<'host>>> for Tuple<ComplexType> {
+    type Error = Error<'host>;
+
+    fn try_from(tuple: Tuple<Value<'host>>) -> Result<Self, Self::Error> {
+        rc_slice_try_from_iter(
+            tuple.len(),
+            tuple
+                .0
+                .iter()
+                .map(|(name, value)| Ok((name.clone(), value.clone().try_into()?))),
+        )
+        .map(Tuple)
     }
 }
 
@@ -539,11 +725,8 @@ impl<'host> Function<'host> {
                     .variants
                     .value(variant)
                     .expect("enum variant must not be missing");
-                if !self.argument.type_cmp(ty) {
-                    return Err(Error::TypeError {
-                        value: self.argument,
-                        ty: ty.clone(),
-                    });
+                if *ty != Type::Any.into() && self.argument.type_of() != *ty {
+                    return Err(Error::type_error(self.argument, ty.clone()));
                 }
                 Storage::EnumVariant(Rc::new(EnumVariant {
                     contents: self.argument,
@@ -552,22 +735,17 @@ impl<'host> Function<'host> {
                 }))
                 .into()
             }
-            FunctionAction::Some => Storage::Some(self.argument.into()).into(),
+            FunctionAction::Some => Some(self.argument).into(),
             FunctionAction::None => {
-                if !self.argument.type_cmp(&Storage::Unit.into()) {
-                    return Err(Error::TypeError {
-                        value: self.argument,
-                        ty: Storage::Unit.into(),
-                    });
-                }
-                Storage::None.into()
+                self.argument.into_unit()?;
+                None::<()>.into()
             }
         })
     }
 
     /// Concatentes the function's argument list with `argument`.
     pub fn pipe(&mut self, argument: Value<'host>) {
-        let mut arguments = Value::from(Storage::Unit);
+        let mut arguments = ().into();
         mem::swap(&mut arguments, &mut self.argument);
         arguments = Value::concat(arguments, argument);
         mem::swap(&mut arguments, &mut self.argument);
@@ -588,22 +766,34 @@ pub enum FunctionAction<'host> {
     },
     Enum {
         variant: usize,
-        definition: Rc<EnumType<'host>>,
+        definition: Rc<EnumType>,
     },
     Some,
     None,
 }
 
-#[derive(Clone, Debug)]
-pub struct StructType<'host> {
-    pub inner: Value<'host>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StructType {
+    pub inner: ComplexType,
+}
+
+impl From<Rc<StructType>> for Type {
+    fn from(value: Rc<StructType>) -> Self {
+        Type::Struct(value)
+    }
+}
+
+impl From<StructType> for Type {
+    fn from(value: StructType) -> Self {
+        Rc::new(value).into()
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct EnumVariant<'host> {
     pub contents: Value<'host>,
     pub variant: usize,
-    pub definition: Rc<EnumType<'host>>,
+    pub definition: Rc<EnumType>,
 }
 
 impl<'host> EnumVariant<'host> {
@@ -611,7 +801,7 @@ impl<'host> EnumVariant<'host> {
         &self.contents
     }
 
-    pub fn definition(&self) -> &Rc<EnumType<'host>> {
+    pub fn definition(&self) -> &Rc<EnumType> {
         &self.definition
     }
 
@@ -627,9 +817,21 @@ impl<'host> EnumVariant<'host> {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct EnumType<'host> {
-    pub variants: Tuple<Value<'host>>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnumType {
+    pub variants: Tuple<ComplexType>,
+}
+
+impl From<Rc<EnumType>> for Type {
+    fn from(value: Rc<EnumType>) -> Self {
+        Type::Enum(value)
+    }
+}
+
+impl From<EnumType> for Type {
+    fn from(value: EnumType) -> Self {
+        Rc::new(value).into()
+    }
 }
 
 #[derive(Debug)]
@@ -643,7 +845,7 @@ pub enum Error<'host> {
     IncomparableValues(Value<'host>, Value<'host>),
     TypeError {
         value: Value<'host>,
-        ty: Value<'host>,
+        ty: ComplexType,
     },
     IndexNotFound {
         index: Value<'host>,
@@ -659,6 +861,15 @@ pub enum Error<'host> {
     /// If this is emitted due to bytecode from the espyscript compiler,
     /// it should be considered a bug in either program.
     InvalidBytecode(InvalidBytecode),
+}
+
+impl<'host> Error<'host> {
+    pub fn type_error(value: Value<'host>, ty: impl Into<ComplexType>) -> Self {
+        Self::TypeError {
+            value,
+            ty: ty.into(),
+        }
+    }
 }
 
 #[derive(Debug)]
