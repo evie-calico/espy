@@ -15,13 +15,11 @@ pub struct Value<'host> {
 // Use Rcs over boxes and try to put allocations as far up as possible.
 #[derive(Clone, Default)]
 pub enum Storage<'host> {
-    /// Unit is a special case of tuple.
-    /// It behaves as both an empty tuple and an empty named tuple,
-    /// as well as the type of itself (typeof () == ()).
-    // TODO: maybe () should be the value and `unit` the type?
+    /// Unit is the absense of a value.
+    /// It can be thought of as both an empty tuple and an empty named tuple.
     #[default]
     Unit,
-    Tuple(Tuple<'host>),
+    Tuple(Tuple<Value<'host>>),
 
     Borrow(&'host dyn Extern),
     I64(i64),
@@ -322,11 +320,11 @@ impl<'host> Value<'host> {
         }
     }
 
-    pub fn into_tuple(self) -> Result<Tuple<'host>, Error<'host>> {
+    pub fn into_tuple(self) -> Result<Tuple<Value<'host>>, Error<'host>> {
         self.try_into()
     }
 
-    pub fn into_tuple_or_unit(self) -> Result<Option<Tuple<'host>>, Error<'host>> {
+    pub fn into_tuple_or_unit(self) -> Result<Option<Tuple<Value<'host>>>, Error<'host>> {
         match self.into_tuple() {
             Ok(tuple) => Ok(Some(tuple)),
             Err(Error::ExpectedTuple(Value {
@@ -353,7 +351,7 @@ impl<'host> Value<'host> {
     }
 }
 
-impl<'host> TryFrom<Value<'host>> for Tuple<'host> {
+impl<'host> TryFrom<Value<'host>> for Tuple<Value<'host>> {
     type Error = Error<'host>;
 
     fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
@@ -454,9 +452,9 @@ impl<'host> TryFrom<Value<'host>> for StructType<'host> {
 }
 
 #[derive(Clone, Debug)]
-pub struct Tuple<'host>(Rc<[(Option<Rc<str>>, Value<'host>)]>);
+pub struct Tuple<T>(Rc<[(Option<Rc<str>>, T)]>);
 
-impl<'host> Tuple<'host> {
+impl<T> Tuple<T> {
     pub fn len(&self) -> usize {
         self.0.len()
     }
@@ -465,11 +463,11 @@ impl<'host> Tuple<'host> {
         self.len() == 0
     }
 
-    pub fn value(&self, index: usize) -> Option<&Value<'host>> {
+    pub fn value(&self, index: usize) -> Option<&T> {
         self.0.get(index).map(|(_name, value)| value)
     }
 
-    pub fn find_value(&self, name: &str) -> Option<&Value<'host>> {
+    pub fn find_value(&self, name: &str) -> Option<&T> {
         self.0.iter().find_map(|(n, v)| {
             if n.as_ref().is_some_and(|n| **n == *name) {
                 Some(v)
@@ -479,37 +477,37 @@ impl<'host> Tuple<'host> {
         })
     }
 
-    pub fn values(&self) -> impl Iterator<Item = &Value<'host>> {
+    pub fn values(&self) -> impl Iterator<Item = &T> {
         self.0.iter().map(|(_name, value)| value)
     }
 }
 
-impl<'host> From<(Rc<str>, Value<'host>)> for Tuple<'host> {
-    fn from((name, value): (Rc<str>, Value<'host>)) -> Self {
+impl<T> From<(Rc<str>, T)> for Tuple<T> {
+    fn from((name, value): (Rc<str>, T)) -> Self {
         Self(Rc::new([(Some(name), value)]))
     }
 }
 
-impl<'host> From<Rc<[(Option<Rc<str>>, Value<'host>)]>> for Tuple<'host> {
-    fn from(value: Rc<[(Option<Rc<str>>, Value<'host>)]>) -> Self {
+impl<T> From<Rc<[(Option<Rc<str>>, T)]>> for Tuple<T> {
+    fn from(value: Rc<[(Option<Rc<str>>, T)]>) -> Self {
         Self(value)
     }
 }
 
-impl<'host, const N: usize> From<[(Option<Rc<str>>, Value<'host>); N]> for Tuple<'host> {
-    fn from(value: [(Option<Rc<str>>, Value<'host>); N]) -> Self {
+impl<T, const N: usize> From<[(Option<Rc<str>>, T); N]> for Tuple<T> {
+    fn from(value: [(Option<Rc<str>>, T); N]) -> Self {
         Self(Rc::from(value))
     }
 }
 
-impl<'host> AsRef<[(Option<Rc<str>>, Value<'host>)]> for Tuple<'host> {
-    fn as_ref(&self) -> &[(Option<Rc<str>>, Value<'host>)] {
+impl<T> AsRef<[(Option<Rc<str>>, T)]> for Tuple<T> {
+    fn as_ref(&self) -> &[(Option<Rc<str>>, T)] {
         &self.0
     }
 }
 
-impl<'host> std::ops::Index<usize> for Tuple<'host> {
-    type Output = (Option<Rc<str>>, Value<'host>);
+impl<T> std::ops::Index<usize> for Tuple<T> {
+    type Output = (Option<Rc<str>>, T);
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.0[index]
@@ -631,7 +629,7 @@ impl<'host> EnumVariant<'host> {
 
 #[derive(Clone, Debug)]
 pub struct EnumType<'host> {
-    pub variants: Tuple<'host>,
+    pub variants: Tuple<Value<'host>>,
 }
 
 #[derive(Debug)]
