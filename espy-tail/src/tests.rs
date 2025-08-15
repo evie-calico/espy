@@ -261,7 +261,7 @@ fn named_tuple_indexing() {
 
 #[test]
 fn builtins() {
-    let mut lexer = Lexer::from("Option.Some 1; None ()").peekable();
+    let mut lexer = Lexer::from("let OptionI64 = option i64; OptionI64.Some 1").peekable();
     let block = Block::new(&mut lexer);
     let program = Program::try_from(block).unwrap();
     let actual = program.compile();
@@ -269,13 +269,12 @@ fn builtins() {
         let some = "Some";
         fn _main {
             Clone(builtins::OPTION),
+            Clone(builtins::I64),
+            Call,
+            Clone(0),
             PushString(some),
             Index,
             PushI64(1),
-            Call,
-            Pop,
-            Clone(builtins::NONE),
-            PushUnit,
             Call,
         }
     };
@@ -284,19 +283,26 @@ fn builtins() {
 
 #[test]
 fn for_loop() {
-    let mut lexer = Lexer::from("for i in 5 then Some i end").peekable();
+    let mut lexer =
+        Lexer::from("let Some = (option i64).Some; for i in 5 then Some i end").peekable();
     let block = Block::new(&mut lexer);
     let program = Program::try_from(block).unwrap();
     let actual = program.compile();
     let expected = program! {
+        let some = "Some";
         fn _main {
+            Clone(builtins::OPTION),
+            Clone(builtins::I64),
+            Call,
+            PushString(some),
+            Index,
             PushI64(5),
-            For(31),
-            Clone(builtins::SOME),
-            Clone(1),
+            For(48),
+            Clone(0),
+            Clone(2),
             Call,
             Pop,
-            Jump(9),
+            Jump(26),
             Pop,
             PushUnit,
         }

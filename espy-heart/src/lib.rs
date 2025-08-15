@@ -62,17 +62,13 @@ pub mod builtins {
     use crate::StackPointer;
 
     pub const OPTION: StackPointer = -1;
-    pub const SOME: StackPointer = -2;
-    pub const NONE: StackPointer = -3;
-    pub const ANY: StackPointer = -4;
-    pub const UNIT: StackPointer = -5;
-    pub const I64: StackPointer = -6;
+    pub const ANY: StackPointer = -2;
+    pub const UNIT: StackPointer = -3;
+    pub const I64: StackPointer = -4;
 
     pub fn from_str(s: &str) -> Option<StackPointer> {
         match s {
-            "Option" => Some(OPTION),
-            "Some" => Some(SOME),
-            "None" => Some(NONE),
+            "option" => Some(OPTION),
             "any" => Some(ANY),
             "unit" => Some(UNIT),
             "i64" => Some(I64),

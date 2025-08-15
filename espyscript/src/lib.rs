@@ -95,16 +95,16 @@ mod tests {
 
     #[test]
     fn options() {
-        let actual = Program::try_from("(Some 1), (None ())").unwrap();
+        let actual = Program::try_from(
+            "let OptionI64 = option i64; (OptionI64.Some 1), (OptionI64.None ())",
+        )
+        .unwrap();
         println!("{actual:?}");
         assert!(
             actual
                 .eval()
                 .unwrap()
-                .eq(Value::concat(
-                    Some(Value::from(1)).into(),
-                    None::<()>.into()
-                ))
+                .eq(Value::concat(Some(1).into(), None::<i64>.into()))
                 .unwrap()
         )
     }

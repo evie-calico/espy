@@ -50,8 +50,10 @@ pub enum Storage<'host> {
     String(Rc<str>),
     Function(Rc<Function<'host>>),
     EnumVariant(Rc<EnumVariant<'host>>),
-    Some(Rc<Value<'host>>),
-    None,
+    Option {
+        contents: Option<Rc<Value<'host>>>,
+        ty: Rc<ComplexType>,
+    },
 
     Type(Type),
 }
@@ -72,7 +74,7 @@ pub enum Type {
     // TODO: FunctionType
     Struct(Rc<StructType>),
     Enum(Rc<EnumType>),
-    Option,
+    Option(Rc<ComplexType>),
 
     /// The type of types.
     Type,
@@ -101,6 +103,7 @@ impl From<Tuple<ComplexType>> for ComplexType {
 
 impl std::fmt::Debug for Storage<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Storage::")?;
         match self {
             Storage::Unit => write!(f, "Unit"),
             Storage::Tuple(tuple) => write!(f, "Tuple({tuple:?})"),
@@ -114,8 +117,7 @@ impl std::fmt::Debug for Storage<'_> {
             Storage::String(i) => write!(f, "String({i:?})"),
             Storage::Function(function) => write!(f, "Function({function:?})"),
             Storage::EnumVariant(enum_variant) => write!(f, "EnumVariant({enum_variant:?})"),
-            Storage::Some(value) => write!(f, "Some({value:?})"),
-            Storage::None => write!(f, "None"),
+            Storage::Option { contents, ty: _ } => write!(f, "{contents:?}"),
             Storage::Type(t) => write!(f, "{t:?}"),
         }
     }
@@ -198,85 +200,48 @@ impl<'host> Value<'host> {
                         .unwrap_or_else(|r| r.contents.clone()))?),
             (
                 Value {
-                    storage: Storage::Some(l),
+                    storage:
+                        Storage::Option {
+                            contents: l,
+                            ty: l_type,
+                        },
                 },
                 Value {
-                    storage: Storage::Some(r),
+                    storage:
+                        Storage::Option {
+                            contents: r,
+                            ty: r_type,
+                        },
                 },
-            ) => Rc::unwrap_or_clone(l).eq(Rc::unwrap_or_clone(r)),
+            ) => {
+                if l_type == r_type {
+                    Ok(l.is_none() && r.is_none()
+                        || l.zip(r)
+                            .map(|(l, r)| Rc::unwrap_or_clone(l).eq(Rc::unwrap_or_clone(r)))
+                            .unwrap_or(Ok(false))?)
+                } else {
+                    Err(Error::IncomparableValues(
+                        Storage::Option {
+                            contents: l,
+                            ty: l_type,
+                        }
+                        .into(),
+                        Storage::Option {
+                            contents: r,
+                            ty: r_type,
+                        }
+                        .into(),
+                    ))
+                }
+            }
             (
                 Value {
-                    storage: Storage::None,
+                    storage: Storage::Type(l),
                 },
                 Value {
-                    storage: Storage::None,
+                    storage: Storage::Type(r),
                 },
-            ) => Ok(true),
-
-            (
-                Value {
-                    storage: Storage::Type(Type::Any),
-                },
-                Value {
-                    storage: Storage::Type(Type::Any),
-                },
-            ) => Ok(true),
-            (
-                Value {
-                    storage: Storage::Type(Type::I64),
-                },
-                Value {
-                    storage: Storage::Type(Type::I64),
-                },
-            ) => Ok(true),
-            (
-                Value {
-                    storage: Storage::Type(Type::Bool),
-                },
-                Value {
-                    storage: Storage::Type(Type::Bool),
-                },
-            ) => Ok(true),
-            (
-                Value {
-                    storage: Storage::Type(Type::String),
-                },
-                Value {
-                    storage: Storage::Type(Type::String),
-                },
-            ) => Ok(true),
-            (
-                Value {
-                    storage: Storage::Type(Type::Struct(l)),
-                },
-                Value {
-                    storage: Storage::Type(Type::Struct(r)),
-                },
-            ) => Ok(Rc::ptr_eq(&l, &r)),
-            (
-                Value {
-                    storage: Storage::Type(Type::Enum(l)),
-                },
-                Value {
-                    storage: Storage::Type(Type::Enum(r)),
-                },
-            ) => Ok(Rc::ptr_eq(&l, &r)),
-            (
-                Value {
-                    storage: Storage::Type(Type::Option),
-                },
-                Value {
-                    storage: Storage::Type(Type::Option),
-                },
-            ) => Ok(true),
-            (
-                Value {
-                    storage: Storage::Type(Type::Type),
-                },
-                Value {
-                    storage: Storage::Type(Type::Type),
-                },
-            ) => Ok(true),
+            ) => Ok(l == r),
             (this, other) => Err(Error::IncomparableValues(this, other)),
         }
     }
@@ -310,8 +275,7 @@ impl<'host> Value<'host> {
             Storage::EnumVariant(enum_variant) => {
                 ComplexType::Simple(Type::Enum(enum_variant.definition.clone()))
             }
-            Storage::Some(_) => ComplexType::Simple(Type::Option),
-            Storage::None => ComplexType::Simple(Type::Option),
+            Storage::Option { contents: _, ty } => ComplexType::Simple(Type::Option(ty.clone())),
             Storage::Type(_) => ComplexType::Simple(Type::Type),
         }
     }
@@ -442,9 +406,29 @@ impl From<()> for Value<'_> {
     }
 }
 
+impl From<Option<()>> for Value<'_> {
+    fn from(value: Option<()>) -> Self {
+        Storage::Option {
+            contents: value.map(|()| Rc::new(Storage::Unit.into())),
+            ty: Rc::new(Type::Unit.into()),
+        }
+        .into()
+    }
+}
+
 impl From<bool> for Value<'_> {
     fn from(value: bool) -> Self {
         Storage::Bool(value).into()
+    }
+}
+
+impl From<Option<bool>> for Value<'_> {
+    fn from(value: Option<bool>) -> Self {
+        Storage::Option {
+            contents: value.map(|value| Rc::new(Storage::Bool(value).into())),
+            ty: Rc::new(Type::Bool.into()),
+        }
+        .into()
     }
 }
 
@@ -454,19 +438,29 @@ impl From<i64> for Value<'_> {
     }
 }
 
+impl From<Option<i64>> for Value<'_> {
+    fn from(value: Option<i64>) -> Self {
+        Storage::Option {
+            contents: value.map(|value| Rc::new(Storage::I64(value).into())),
+            ty: Rc::new(Type::I64.into()),
+        }
+        .into()
+    }
+}
+
 impl From<Rc<str>> for Value<'_> {
     fn from(s: Rc<str>) -> Self {
         Storage::String(s).into()
     }
 }
 
-impl<'host, T: Into<Value<'host>>> From<Option<T>> for Value<'host> {
-    fn from(value: Option<T>) -> Self {
-        if let Some(value) = value {
-            Storage::Some(Rc::new(value.into())).into()
-        } else {
-            Storage::None.into()
+impl From<Option<Rc<str>>> for Value<'_> {
+    fn from(value: Option<Rc<str>>) -> Self {
+        Storage::Option {
+            contents: value.map(|value| Rc::new(Storage::String(value).into())),
+            ty: Rc::new(Type::String.into()),
         }
+        .into()
     }
 }
 
@@ -735,10 +729,22 @@ impl<'host> Function<'host> {
                 }))
                 .into()
             }
-            FunctionAction::Some => Some(self.argument).into(),
-            FunctionAction::None => {
+            FunctionAction::Option => {
+                Type::Option(Rc::new(self.argument.into_complex_type()?)).into()
+            }
+            FunctionAction::Some(ty) => {
+                if self.argument.type_of() != *ty {
+                    return Err(Error::type_error(self.argument, (*ty).clone()));
+                }
+                Storage::Option {
+                    contents: Some(Rc::new(self.argument)),
+                    ty,
+                }
+                .into()
+            }
+            FunctionAction::None(ty) => {
                 self.argument.into_unit()?;
-                None::<()>.into()
+                Storage::Option { contents: None, ty }.into()
             }
         })
     }
@@ -768,8 +774,9 @@ pub enum FunctionAction<'host> {
         variant: usize,
         definition: Rc<EnumType>,
     },
-    Some,
-    None,
+    Option,
+    Some(Rc<ComplexType>),
+    None(Rc<ComplexType>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

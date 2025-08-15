@@ -174,21 +174,9 @@ impl Program {
                             stack.push(Type::I64.into());
                         }
                         builtins::OPTION => {
-                            stack.push(Type::Option.into());
-                        }
-                        builtins::SOME => {
                             stack.push(
                                 Storage::Function(Rc::new(Function {
-                                    action: FunctionAction::Some,
-                                    argument: ().into(),
-                                }))
-                                .into(),
-                            );
-                        }
-                        builtins::NONE => {
-                            stack.push(
-                                Storage::Function(Rc::new(Function {
-                                    action: FunctionAction::None,
+                                    action: FunctionAction::Option,
                                     argument: ().into(),
                                 }))
                                 .into(),
@@ -401,16 +389,27 @@ impl Program {
                             Value {
                                 storage: Storage::I64(i),
                             },
-                        ) => stack.push(
-                            Storage::Function(Rc::new(Function {
-                                action: FunctionAction::Enum {
-                                    variant: i as usize,
-                                    definition: ty,
-                                },
-                                argument: ().into(),
-                            }))
-                            .into(),
-                        ),
+                        ) => {
+                            if (i as usize) < ty.variants.len() {
+                                stack.push(
+                                    Storage::Function(Rc::new(Function {
+                                        action: FunctionAction::Enum {
+                                            variant: i as usize,
+                                            definition: ty,
+                                        },
+                                        argument: ().into(),
+                                    }))
+                                    .into(),
+                                )
+                            } else {
+                                return Err(Error::IndexNotFound {
+                                    index: Value {
+                                        storage: Storage::Type(Type::Enum(ty)),
+                                    },
+                                    container: i.into(),
+                                });
+                            }
+                        }
                         (
                             Value {
                                 storage: Storage::Type(Type::Enum(ty)),
@@ -441,15 +440,69 @@ impl Program {
                                 );
                             } else {
                                 return Err(Error::IndexNotFound {
-                                    index: Value {
-                                        storage: Storage::Type(Type::Enum(ty)),
-                                    },
-                                    container: Value {
-                                        storage: Storage::String(name),
-                                    },
+                                    index: Storage::Type(Type::Enum(ty)).into(),
+                                    container: name.into(),
                                 });
                             }
                         }
+                        (
+                            Value {
+                                storage: Storage::Type(Type::Option(ty)),
+                            },
+                            Value {
+                                storage: Storage::I64(i),
+                            },
+                        ) => match i {
+                            0 => stack.push(
+                                Storage::Function(Rc::new(Function {
+                                    action: FunctionAction::Some(ty),
+                                    argument: ().into(),
+                                }))
+                                .into(),
+                            ),
+                            1 => stack.push(
+                                Storage::Function(Rc::new(Function {
+                                    action: FunctionAction::None(ty),
+                                    argument: ().into(),
+                                }))
+                                .into(),
+                            ),
+                            _ => {
+                                return Err(Error::IndexNotFound {
+                                    index: Type::Option(ty).into(),
+                                    container: i.into(),
+                                });
+                            }
+                        },
+                        (
+                            Value {
+                                storage: Storage::Type(Type::Option(ty)),
+                            },
+                            Value {
+                                storage: Storage::String(name),
+                            },
+                        ) => match &*name {
+                            "Some" => stack.push(
+                                Storage::Function(Rc::new(Function {
+                                    action: FunctionAction::Some(ty),
+                                    argument: ().into(),
+                                }))
+                                .into(),
+                            ),
+                            "None" => stack.push(
+                                Storage::Function(Rc::new(Function {
+                                    action: FunctionAction::None(ty),
+                                    argument: ().into(),
+                                }))
+                                .into(),
+                            ),
+                            _ => {
+                                return Err(Error::IndexNotFound {
+                                    index: Type::Option(ty).into(),
+                                    container: name.into(),
+                                });
+                            }
+                        },
                         (
                             Value {
                                 storage: Storage::Borrow(external),
