@@ -522,6 +522,25 @@ impl Program {
                         }
                         (
                             Value {
+                                storage: Storage::Struct { inner, ty },
+                            },
+                            Value {
+                                storage: Storage::String(index),
+                            },
+                        ) => {
+                            if let Some(method) =
+                                ty.methods.as_ref().and_then(|x| x.find_value(&index))
+                            {
+                                stack.push(method.clone().piped(Rc::unwrap_or_clone(inner)).into());
+                            } else {
+                                return Err(Error::IndexNotFound {
+                                    index: index.into(),
+                                    container: Storage::Struct { inner, ty }.into(),
+                                });
+                            }
+                        }
+                        (
+                            Value {
                                 storage: Storage::Borrow(external),
                             },
                             index,

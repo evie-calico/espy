@@ -85,23 +85,11 @@ mod tests {
     #[test]
     fn structs_usage() {
         let actual = Program::try_from(
-            "let Point = struct x: i64, y: i64 then let new = { with args; x: args.0, y: args.1 }; end; Point.new 1, 2",
+            "let Point = struct x: i64, y: i64 then let new = { with args; x: args.0, y: args.1 }; x: { with this; this.x } end; (Point.new 1, 2).x ()",
         )
         .unwrap();
         println!("{actual:?}");
-        let Storage::Struct { inner, ty: _ } = actual.eval().unwrap().storage else {
-            panic!("expected structure")
-        };
-        assert!(
-            (*inner)
-                .clone()
-                .eq(Storage::Tuple(interpreter::Tuple::from([
-                    (Some(Rc::from("x")), 1.into()),
-                    (Some(Rc::from("y")), 2.into())
-                ]))
-                .into())
-                .unwrap()
-        )
+        assert!(actual.eval().unwrap().eq(1.into()).unwrap())
     }
 
     #[test]
