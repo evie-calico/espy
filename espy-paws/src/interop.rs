@@ -2,10 +2,6 @@ use crate::*;
 use std::cell::RefCell;
 
 pub trait Extern {
-    fn call<'host>(&'host self, _argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        Err(ExternError::MissingFunctionImpl)?
-    }
-
     fn index<'host>(&'host self, _index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         Err(ExternError::MissingIndexImpl)?
     }
@@ -15,46 +11,25 @@ pub trait Extern {
     }
 }
 
-pub trait ExternMut {
-    fn call<'host>(&mut self, _argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+pub trait ExternFn {
+    fn call<'host>(&'host self, _argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         Err(ExternError::MissingFunctionImpl)?
     }
 
-    fn index<'host>(&mut self, _index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        Err(ExternError::MissingIndexImpl)?
-    }
-
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{external value}}")
+        write!(f, "{{external function}}")
     }
 }
 
-pub struct ExternCell<T: ExternMut>(RefCell<T>);
+pub struct FunctionWrapper<F: for<'host> Fn(Value<'host>) -> Result<Value<'host>, Error<'host>>>(F);
 
-impl<T: ExternMut> From<T> for ExternCell<T> {
-    fn from(value: T) -> Self {
-        Self(RefCell::new(value))
-    }
-}
-
-impl<T: ExternMut> Extern for ExternCell<T> {
-    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        self.0
-            .try_borrow_mut()
-            .map_err(|_| ExternError::BorrowMutError)?
-            .call(argument)
-    }
-}
-
-pub struct Function<F: for<'host> Fn(Value<'host>) -> Result<Value<'host>, Error<'host>>>(F);
-
-pub fn function<F: for<'host> Fn(Value<'host>) -> Result<Value<'host>, Error<'host>>>(
+pub fn wrap_fn<F: for<'host> Fn(Value<'host>) -> Result<Value<'host>, Error<'host>>>(
     f: F,
-) -> Function<F> {
-    Function::from(f)
+) -> FunctionWrapper<F> {
+    FunctionWrapper::from(f)
 }
 
-impl<F> From<F> for Function<F>
+impl<F> From<F> for FunctionWrapper<F>
 where
     F: for<'host> Fn(Value<'host>) -> Result<Value<'host>, Error<'host>>,
 {
@@ -63,7 +38,7 @@ where
     }
 }
 
-impl<F> Extern for Function<F>
+impl<F> ExternFn for FunctionWrapper<F>
 where
     F: for<'host> Fn(Value<'host>) -> Result<Value<'host>, Error<'host>>,
 {
@@ -72,17 +47,17 @@ where
     }
 }
 
-pub struct FunctionMut<F: for<'host> FnMut(Value<'host>) -> Result<Value<'host>, Error<'host>>>(
-    RefCell<F>,
-);
+pub struct FunctionWrapperMut<
+    F: for<'host> FnMut(Value<'host>) -> Result<Value<'host>, Error<'host>>,
+>(RefCell<F>);
 
-pub fn function_mut<F: for<'host> FnMut(Value<'host>) -> Result<Value<'host>, Error<'host>>>(
+pub fn wrap_fn_mut<F: for<'host> FnMut(Value<'host>) -> Result<Value<'host>, Error<'host>>>(
     f: F,
-) -> FunctionMut<F> {
-    FunctionMut::from(f)
+) -> FunctionWrapperMut<F> {
+    FunctionWrapperMut::from(f)
 }
 
-impl<F> From<F> for FunctionMut<F>
+impl<F> From<F> for FunctionWrapperMut<F>
 where
     F: for<'host> FnMut(Value<'host>) -> Result<Value<'host>, Error<'host>>,
 {
@@ -91,7 +66,7 @@ where
     }
 }
 
-impl<F> Extern for FunctionMut<F>
+impl<F> ExternFn for FunctionWrapperMut<F>
 where
     F: for<'host> FnMut(Value<'host>) -> Result<Value<'host>, Error<'host>>,
 {

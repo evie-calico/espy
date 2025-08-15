@@ -52,7 +52,7 @@ fn set(bytes: &[u8], set_id: usize) -> Result<&[u8], InvalidBytecode> {
 
 #[derive(Clone, Debug)]
 pub struct Program {
-    bytes: Rc<[u8]>,
+    pub(crate) bytes: Rc<[u8]>,
     owned_strings: Rc<[Rc<str>]>,
 }
 
@@ -326,9 +326,6 @@ impl Program {
                     let argument = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let function = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let result = match function {
-                        Value {
-                            storage: Storage::Borrow(borrow),
-                        } => borrow.call(argument)?,
                         Value {
                             storage: Storage::Function(function),
                         } => Rc::<Function>::try_unwrap(function)

@@ -5,7 +5,9 @@ pub use espy_eyes as lexer;
 pub use espy_paws as interpreter;
 pub use espy_tail as compiler;
 
-pub use interpreter::{Error, Extern, Function, Storage, Type, Value, function, function_mut};
+pub use interpreter::{
+    Error, Extern, ExternFn, Function, Storage, Type, Value, wrap_fn, wrap_fn_mut,
+};
 
 #[derive(Debug)]
 pub struct Program(interpreter::Program);
@@ -133,7 +135,7 @@ mod tests {
         assert!(
             Function::try_from(Program::try_from("with f; f(3)").unwrap().eval().unwrap(),)
                 .unwrap()
-                .piped(Value::borrow(&function(f)))
+                .piped(Function::borrow(&wrap_fn(f)).into())
                 .eval()
                 .unwrap()
                 .eq(12.into())
@@ -144,12 +146,12 @@ mod tests {
     #[test]
     fn rust_closure() {
         let four = 4;
-        let f = function(|arg| Ok(Value::from(arg.into_i64()? * four)));
+        let f = wrap_fn(|arg| Ok(Value::from(arg.into_i64()? * four)));
 
         assert!(
             Function::try_from(Program::try_from("with f; f(3)").unwrap().eval().unwrap(),)
                 .unwrap()
-                .piped(Value::borrow(&f))
+                .piped(Function::borrow(&f).into())
                 .eval()
                 .unwrap()
                 .eq(12.into())
@@ -160,7 +162,7 @@ mod tests {
     #[test]
     fn hello_world() {
         let mut message = Rc::from("");
-        let print = function_mut(|arg| {
+        let print = wrap_fn_mut(|arg| {
             message = arg.into_str()?;
             println!("{message}");
             Ok(().into())
@@ -174,7 +176,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap()
-            .piped(Value::borrow(&print))
+            .piped(Function::borrow(&print).into())
             .eval()
             .unwrap()
             .eq(().into())
@@ -227,7 +229,7 @@ mod tests {
                 match index {
                     Value {
                         storage: Storage::String(x),
-                    } if &*x == "print" => Ok(Value::borrow(&self.print)),
+                    } if &*x == "print" => Ok(Function::borrow(&self.print).into()),
                     index => Err(Error::IndexNotFound {
                         index,
                         container: Value::borrow(self),
@@ -240,7 +242,7 @@ mod tests {
             }
         }
 
-        impl Extern for Print {
+        impl ExternFn for Print {
             fn call<'host>(
                 &'host self,
                 message: Value<'host>,

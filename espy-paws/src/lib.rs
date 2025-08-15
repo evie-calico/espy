@@ -3,7 +3,7 @@ use std::{mem, rc::Rc};
 mod interpreter;
 pub use interpreter::*;
 mod interop;
-pub use interop::{Extern, ExternCell, ExternMut, function, function_mut};
+pub use interop::{Extern, ExternFn, FunctionWrapper, FunctionWrapperMut, wrap_fn, wrap_fn_mut};
 
 fn rc_slice_try_from_iter<T, E>(
     len: usize,
@@ -464,6 +464,18 @@ impl From<Option<Rc<str>>> for Value<'_> {
     }
 }
 
+impl<'host> From<Rc<Function<'host>>> for Value<'host> {
+    fn from(f: Rc<Function<'host>>) -> Self {
+        Storage::Function(f).into()
+    }
+}
+
+impl<'host> From<Function<'host>> for Value<'host> {
+    fn from(f: Function<'host>) -> Self {
+        Rc::new(f).into()
+    }
+}
+
 impl<'host> TryFrom<Value<'host>> for () {
     type Error = Error<'host>;
 
@@ -701,6 +713,13 @@ pub struct Function<'host> {
 }
 
 impl<'host> Function<'host> {
+    pub fn borrow(external: &'host dyn ExternFn) -> Self {
+        Function {
+            action: FunctionAction::Borrow(external),
+            argument: ().into(),
+        }
+    }
+
     pub fn eval(self) -> Result<Value<'host>, Error<'host>> {
         Ok(match self.action {
             FunctionAction::Block {
@@ -746,6 +765,7 @@ impl<'host> Function<'host> {
                 self.argument.into_unit()?;
                 Storage::Option { contents: None, ty }.into()
             }
+            FunctionAction::Borrow(external) => external.call(self.argument)?,
         })
     }
 
@@ -763,7 +783,7 @@ impl<'host> Function<'host> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum FunctionAction<'host> {
     Block {
         program: Program,
@@ -777,6 +797,36 @@ pub enum FunctionAction<'host> {
     Option,
     Some(Rc<ComplexType>),
     None(Rc<ComplexType>),
+    Borrow(&'host dyn ExternFn),
+}
+
+impl std::fmt::Debug for FunctionAction<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Block {
+                program,
+                block_id,
+                captures,
+            } => f
+                .debug_struct("Block")
+                .field("program", &Rc::as_ptr(&program.bytes))
+                .field("block_id", block_id)
+                .field("captures", captures)
+                .finish(),
+            Self::Enum {
+                variant,
+                definition,
+            } => f
+                .debug_struct("Enum")
+                .field("variant", variant)
+                .field("definition", definition)
+                .finish(),
+            Self::Option => write!(f, "Option"),
+            Self::Some(arg0) => f.debug_tuple("Some").field(arg0).finish(),
+            Self::None(arg0) => f.debug_tuple("None").field(arg0).finish(),
+            Self::Borrow(arg0) => arg0.debug(f),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

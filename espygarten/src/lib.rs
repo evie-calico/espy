@@ -48,7 +48,7 @@ impl espyscript::Extern for IoLib {
         match index {
             espyscript::Value {
                 storage: espyscript::Storage::String(index),
-            } if &*index == "print" => Ok(espyscript::Value::borrow(&self.print)),
+            } if &*index == "print" => Ok(espyscript::Function::borrow(&self.print).into()),
             index => Err(espyscript::Error::IndexNotFound {
                 index,
                 container: espyscript::Storage::Borrow(self).into(),
@@ -66,7 +66,7 @@ struct IoPrintFn {
     output: RefCell<String>,
 }
 
-impl espyscript::Extern for IoPrintFn {
+impl espyscript::ExternFn for IoPrintFn {
     fn call<'host>(
         &'host self,
         message: espyscript::Value<'host>,
@@ -96,7 +96,7 @@ impl espyscript::Extern for StringLib {
         match index {
             espyscript::Value {
                 storage: espyscript::Storage::String(index),
-            } if &*index == "concat" => Ok(espyscript::Value::borrow(&self.concat)),
+            } if &*index == "concat" => Ok(espyscript::Function::borrow(&self.concat).into()),
             index => Err(espyscript::Error::IndexNotFound {
                 index,
                 container: espyscript::Value::borrow(self),
@@ -112,7 +112,7 @@ impl espyscript::Extern for StringLib {
 #[derive(Debug, Default)]
 struct StringConcatFn;
 
-impl espyscript::Extern for StringConcatFn {
+impl espyscript::ExternFn for StringConcatFn {
     fn call<'host>(
         &'host self,
         argument: espyscript::Value<'host>,
@@ -126,7 +126,7 @@ impl espyscript::Extern for StringConcatFn {
                 })
             })
             .collect::<Result<String, _>>()
-            .map(|s| espyscript::Value::from(Rc::from(s.as_str())))
+            .map(|s| espyscript::Value::from(Rc::<str>::from(s.as_str())))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
