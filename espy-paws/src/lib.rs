@@ -902,7 +902,7 @@ impl std::fmt::Debug for FunctionAction<'_> {
 pub struct StructType<'host> {
     pub inner: ComplexType<'host>,
     pub methods: Option<Tuple<Function<'host>>>,
-    pub statics: Rc<[(Rc<str>, Value<'host>)]>,
+    pub constructors: Rc<[(Rc<str>, Function<'host>)]>,
 }
 
 impl<'host> From<Rc<StructType<'host>>> for Type<'host> {

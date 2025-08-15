@@ -259,7 +259,7 @@ impl Program {
                         .map(Tuple::<Function>::try_from)
                         .transpose()?;
                     let set = set(&self.bytes, program.next4()?)?;
-                    let mut statics: Rc<[(Rc<str>, Value<'_>)]> = rc_slice_try_from_iter(
+                    let mut constructors: Rc<[(Rc<str>, Function<'_>)]> = rc_slice_try_from_iter(
                         set.len() / 4,
                         set.chunks(4).map(|name| {
                             let name = name
@@ -272,12 +272,17 @@ impl Program {
                                 .clone();
                             Ok::<_, Error>((
                                 name,
-                                stack.pop().ok_or(InvalidBytecode::StackUnderflow)?,
+                                Rc::unwrap_or_clone(
+                                    stack
+                                        .pop()
+                                        .ok_or(InvalidBytecode::StackUnderflow)?
+                                        .into_function()?,
+                                ),
                             ))
                         }),
                     )?;
                     // TODO: if set was removed and statics were inlined, this reverse could be done by the compiler.
-                    Rc::make_mut(&mut statics).reverse();
+                    Rc::make_mut(&mut constructors).reverse();
                     let inner = stack
                         .pop()
                         .ok_or(InvalidBytecode::StackUnderflow)?
@@ -286,7 +291,7 @@ impl Program {
                         Type::from(StructType {
                             inner,
                             methods,
-                            statics,
+                            constructors,
                         })
                         .into(),
                     );
@@ -501,23 +506,18 @@ impl Program {
                                 storage: Storage::String(index),
                             },
                         ) => {
-                            match structure
-                                .statics
+                            if let Some(function) = structure
+                                .constructors
                                 .iter()
                                 .find(|(name, _value)| *name == index)
                                 .map(|(_name, value)| value)
                             {
-                                Some(Value {
-                                    storage: Storage::Function(function),
-                                }) => stack
-                                    .push((**function).clone().as_constructor(structure).into()),
-                                Some(value) => stack.push(value.clone()),
-                                None => {
-                                    return Err(Error::IndexNotFound {
-                                        index: index.into(),
-                                        container: Type::Struct(structure).into(),
-                                    });
-                                }
+                                stack.push(function.clone().as_constructor(structure).into())
+                            } else {
+                                return Err(Error::IndexNotFound {
+                                    index: index.into(),
+                                    container: Type::Struct(structure).into(),
+                                });
                             }
                         }
                         (
