@@ -83,6 +83,28 @@ mod tests {
     }
 
     #[test]
+    fn structs_usage() {
+        let actual = Program::try_from(
+            "let Point = struct x: i64, y: i64 then let new = { with args; x: args.0, y: args.1 }; end; Point.new 1, 2",
+        )
+        .unwrap();
+        println!("{actual:?}");
+        let Storage::Struct { inner, ty: _ } = actual.eval().unwrap().storage else {
+            panic!("expected structure")
+        };
+        assert!(
+            (*inner)
+                .clone()
+                .eq(Storage::Tuple(interpreter::Tuple::from([
+                    (Some(Rc::from("x")), 1.into()),
+                    (Some(Rc::from("y")), 2.into())
+                ]))
+                .into())
+                .unwrap()
+        )
+    }
+
+    #[test]
     fn enums_usage() {
         let actual =
             Program::try_from("let Option = enum Some: any, None: unit end; Option.Some 1")

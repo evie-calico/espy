@@ -175,11 +175,7 @@ impl Program {
                         }
                         builtins::OPTION => {
                             stack.push(
-                                Storage::Function(Rc::new(Function {
-                                    action: FunctionAction::Option,
-                                    argument: ().into(),
-                                }))
-                                .into(),
+                                Storage::Function(Rc::new(FunctionAction::Option.into())).into(),
                             );
                         }
                         _ => {}
@@ -236,15 +232,14 @@ impl Program {
                     let function = program.next4()?;
                     let new_stack = stack.split_off(stack.len() - captures);
                     stack.push(
-                        Storage::Function(Rc::new(Function {
-                            action: FunctionAction::Block {
+                        Storage::Function(Rc::new(
+                            FunctionAction::Block {
                                 program: self.clone(),
                                 block_id: function,
                                 captures: new_stack,
-                            },
-                            // will be ignored by concatenation
-                            argument: ().into(),
-                        }))
+                            }
+                            .into(),
+                        ))
                         .into(),
                     );
                 }
@@ -260,10 +255,13 @@ impl Program {
                     let methods = stack
                         .pop()
                         .ok_or(InvalidBytecode::StackUnderflow)?
-                        .into_tuple_or_unit()?;
-                    let mut statics = set(&self.bytes, program.next4()?)?
-                        .chunks(4)
-                        .map(|name| {
+                        .into_tuple_or_unit()?
+                        .map(Tuple::<Function>::try_from)
+                        .transpose()?;
+                    let set = set(&self.bytes, program.next4()?)?;
+                    let mut statics: Rc<[(Rc<str>, Value<'_>)]> = rc_slice_try_from_iter(
+                        set.len() / 4,
+                        set.chunks(4).map(|name| {
                             let name = name
                                 .try_into()
                                 .map_err(|_| InvalidBytecode::MalformedHeader)?;
@@ -272,15 +270,26 @@ impl Program {
                                 .get(u32::from_le_bytes(name) as usize)
                                 .ok_or(InvalidBytecode::UnexpectedStringId)?
                                 .clone();
-                            Ok((name, stack.pop().ok_or(InvalidBytecode::StackUnderflow)?))
-                        })
-                        .collect::<Result<Vec<_>, Error>>()?;
-                    statics.reverse();
+                            Ok::<_, Error>((
+                                name,
+                                stack.pop().ok_or(InvalidBytecode::StackUnderflow)?,
+                            ))
+                        }),
+                    )?;
+                    // TODO: if set was removed and statics were inlined, this reverse could be done by the compiler.
+                    Rc::make_mut(&mut statics).reverse();
                     let inner = stack
                         .pop()
                         .ok_or(InvalidBytecode::StackUnderflow)?
                         .into_complex_type()?;
-                    stack.push(Type::from(StructType { inner }).into());
+                    stack.push(
+                        Type::from(StructType {
+                            inner,
+                            methods,
+                            statics,
+                        })
+                        .into(),
+                    );
                 }
 
                 instruction::ADD => bi_num!(let l, r => l + r),
@@ -389,13 +398,13 @@ impl Program {
                         ) => {
                             if (i as usize) < ty.variants.len() {
                                 stack.push(
-                                    Storage::Function(Rc::new(Function {
-                                        action: FunctionAction::Enum {
+                                    Storage::Function(Rc::new(
+                                        FunctionAction::Enum {
                                             variant: i as usize,
                                             definition: ty,
-                                        },
-                                        argument: ().into(),
-                                    }))
+                                        }
+                                        .into(),
+                                    ))
                                     .into(),
                                 )
                             } else {
@@ -426,13 +435,13 @@ impl Program {
                                 .map(|(i, _)| i)
                             {
                                 stack.push(
-                                    Storage::Function(Rc::new(Function {
-                                        action: FunctionAction::Enum {
+                                    Storage::Function(Rc::new(
+                                        FunctionAction::Enum {
                                             variant: variant_id,
                                             definition: ty,
-                                        },
-                                        argument: ().into(),
-                                    }))
+                                        }
+                                        .into(),
+                                    ))
                                     .into(),
                                 );
                             } else {
@@ -451,18 +460,10 @@ impl Program {
                             },
                         ) => match i {
                             0 => stack.push(
-                                Storage::Function(Rc::new(Function {
-                                    action: FunctionAction::Some(ty),
-                                    argument: ().into(),
-                                }))
-                                .into(),
+                                Storage::Function(Rc::new(FunctionAction::Some(ty).into())).into(),
                             ),
                             1 => stack.push(
-                                Storage::Function(Rc::new(Function {
-                                    action: FunctionAction::None(ty),
-                                    argument: ().into(),
-                                }))
-                                .into(),
+                                Storage::Function(Rc::new(FunctionAction::None(ty).into())).into(),
                             ),
                             _ => {
                                 return Err(Error::IndexNotFound {
@@ -480,26 +481,45 @@ impl Program {
                             },
                         ) => match &*name {
                             "Some" => stack.push(
-                                Storage::Function(Rc::new(Function {
-                                    action: FunctionAction::Some(ty),
-                                    argument: ().into(),
-                                }))
-                                .into(),
+                                Storage::Function(Rc::new(FunctionAction::Some(ty).into())).into(),
                             ),
                             "None" => stack.push(
-                                Storage::Function(Rc::new(Function {
-                                    action: FunctionAction::None(ty),
-                                    argument: ().into(),
-                                }))
-                                .into(),
+                                Storage::Function(Rc::new(FunctionAction::None(ty).into())).into(),
                             ),
                             _ => {
                                 return Err(Error::IndexNotFound {
-                                    index: Type::Option(ty).into(),
-                                    container: name.into(),
+                                    container: Type::Option(ty).into(),
+                                    index: name.into(),
                                 });
                             }
                         },
+                        (
+                            Value {
+                                storage: Storage::Type(Type::Struct(structure)),
+                            },
+                            Value {
+                                storage: Storage::String(index),
+                            },
+                        ) => {
+                            match structure
+                                .statics
+                                .iter()
+                                .find(|(name, _value)| *name == index)
+                                .map(|(_name, value)| value)
+                            {
+                                Some(Value {
+                                    storage: Storage::Function(function),
+                                }) => stack
+                                    .push((**function).clone().as_constructor(structure).into()),
+                                Some(value) => stack.push(value.clone()),
+                                None => {
+                                    return Err(Error::IndexNotFound {
+                                        index: index.into(),
+                                        container: Type::Struct(structure).into(),
+                                    });
+                                }
+                            }
+                        }
                         (
                             Value {
                                 storage: Storage::Borrow(external),
