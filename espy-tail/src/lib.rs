@@ -774,6 +774,8 @@ impl<'parent, 'source> Scope<'parent, 'source> {
     fn get(&self, k: &'source str) -> Option<Value> {
         self.bindings
             .iter()
+            // Use most recent binding
+            .rev()
             .find(|(x, _)| *x == k)
             .copied()
             .map(|(_, x)| x)
