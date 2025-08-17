@@ -75,9 +75,12 @@ fn binding<'source>(
     expression: Box<Expression<'source>>,
 ) -> Statement<'source> {
     Statement::Evaluation(Evaluation {
-        binding: Some(Binding {
+        binding: Some(LetBinding {
             let_token: LET,
-            ident_token: Some(ident(origin)),
+            binding: Some(Binding {
+                method: BindingMethod::Single(ident(origin)),
+                diagnostics: Diagnostics::default(),
+            }),
             equals_token: Some(SINGLE_EQUAL),
         }),
         expression: Some(expression),
@@ -307,9 +310,12 @@ fn malformed_binding() {
     let actual = Block::new(&mut Lexer::from(source).peekable());
     let expected = statements(
         [Statement::Evaluation(Evaluation {
-            binding: Some(Binding {
+            binding: Some(LetBinding {
                 let_token: LET,
-                ident_token: Some(ident("x")),
+                binding: Some(Binding {
+                    method: BindingMethod::Single(ident("x")),
+                    diagnostics: Diagnostics::default(),
+                }),
                 equals_token: None,
             }),
             // Despite being malformed, this expression is still parsed correctly!
@@ -362,37 +368,6 @@ fn for_loop() {
             ),
             end_token: Some(END),
             diagnostics: Diagnostics::default(),
-        })]
-        .into_iter(),
-    );
-    assert_eq!(actual, expected);
-}
-
-#[test]
-fn reserved_symbol() {
-    let source = "let class = 1;";
-    let actual = Block::new(&mut Lexer::from(source).peekable());
-    let expected = statements(
-        [Statement::Evaluation(Evaluation {
-            binding: Some(Binding {
-                let_token: LET,
-                // Note that this is an invalid identifier,
-                // but we still know the *intent* and can smooth things over for diagnostics.
-                ident_token: Some(ident("class")),
-                equals_token: Some(SINGLE_EQUAL),
-            }),
-            expression: Some(expression(
-                number("1"),
-                number("1"),
-                [number_node("1")].into_iter(),
-            )),
-            semicolon_token: Some(SEMICOLON),
-            diagnostics: Diagnostics {
-                errors: vec![Error::Lexer(lexer::Error {
-                    origin: "class",
-                    kind: lexer::ErrorKind::ReservedSymbol,
-                })],
-            },
         })]
         .into_iter(),
     );

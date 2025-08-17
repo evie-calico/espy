@@ -782,7 +782,7 @@ pub enum Statement<'source> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Evaluation<'source> {
-    pub binding: Option<Binding<'source>>,
+    pub binding: Option<LetBinding<'source>>,
     pub expression: Option<Box<Expression<'source>>>,
     pub semicolon_token: Option<Token<'source>>,
     pub diagnostics: Diagnostics<'source>,
@@ -797,15 +797,17 @@ impl<'source> Evaluation<'source> {
             .ok()
             .flatten()
             .expect("caller must have peeked a token");
-        let ident_token = diagnostics.next_if(lexer, &[Lexigram::Ident]);
+        let binding = Binding::new(lexer)
+            .map_err(|e| diagnostics.errors.push(e))
+            .ok();
         let equals_token = diagnostics.next_if(lexer, &[Lexigram::SingleEqual]);
         let expression = diagnostics.expect_expression(lexer);
         let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
 
         Evaluation {
-            binding: Some(Binding {
+            binding: Some(LetBinding {
                 let_token,
-                ident_token,
+                binding,
                 equals_token,
             }),
             expression,
@@ -839,10 +841,135 @@ impl<'source> Evaluation<'source> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct Binding<'source> {
+pub struct LetBinding<'source> {
     pub let_token: Token<'source>,
-    pub ident_token: Option<Token<'source>>,
+    pub binding: Option<Binding<'source>>,
     pub equals_token: Option<Token<'source>>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct NumericBinding<'source> {
+    pub binding: Binding<'source>,
+    pub comma_token: Option<Token<'source>>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct NamedBinding<'source> {
+    pub field: Token<'source>,
+    pub binding: Option<NamedSubBinding<'source>>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct NamedSubBinding<'source> {
+    pub colon_token: Token<'source>,
+    pub binding: Option<Binding<'source>>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum BindingMethod<'source> {
+    Single(Token<'source>),
+    Numeric {
+        open_paren: Token<'source>,
+        bindings: Box<[NumericBinding<'source>]>,
+        close_paren: Option<Token<'source>>,
+    },
+    // Named {
+    //     open_brace: Token<'source>,
+    //     bindings: Box<[NamedBinding<'source>]>,
+    //     close_brace: Option<Token<'source>>,
+    // },
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct Binding<'source> {
+    pub method: BindingMethod<'source>,
+    pub diagnostics: Diagnostics<'source>,
+}
+
+impl<'source> Binding<'source> {
+    fn new(lexer: &mut Peekable<Lexer<'source>>) -> Result<Self, Error<'source>> {
+        match lexer.peek().copied().transpose().map_err(Error::Lexer)? {
+            Some(
+                t @ Token {
+                    lexigram: Lexigram::Ident | Lexigram::Discard,
+                    ..
+                },
+            ) => {
+                lexer.next();
+                Ok(Binding {
+                    method: BindingMethod::Single(t),
+                    diagnostics: Diagnostics::default(),
+                })
+            }
+            Some(
+                open_paren @ Token {
+                    lexigram: Lexigram::OpenParen,
+                    ..
+                },
+            ) => {
+                let mut diagnostics = Diagnostics::default();
+                let mut bindings = Vec::new();
+                lexer.next();
+                loop {
+                    let t = diagnostics.wrap(lexer.peek().copied());
+                    if let Some(Token {
+                        lexigram: Lexigram::CloseParen,
+                        ..
+                    }) = t
+                    {
+                        break;
+                    }
+                    match Binding::new(lexer) {
+                        Ok(binding) => {
+                            let comma_token = diagnostics
+                                .wrap(lexer.peek().copied())
+                                .filter(|t| t.lexigram == Lexigram::Comma);
+                            bindings.push(NumericBinding {
+                                binding,
+                                comma_token,
+                            });
+                            if comma_token.is_some() {
+                                lexer.next();
+                            } else {
+                                break;
+                            }
+                        }
+                        Err(_) => {
+                            diagnostics.errors.push(Error::MissingToken {
+                                expected: &[
+                                    Lexigram::Ident,
+                                    Lexigram::Discard,
+                                    Lexigram::OpenParen,
+                                    Lexigram::OpenBrace,
+                                    Lexigram::CloseParen,
+                                ],
+                                actual: t,
+                            });
+                            break;
+                        }
+                    }
+                }
+                let close_paren = diagnostics.next_if(lexer, &[Lexigram::CloseParen]);
+                Ok(Binding {
+                    method: BindingMethod::Numeric {
+                        open_paren,
+                        bindings: bindings.into_boxed_slice(),
+                        close_paren,
+                    },
+                    diagnostics,
+                })
+            }
+            actual => Err(Error::MissingToken {
+                expected: &[
+                    Lexigram::Ident,
+                    Lexigram::Discard,
+                    Lexigram::OpenParen,
+                    Lexigram::OpenBrace,
+                ],
+                actual,
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]

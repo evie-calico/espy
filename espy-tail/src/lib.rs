@@ -11,7 +11,9 @@
 //! let bytecode = program.compile();
 //! ```
 
-use espy_ears::{Block, BlockResult, Diagnostics, Evaluation, Expression, For, Node, Statement};
+use espy_ears::{
+    Binding, Block, BlockResult, Diagnostics, Evaluation, Expression, For, Node, Statement,
+};
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;
 use std::{cell::Cell, iter, mem, num::ParseIntError};
@@ -377,6 +379,38 @@ impl<'source> Program<'source> {
         Ok(())
     }
 
+    fn add_binding(
+        &mut self,
+        block_id: BlockId,
+        binding: Binding<'source>,
+        scope: &mut Scope<'_, 'source>,
+    ) -> Result<(), Error<'source>> {
+        macro_rules! block {
+            () => {
+                self.blocks[block_id as usize]
+            };
+        }
+        try_validate(binding.diagnostics)?;
+        let root = scope.stack_pointer - 1;
+        match binding.method {
+            espy_ears::BindingMethod::Single(token) => match token.lexigram {
+                Lexigram::Ident => scope.insert(token.origin),
+                Lexigram::Discard => {}
+                _ => unreachable!("only idents and discards are valid bindings"),
+            },
+            espy_ears::BindingMethod::Numeric { bindings, .. } => {
+                for (i, binding) in bindings.into_iter().enumerate() {
+                    block!().extend(Instruction::Clone(root));
+                    block!().extend(Instruction::PushI64(i as i64));
+                    block!().extend(Instruction::Index);
+                    scope.stack_pointer += 1;
+                    self.add_binding(block_id, binding.binding, scope)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// # Panic
     ///
     /// Panics if provided an invalid statement.
@@ -408,12 +442,10 @@ impl<'source> Program<'source> {
                     block!().extend(Instruction::PushUnit)
                 }
                 if let Some(binding) = binding {
-                    scope.insert(
-                        binding
-                            .ident_token
-                            .expect("invalid statement structure")
-                            .origin,
-                    );
+                    let binding = binding
+                        .binding
+                        .expect("valid statement structures always have bindings");
+                    self.add_binding(block_id, binding, scope)?;
                 } else {
                     block!().extend(Instruction::Pop);
                     scope.stack_pointer -= 1;
