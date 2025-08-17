@@ -712,12 +712,6 @@ impl<'host> TryFrom<Tuple<Value<'host>>> for Tuple<Function<'host>> {
     }
 }
 
-impl<T> From<(Rc<str>, T)> for Tuple<T> {
-    fn from((name, value): (Rc<str>, T)) -> Self {
-        Self(Rc::new([(Some(name), value)]))
-    }
-}
-
 impl<T> From<Rc<[(Option<Rc<str>>, T)]>> for Tuple<T> {
     fn from(value: Rc<[(Option<Rc<str>>, T)]>) -> Self {
         Self(value)

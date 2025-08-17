@@ -558,7 +558,11 @@ impl Program {
                         .ok_or(InvalidBytecode::UnexpectedStringId)?
                         .clone();
                     let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Storage::Tuple(Tuple::from((name, value))).into())
+                    stack.push(Storage::Tuple(Tuple::from([(Some(name), value)])).into())
+                }
+                instruction::NEST => {
+                    let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    stack.push(Storage::Tuple(Tuple::from([(None, value)])).into())
                 }
                 instruction::NEGATIVE => {
                     let value = stack

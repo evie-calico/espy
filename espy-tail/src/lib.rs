@@ -124,6 +124,8 @@ pub enum Instruction {
     /// Pop a value off the stack and turn it into a named tuple with a single value,
     /// and a name according to the following string id.
     Name(StringId),
+    /// Pop a value off the stack and turn it into a numeric tuple with a single value.
+    Nest,
     Negative,
     Pipe,
     BitwiseAnd,
@@ -188,6 +190,7 @@ impl Iterator for InstructionIter {
             Instruction::Index => decompose!(instruction::INDEX,),
             Instruction::Tuple => decompose!(instruction::TUPLE,),
             Instruction::Name(name) => decompose!(instruction::NAME, name as 1..=4),
+            Instruction::Nest => decompose!(instruction::NEST,),
             Instruction::Negative => decompose!(instruction::NEGATIVE,),
             Instruction::Pipe => decompose!(instruction::PIPE,),
             Instruction::BitwiseAnd => decompose!(instruction::BITWISE_AND,),
@@ -602,8 +605,12 @@ impl<'source> Program<'source> {
                     colon_token: _,
                 } => {
                     scope.stack_pointer += 0;
-                    let s = self.create_string(name.origin)?;
-                    block!().extend(Instruction::Name(s));
+                    if name.lexigram == Lexigram::Discard {
+                        block!().extend(Instruction::Nest);
+                    } else {
+                        let s = self.create_string(name.origin)?;
+                        block!().extend(Instruction::Name(s));
+                    }
                 }
 
                 Node::Block(block) => {

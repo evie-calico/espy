@@ -46,9 +46,11 @@ mod tests {
 
     #[test]
     fn tuples() {
-        let actual = Program::try_from("let (one, two) = 1, 2; let y = 3, 4; two * y.0").unwrap();
+        let actual =
+            Program::try_from("let (one, two) = 1, 2; let y = 3, _: (4, 5); two * (y.1).0")
+                .unwrap();
         println!("{actual:?}");
-        assert!(actual.eval().unwrap().eq(6.into()).unwrap())
+        assert!(actual.eval().unwrap().eq(8.into()).unwrap())
     }
 
     #[test]

@@ -350,6 +350,22 @@ impl<'source> Expression<'source> {
                     }
                     contents.push(Node::String(string));
                 }
+                lexi!(discard @ Discard) => {
+                    last_token = lexer.next().transpose().ok().flatten();
+                    let colon_token = diagnostics.next_if(lexer, &[Lexigram::Colon]);
+                    if let Some(colon_token) = colon_token {
+                        last_token = Some(colon_token);
+                        push_with_precedence(
+                            &mut contents,
+                            &mut stack,
+                            Operation::Name {
+                                name: discard,
+                                colon_token,
+                            },
+                        );
+                    }
+                    continue;
+                }
                 lexi!(ident @ Ident) => {
                     if !unary_position {
                         op!(Call(ident));
