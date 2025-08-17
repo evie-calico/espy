@@ -863,7 +863,7 @@ pub struct NamedBinding<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct NamedSubBinding<'source> {
     pub colon_token: Token<'source>,
-    pub binding: Option<Binding<'source>>,
+    pub binding: Binding<'source>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -982,23 +982,62 @@ impl<'source> Binding<'source> {
                             },
                         ) => {
                             lexer.next();
-                            let comma_token = diagnostics
-                                .wrap(lexer.peek().copied())
-                                .filter(|t| t.lexigram == Lexigram::Comma);
-                            bindings.push(NamedBinding {
-                                field,
-                                binding: None,
-                                comma_token,
-                            });
-                            if comma_token.is_some() {
-                                lexer.next();
-                            } else {
-                                break;
+                            match diagnostics.wrap(lexer.peek().copied()) {
+                                comma_token @ Some(Token {
+                                    lexigram: Lexigram::Comma,
+                                    ..
+                                }) => {
+                                    lexer.next();
+                                    bindings.push(NamedBinding {
+                                        field,
+                                        binding: None,
+                                        comma_token,
+                                    });
+                                }
+                                Some(
+                                    colon_token @ Token {
+                                        lexigram: Lexigram::Colon,
+                                        ..
+                                    },
+                                ) => {
+                                    lexer.next();
+                                    match Binding::new(lexer) {
+                                        Ok(binding) => {
+                                            let comma_token = diagnostics
+                                                .wrap(lexer.peek().copied())
+                                                .filter(|t| t.lexigram == Lexigram::Comma);
+                                            bindings.push(NamedBinding {
+                                                field,
+                                                binding: Some(NamedSubBinding {
+                                                    colon_token,
+                                                    binding,
+                                                }),
+                                                comma_token,
+                                            });
+                                            if comma_token.is_some() {
+                                                lexer.next();
+                                            } else {
+                                                break;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            diagnostics.errors.push(e);
+                                            break;
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    bindings.push(NamedBinding {
+                                        field,
+                                        binding: None,
+                                        comma_token: None,
+                                    });
+                                }
                             }
                         }
                         actual => {
                             diagnostics.errors.push(Error::MissingToken {
-                                expected: &[Lexigram::Ident, Lexigram::CloseParen],
+                                expected: &[Lexigram::Ident, Lexigram::CloseBrace],
                                 actual,
                             });
                             break;

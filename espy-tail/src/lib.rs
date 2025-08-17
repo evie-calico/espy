@@ -415,7 +415,11 @@ impl<'source> Program<'source> {
                     block!().extend(Instruction::PushString(s));
                     block!().extend(Instruction::Index);
                     scope.stack_pointer += 1;
-                    scope.insert(binding.field.origin);
+                    if let Some(sub_binding) = binding.binding {
+                        self.add_binding(block_id, sub_binding.binding, scope)?;
+                    } else {
+                        scope.insert(binding.field.origin);
+                    }
                 }
             }
         }
