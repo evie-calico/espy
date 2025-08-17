@@ -857,6 +857,7 @@ pub struct NumericBinding<'source> {
 pub struct NamedBinding<'source> {
     pub field: Token<'source>,
     pub binding: Option<NamedSubBinding<'source>>,
+    pub comma_token: Option<Token<'source>>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -873,11 +874,11 @@ pub enum BindingMethod<'source> {
         bindings: Box<[NumericBinding<'source>]>,
         close_paren: Option<Token<'source>>,
     },
-    // Named {
-    //     open_brace: Token<'source>,
-    //     bindings: Box<[NamedBinding<'source>]>,
-    //     close_brace: Option<Token<'source>>,
-    // },
+    Named {
+        open_brace: Token<'source>,
+        bindings: Box<[NamedBinding<'source>]>,
+        close_brace: Option<Token<'source>>,
+    },
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -955,6 +956,61 @@ impl<'source> Binding<'source> {
                         open_paren,
                         bindings: bindings.into_boxed_slice(),
                         close_paren,
+                    },
+                    diagnostics,
+                })
+            }
+            Some(
+                open_brace @ Token {
+                    lexigram: Lexigram::OpenBrace,
+                    ..
+                },
+            ) => {
+                let mut diagnostics = Diagnostics::default();
+                let mut bindings = Vec::new();
+                lexer.next();
+                loop {
+                    match diagnostics.wrap(lexer.peek().copied()) {
+                        Some(Token {
+                            lexigram: Lexigram::CloseBrace,
+                            ..
+                        }) => break,
+                        Some(
+                            field @ Token {
+                                lexigram: Lexigram::Ident,
+                                ..
+                            },
+                        ) => {
+                            lexer.next();
+                            let comma_token = diagnostics
+                                .wrap(lexer.peek().copied())
+                                .filter(|t| t.lexigram == Lexigram::Comma);
+                            bindings.push(NamedBinding {
+                                field,
+                                binding: None,
+                                comma_token,
+                            });
+                            if comma_token.is_some() {
+                                lexer.next();
+                            } else {
+                                break;
+                            }
+                        }
+                        actual => {
+                            diagnostics.errors.push(Error::MissingToken {
+                                expected: &[Lexigram::Ident, Lexigram::CloseParen],
+                                actual,
+                            });
+                            break;
+                        }
+                    }
+                }
+                let close_brace = diagnostics.next_if(lexer, &[Lexigram::CloseBrace]);
+                Ok(Binding {
+                    method: BindingMethod::Named {
+                        open_brace,
+                        bindings: bindings.into_boxed_slice(),
+                        close_brace,
                     },
                     diagnostics,
                 })

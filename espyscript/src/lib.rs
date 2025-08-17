@@ -53,8 +53,12 @@ mod tests {
 
     #[test]
     fn named_tuples() {
+        let ast = parser::Block::new(&mut lexer::Lexer::from(
+            "let { second } = first: 1, second: 2; let y = third: 3, fourth: 4; second * y.third",
+        ).peekable());
+        println!("{ast:?}");
         let actual = Program::try_from(
-            "let x = first: 1, second: 2; let y = third: 3, fourth: 4; x.second * y.0",
+            "let { second } = first: 1, second: 2; let y = third: 3, fourth: 4; second * y.third",
         )
         .unwrap();
         println!("{actual:?}");

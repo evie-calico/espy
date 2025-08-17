@@ -12,7 +12,8 @@
 //! ```
 
 use espy_ears::{
-    Binding, Block, BlockResult, Diagnostics, Evaluation, Expression, For, Node, Statement,
+    Binding, BindingMethod, Block, BlockResult, Diagnostics, Evaluation, Expression, For, Node,
+    Statement,
 };
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;
@@ -393,18 +394,28 @@ impl<'source> Program<'source> {
         try_validate(binding.diagnostics)?;
         let root = scope.stack_pointer - 1;
         match binding.method {
-            espy_ears::BindingMethod::Single(token) => match token.lexigram {
+            BindingMethod::Single(token) => match token.lexigram {
                 Lexigram::Ident => scope.insert(token.origin),
                 Lexigram::Discard => {}
                 _ => unreachable!("only idents and discards are valid bindings"),
             },
-            espy_ears::BindingMethod::Numeric { bindings, .. } => {
+            BindingMethod::Numeric { bindings, .. } => {
                 for (i, binding) in bindings.into_iter().enumerate() {
                     block!().extend(Instruction::Clone(root));
                     block!().extend(Instruction::PushI64(i as i64));
                     block!().extend(Instruction::Index);
                     scope.stack_pointer += 1;
                     self.add_binding(block_id, binding.binding, scope)?;
+                }
+            }
+            BindingMethod::Named { bindings, .. } => {
+                for binding in bindings {
+                    block!().extend(Instruction::Clone(root));
+                    let s = self.create_string(binding.field.origin)?;
+                    block!().extend(Instruction::PushString(s));
+                    block!().extend(Instruction::Index);
+                    scope.stack_pointer += 1;
+                    scope.insert(binding.field.origin);
                 }
             }
         }
