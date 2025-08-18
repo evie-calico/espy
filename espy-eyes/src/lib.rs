@@ -244,10 +244,11 @@ impl<'source> Lexer<'source> {
 impl<'source> Iterator for Lexer<'source> {
     type Item = Result<'source>;
     fn next(&mut self) -> Option<Self::Item> {
-        while self
-            .next_if(|c| matches!(c, ' ' | '\n' | '\r' | '\t'))
-            .is_some()
-        {}
+        while let Some(skipped) = self.next_if(|c| matches!(c, ' ' | '\n' | '\r' | '\t' | '#')) {
+            if skipped == '#' {
+                while self.next_if(|c| c != '\n').is_some() {}
+            }
+        }
         let root = self.cursor;
         let lexigram = match self.next()? {
             // Ident
