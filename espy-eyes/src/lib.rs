@@ -95,6 +95,74 @@ pub struct Token<'source> {
     pub lexigram: Lexigram,
 }
 
+impl Token<'_> {
+    pub fn resolve(&self) -> Result<'static, String, EscapeError> {
+        fn resolve_escape(chars: &mut std::str::Chars) -> Result<'static, char, EscapeError> {
+            let escaped = match chars
+                .next()
+                .expect("lexer should always produce a character after a backslash")
+            {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                '\\' => '\\',
+                '0' => '\0',
+                // used by strings
+                '"' => '"',
+                // used by raw identifiers
+                '`' => '`',
+                // unused, but available
+                '\'' => '\'',
+                'u' => {
+                    let Some('{') = chars.next() else {
+                        return Err(EscapeError::MissingOpenBrace);
+                    };
+                    let Some((codepoint, _)) = chars.as_str().split_once('}') else {
+                        return Err(EscapeError::MissingCloseBrace);
+                    };
+                    if codepoint.len() > 6 || codepoint.contains(|c: char| !c.is_ascii_hexdigit()) {
+                        return Err(EscapeError::InvalidLiteral);
+                    }
+                    let Some(codepoint) = u32::from_str_radix(codepoint, 16)
+                        .ok()
+                        .and_then(char::from_u32)
+                    else {
+                        return Err(EscapeError::InvalidLiteral);
+                    };
+                    codepoint
+                }
+                _ => return Err(EscapeError::InvalidEscape),
+            };
+            Ok(escaped)
+        }
+
+        match self.lexigram {
+            Lexigram::String => {
+                let mut s = String::new();
+                // trim quotes
+                let mut chars = self.origin[1..(self.origin.len() - 1)].chars();
+                while let Some(c) = chars.next() {
+                    if c == '\\' {
+                        s.push(resolve_escape(&mut chars)?);
+                    } else {
+                        s.push(c);
+                    }
+                }
+                Ok(s)
+            }
+            _ => Ok(self.origin.into()),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum EscapeError {
+    MissingOpenBrace,
+    MissingCloseBrace,
+    InvalidLiteral,
+    InvalidEscape,
+}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ErrorKind {
     /// A character with no meaning to the lexer.

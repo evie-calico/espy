@@ -17,7 +17,7 @@ use espy_ears::{
 };
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;
-use std::{cell::Cell, iter, mem, num::ParseIntError};
+use std::{borrow::Cow, cell::Cell, iter, mem, num::ParseIntError};
 
 #[cfg(test)]
 mod tests;
@@ -30,6 +30,8 @@ pub enum Error<'source> {
     InvalidBreak(Token<'source>),
     /// The AST contained an integer that did not fit into the expected type.
     InvalidInteger(Token<'source>, ParseIntError),
+    /// The AST contained a string with an invalid escape sequence.
+    InvalidString(Token<'source>, espy_eyes::EscapeError),
     /// A variable was referenced that did not exist.
     UndefinedSymbol(Token<'source>),
     /// The AST contained errors.
@@ -228,7 +230,7 @@ impl IntoIterator for Instruction {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Program<'source> {
     blocks: Vec<Vec<u8>>,
-    strings: Vec<&'source str>,
+    strings: Vec<Cow<'source, str>>,
     /// To index this, subtract 1 from the string set's Id.
     /// A string set 0 should be considered an empty set.
     string_sets: Vec<Vec<StringId>>,
@@ -282,7 +284,11 @@ impl<'source> Program<'source> {
             .map_err(|_| Error::ProgramLimitExceeded)
     }
 
-    fn create_string(&mut self, s: &'source str) -> Result<StringId, Error<'source>> {
+    fn create_string(
+        &mut self,
+        s: impl Into<Cow<'source, str>>,
+    ) -> Result<StringId, Error<'source>> {
+        let s = s.into();
         if let Some((i, _)) = self.strings.iter().enumerate().find(|(_, x)| **x == s) {
             i
         } else {
@@ -573,10 +579,14 @@ impl<'source> Program<'source> {
                     scope.stack_pointer += 1;
                     block!().extend(Instruction::PushI64(integer))
                 }
-                Node::String(Token { origin, .. }) => {
+                Node::String(string) => {
                     // trim starting and ending quotes.
                     // adjust this if additional string formats are added.
-                    let string = self.create_string(&origin[1..origin.len() - 1])?;
+                    let string = self.create_string(
+                        string
+                            .resolve()
+                            .map_err(|e| Error::InvalidString(string, e))?,
+                    )?;
                     scope.stack_pointer += 1;
                     block!().extend(Instruction::PushString(string))
                 }

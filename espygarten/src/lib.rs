@@ -306,11 +306,17 @@ pub fn espyscript_eval(source: &str) -> String {
                     "<p id=\"compile-error\">Invalid integer literal: {e}.{snippet}</p>"
                 )
             }
+            espyscript::compiler::Error::InvalidString(token, e) => {
+                let snippet = SnippetFmt::new(origin_range(token.origin, source), source);
+                format!(
+                    "<p id=\"compile-error\">Invalid string literal: {e:?}.{snippet}</p>"
+                )
+            }
             espyscript::compiler::Error::UndefinedSymbol(token) => {
                 let symbol = token.origin;
                 let snippet = SnippetFmt::new(origin_range(token.origin, source), source);
                 format!(
-                    "<p id=\"compile-error\">Undefined symbol \"{symbol}\".{snippet}</p>"
+                    "<p id=\"compile-error\">Undefined symbol: {symbol}.{snippet}</p>"
                 )
             }
             espyscript::compiler::Error::InvalidAst(e) => {
