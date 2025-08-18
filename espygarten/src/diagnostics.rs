@@ -105,6 +105,16 @@ impl Diagnostic {
                 },
                 secondary: Vec::new(),
             },
+            Error::Lexer(lexer::Error {
+                origin,
+                kind: lexer::ErrorKind::UnterminatedIdentifier,
+            }) => Self {
+                primary: Comment {
+                    message: "unterminated identifier".to_string(),
+                    range: Some(origin_range(origin, source)),
+                },
+                secondary: Vec::new(),
+            },
             Error::MissingToken { expected, actual } => {
                 let mut message = "expected ".to_string();
                 format_lexigram(

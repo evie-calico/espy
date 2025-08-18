@@ -150,6 +150,19 @@ impl Token<'_> {
                 }
                 Ok(s)
             }
+            Lexigram::Ident if self.origin.starts_with('`') => {
+                let mut s = String::new();
+                // trim quotes
+                let mut chars = self.origin[1..(self.origin.len() - 1)].chars();
+                while let Some(c) = chars.next() {
+                    if c == '\\' {
+                        s.push(resolve_escape(&mut chars)?);
+                    } else {
+                        s.push(c);
+                    }
+                }
+                Ok(s)
+            }
             _ => Ok(self.origin.into()),
         }
     }
@@ -177,6 +190,8 @@ pub enum ErrorKind {
     ReservedSymbol,
     /// A quote character was encountered but never terminated.
     UnterminatedString,
+    /// A backtick character was encountered but never terminated.
+    UnterminatedIdentifier,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -307,6 +322,25 @@ impl<'source> Iterator for Lexer<'source> {
                     }
                 }
                 Lexigram::String
+            }
+            // Raw Identifier
+            '`' => {
+                loop {
+                    match self.next() {
+                        Some('\\') => {
+                            self.next();
+                        }
+                        Some('`') => break,
+                        None => {
+                            return Some(Err(Error {
+                                origin: root,
+                                kind: ErrorKind::UnterminatedIdentifier,
+                            }));
+                        }
+                        _ => {}
+                    }
+                }
+                Lexigram::Ident
             }
             '=' if self.next_if(|c| c == '=').is_some() => Lexigram::DoubleEqual,
             '=' if self.next_if(|c| c == '>').is_some() => Lexigram::DoubleArrow,

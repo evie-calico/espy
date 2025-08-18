@@ -32,6 +32,8 @@ pub enum Error<'source> {
     InvalidInteger(Token<'source>, ParseIntError),
     /// The AST contained a string with an invalid escape sequence.
     InvalidString(Token<'source>, espy_eyes::EscapeError),
+    /// The AST contained an identifier with an invalid escape sequence.
+    InvalidIdentifier(Token<'source>, espy_eyes::EscapeError),
     /// A variable was referenced that did not exist.
     UndefinedSymbol(Token<'source>),
     /// The AST contained errors.
@@ -370,14 +372,20 @@ impl<'source> Program<'source> {
                 let mut scope = scope.promote();
                 let captures = scope.stack_pointer;
                 scope.stack_pointer += 1;
-                if let Some(Token {
-                    origin,
-                    // Lexigram::Discard may also appear here,
-                    // but it should obviously be ignored.
-                    lexigram: Lexigram::Ident,
-                }) = function.argument
+                if let Some(
+                    argument @ Token {
+                        // Lexigram::Discard may also appear here,
+                        // but it should obviously be ignored.
+                        lexigram: Lexigram::Ident,
+                        ..
+                    },
+                ) = function.argument
                 {
-                    scope.insert(origin);
+                    scope.insert(
+                        argument
+                            .resolve()
+                            .map_err(|e| Error::InvalidIdentifier(argument, e))?,
+                    );
                 }
                 let function_id = self.create_block()?;
                 self.add_block(function_id, function.block, scope)?;
@@ -408,7 +416,11 @@ impl<'source> Program<'source> {
         let root = scope.stack_pointer - 1;
         match binding.method {
             BindingMethod::Single(token) => match token.lexigram {
-                Lexigram::Ident => scope.insert(token.origin),
+                Lexigram::Ident => scope.insert(
+                    token
+                        .resolve()
+                        .map_err(|e| Error::InvalidIdentifier(token, e))?,
+                ),
                 Lexigram::Discard => {}
                 _ => unreachable!("only idents and discards are valid bindings"),
             },
@@ -424,14 +436,24 @@ impl<'source> Program<'source> {
             BindingMethod::Named { bindings, .. } => {
                 for binding in bindings {
                     block!().extend(Instruction::Clone(root));
-                    let s = self.create_string(binding.field.origin)?;
+                    let s = self.create_string(
+                        binding
+                            .field
+                            .resolve()
+                            .map_err(|e| Error::InvalidIdentifier(binding.field, e))?,
+                    )?;
                     block!().extend(Instruction::PushString(s));
                     block!().extend(Instruction::Index);
                     scope.stack_pointer += 1;
                     if let Some(sub_binding) = binding.binding {
                         self.add_binding(block_id, sub_binding.binding, scope)?;
                     } else {
-                        scope.insert(binding.field.origin);
+                        scope.insert(
+                            binding
+                                .field
+                                .resolve()
+                                .map_err(|e| Error::InvalidIdentifier(binding.field, e))?,
+                        );
                     }
                 }
             }
@@ -506,7 +528,11 @@ impl<'source> Program<'source> {
                 let escape_address = block!().len() - 4;
                 let mut child = scope.child().implicit_break();
                 if let Some(binding) = binding {
-                    child.insert(binding.origin);
+                    child.insert(
+                        binding
+                            .resolve()
+                            .map_err(|e| Error::InvalidIdentifier(binding, e))?,
+                    );
                 }
                 // Note the insert-we need to inject two more instructions into this block.
                 self.insert_block(block_id, block, &mut child)?;
@@ -592,7 +618,11 @@ impl<'source> Program<'source> {
                 }
                 Node::Variable(token) => {
                     let value = scope
-                        .get(token.origin)
+                        .get(
+                            &token
+                                .resolve()
+                                .map_err(|e| Error::InvalidIdentifier(token, e))?,
+                        )
                         .ok_or(Error::UndefinedSymbol(token))?;
                     scope.stack_pointer += 1;
                     block!().extend(Instruction::Clone(value.index))
@@ -638,7 +668,10 @@ impl<'source> Program<'source> {
                     if name.lexigram == Lexigram::Discard {
                         block!().extend(Instruction::Nest);
                     } else {
-                        let s = self.create_string(name.origin)?;
+                        let s = self.create_string(
+                            name.resolve()
+                                .map_err(|e| Error::InvalidIdentifier(name, e))?,
+                        )?;
                         block!().extend(Instruction::Name(s));
                     }
                 }
@@ -690,11 +723,15 @@ impl<'source> Program<'source> {
                     index,
                 } => {
                     match index {
-                        Token {
+                        token @ Token {
                             lexigram: Lexigram::Ident,
-                            origin,
+                            ..
                         } => {
-                            let s = self.create_string(origin)?;
+                            let s = self.create_string(
+                                token
+                                    .resolve()
+                                    .map_err(|e| Error::InvalidIdentifier(token, e))?,
+                            )?;
                             block!().extend(Instruction::PushString(s));
                         }
                         token @ Token {
@@ -794,7 +831,7 @@ pub struct Scope<'parent, 'source> {
     parent: Option<&'parent Scope<'parent, 'source>>,
 
     stack_pointer: StackPointer,
-    bindings: Vec<(&'source str, Value)>,
+    bindings: Vec<(Cow<'source, str>, Value)>,
 
     name: Option<&'source str>,
     /// If true, this block is a candidate for unnamed break statements.
@@ -814,8 +851,8 @@ impl<'parent, 'source> Scope<'parent, 'source> {
             // Use most recent binding
             .rev()
             .find(|(x, _)| *x == k)
-            .copied()
             .map(|(_, x)| x)
+            .copied()
             .or_else(|| {
                 self.parent
                     .and_then(|parent| parent.get(k))
@@ -823,9 +860,9 @@ impl<'parent, 'source> Scope<'parent, 'source> {
             })
     }
 
-    fn insert(&mut self, k: &'source str) {
+    fn insert(&mut self, k: impl Into<Cow<'source, str>>) {
         self.bindings.push((
-            k,
+            k.into(),
             Value {
                 index: self
                     .stack_pointer

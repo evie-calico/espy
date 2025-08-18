@@ -312,6 +312,12 @@ pub fn espyscript_eval(source: &str) -> String {
                     "<p id=\"compile-error\">Invalid string literal: {e:?}.{snippet}</p>"
                 )
             }
+            espyscript::compiler::Error::InvalidIdentifier(token, e) => {
+                let snippet = SnippetFmt::new(origin_range(token.origin, source), source);
+                format!(
+                    "<p id=\"compile-error\">Invalid raw identifier: {e:?}.{snippet}</p>"
+                )
+            }
             espyscript::compiler::Error::UndefinedSymbol(token) => {
                 let symbol = token.origin;
                 let snippet = SnippetFmt::new(origin_range(token.origin, source), source);

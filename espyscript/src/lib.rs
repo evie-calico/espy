@@ -56,7 +56,7 @@ mod tests {
     #[test]
     fn named_tuples() {
         let actual = Program::try_from(
-            "let { second } = first: 1, second: 2; let { third: three } = third: 3, fourth: 4; second * three",
+            "let { `second number`: second } = first: 1, `second number`: 2; let { third: three } = third: 3, fourth: 4; second * three",
         )
         .unwrap();
         println!("{actual:?}");
