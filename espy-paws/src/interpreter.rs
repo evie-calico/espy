@@ -93,7 +93,7 @@ impl Program {
         }
 
         impl Frame<'_> {
-            fn next(&mut self) -> Result<u8, Error<'static>> {
+            fn next(&mut self) -> Result<u8, InvalidBytecode> {
                 let next = self
                     .bytecode
                     .get(self.pc)
@@ -102,14 +102,14 @@ impl Program {
                 Ok(*next)
             }
 
-            fn next4(&mut self) -> Result<usize, Error<'static>> {
+            fn next4(&mut self) -> Result<usize, InvalidBytecode> {
                 Ok(
                     u32::from_le_bytes([self.next()?, self.next()?, self.next()?, self.next()?])
                         as usize,
                 )
             }
 
-            fn next_i64(&mut self) -> Result<i64, Error<'static>> {
+            fn next_i64(&mut self) -> Result<i64, InvalidBytecode> {
                 Ok(i64::from_le_bytes([
                     self.next()?,
                     self.next()?,
@@ -176,6 +176,11 @@ impl Program {
                         builtins::OPTION => {
                             stack.push(
                                 Storage::Function(Rc::new(FunctionAction::Option.into())).into(),
+                            );
+                        }
+                        builtins::MUT => {
+                            stack.push(
+                                Storage::Function(Rc::new(FunctionAction::Mut.into())).into(),
                             );
                         }
                         _ => {}
@@ -576,6 +581,21 @@ impl Program {
                         .ok_or(InvalidBytecode::StackUnderflow)?
                         .into_i64()?;
                     stack.push((-value).into());
+                }
+                instruction::DEREF => {
+                    let value = stack
+                        .pop()
+                        .ok_or(InvalidBytecode::StackUnderflow)?
+                        .into_refcell()?;
+                    stack.push(value.try_borrow()?.clone());
+                }
+                instruction::SET => {
+                    let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let target = stack
+                        .pop()
+                        .ok_or(InvalidBytecode::StackUnderflow)?
+                        .into_refcell()?;
+                    *target.borrow_mut() = value;
                 }
 
                 _ => Err(InvalidBytecode::InvalidInstruction)?,

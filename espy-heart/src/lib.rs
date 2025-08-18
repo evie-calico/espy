@@ -56,6 +56,8 @@ pub mod instruction {
     pub const NAME: u8 = 0x43;
     pub const NEST: u8 = 0x44;
     pub const NEGATIVE: u8 = 0x45;
+    pub const DEREF: u8 = 0x46;
+    pub const SET: u8 = 0x47;
 }
 
 // TODO: Reorder these before release.
@@ -66,6 +68,7 @@ pub mod builtins {
     pub const ANY: StackPointer = -2;
     pub const UNIT: StackPointer = -3;
     pub const I64: StackPointer = -4;
+    pub const MUT: StackPointer = -5;
 
     pub fn from_str(s: &str) -> Option<StackPointer> {
         match s {
@@ -73,6 +76,7 @@ pub mod builtins {
             "any" => Some(ANY),
             "unit" => Some(UNIT),
             "i64" => Some(I64),
+            "mut" => Some(MUT),
             _ => None,
         }
     }

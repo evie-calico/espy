@@ -104,6 +104,7 @@ pub enum Node<'source> {
     Call(Token<'source>),
     Positive(Token<'source>),
     Negative(Token<'source>),
+    Deref(Token<'source>),
     Mul(Token<'source>),
     Div(Token<'source>),
     Add(Token<'source>),
@@ -149,6 +150,7 @@ impl<'source> Expression<'source> {
             Pipe(Token<'source>),
             Positive(Token<'source>),
             Negative(Token<'source>),
+            Deref(Token<'source>),
             Mul(Token<'source>),
             Div(Token<'source>),
             Add(Token<'source>),
@@ -180,7 +182,7 @@ impl<'source> Expression<'source> {
             fn precedence(self) -> usize {
                 match self {
                     Operation::Field { .. } => 13,
-                    Operation::Positive(_) | Operation::Negative(_) => 12,
+                    Operation::Positive(_) | Operation::Negative(_) | Operation::Deref(_) => 12,
                     Operation::Mul(_) | Operation::Div(_) => 11,
                     Operation::Add(_) | Operation::Sub(_) => 10,
                     Operation::BitwiseAnd(_) => 9,
@@ -206,6 +208,7 @@ impl<'source> Expression<'source> {
                     Operation::Field { .. }
                     | Operation::Positive(_)
                     | Operation::Negative(_)
+                    | Operation::Deref(_)
                     | Operation::Mul(_)
                     | Operation::Div(_)
                     | Operation::Name { .. }
@@ -238,6 +241,7 @@ impl<'source> Expression<'source> {
                     Operation::Call(t) => Node::Call(t),
                     Operation::Positive(t) => Node::Positive(t),
                     Operation::Negative(t) => Node::Negative(t),
+                    Operation::Deref(t) => Node::Deref(t),
                     Operation::Mul(t) => Node::Mul(t),
                     Operation::Div(t) => Node::Div(t),
                     Operation::Add(t) => Node::Add(t),
@@ -438,6 +442,8 @@ impl<'source> Expression<'source> {
                 lexi!(t @ Plus) if !unary_position => op!(Add(t)),
                 lexi!(t @ Minus) if unary_position => op!(Negative(t)),
                 lexi!(t @ Minus) if !unary_position => op!(Sub(t)),
+                // TODO: I'd rather use zig's `.*` for deref, but this causes unary position because the * looks like multiplication. What if ".*" was a token?
+                lexi!(t @ Star) if unary_position => op!(Deref(t)),
                 lexi!(t @ Star) if !unary_position => op!(Mul(t)),
                 lexi!(t @ Slash) if !unary_position => op!(Div(t)),
                 lexi!(t @ Ampersand) if !unary_position => op!(BitwiseAnd(t)),
@@ -792,6 +798,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Enum<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub enum Statement<'source> {
     Evaluation(Evaluation<'source>),
+    Set(Set<'source>),
     For(For<'source>),
     Implementation(Implementation<'source>),
 }
@@ -861,6 +868,41 @@ pub struct LetBinding<'source> {
     pub let_token: Token<'source>,
     pub binding: Option<Binding<'source>>,
     pub equals_token: Option<Token<'source>>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct Set<'source> {
+    pub set_token: Token<'source>,
+    pub target: Option<Box<Expression<'source>>>,
+    pub equals_token: Option<Token<'source>>,
+    pub expression: Option<Box<Expression<'source>>>,
+    pub semicolon_token: Option<Token<'source>>,
+    pub diagnostics: Diagnostics<'source>,
+}
+
+impl<'source> Set<'source> {
+    fn new(lexer: &mut Peekable<Lexer<'source>>) -> Self {
+        let mut diagnostics = Diagnostics::default();
+        let set_token = lexer
+            .next()
+            .transpose()
+            .ok()
+            .flatten()
+            .expect("caller must have peeked a token");
+        let target = diagnostics.expect_expression(lexer);
+        let equals_token = diagnostics.next_if(lexer, &[Lexigram::SingleEqual]);
+        let expression = diagnostics.expect_expression(lexer);
+        let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
+
+        Set {
+            set_token,
+            target,
+            equals_token,
+            expression,
+            semicolon_token,
+            diagnostics,
+        }
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -1245,6 +1287,10 @@ impl<'source> Block<'source> {
                     lexigram: Lexigram::Let,
                     ..
                 }) => Statement::Evaluation(Evaluation::binding(lexer)),
+                Some(Token {
+                    lexigram: Lexigram::Set,
+                    ..
+                }) => Statement::Set(Set::new(lexer)),
                 Some(Token {
                     lexigram: Lexigram::For,
                     ..

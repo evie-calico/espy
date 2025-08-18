@@ -1,4 +1,4 @@
-use std::{mem, rc::Rc};
+use std::{cell::RefCell, mem, rc::Rc};
 
 mod interpreter;
 pub use interpreter::*;
@@ -58,6 +58,7 @@ pub enum Storage<'host> {
         contents: Option<Rc<Value<'host>>>,
         ty: Rc<ComplexType<'host>>,
     },
+    Mut(Rc<RefCell<Value<'host>>>),
 
     Type(Type<'host>),
 }
@@ -79,6 +80,7 @@ pub enum Type<'host> {
     Struct(Rc<StructType<'host>>),
     Enum(Rc<EnumType<'host>>),
     Option(Rc<ComplexType<'host>>),
+    Mut(Rc<ComplexType<'host>>),
 
     /// The type of types.
     Type,
@@ -140,6 +142,7 @@ impl std::fmt::Debug for Storage<'_> {
                 .finish(),
             Storage::EnumVariant(enum_variant) => write!(f, "EnumVariant({enum_variant:?})"),
             Storage::Option { contents, ty: _ } => write!(f, "{contents:?}"),
+            Storage::Mut(inner) => write!(f, "Mut({inner:?})"),
             Storage::Type(t) => write!(f, "{t:?}"),
         }
     }
@@ -268,20 +271,27 @@ impl<'host> Value<'host> {
         }
     }
 
-    fn type_of(&self) -> ComplexType<'host> {
-        match &self.storage {
+    /// # Errors
+    ///
+    /// Returns an error if a mutable reference is being mutably borrowed.
+    ///
+    /// This can be safely ignored by the host if it has not deliberately borrowed an espyscript value.
+    fn type_of(&self) -> Result<ComplexType<'host>, Error<'host>> {
+        Ok(match &self.storage {
             Storage::Unit => Type::Unit.into(),
             Storage::Tuple(tuple) => {
                 let complex = match &tuple.0 {
                     TupleStorage::Numeric(items) => Tuple(TupleStorage::Numeric(
-                        rc_slice_from_iter(items.len(), items.iter().map(Value::type_of)),
+                        rc_slice_try_from_iter(items.len(), items.iter().map(Value::type_of))?,
                     )),
-                    TupleStorage::Named(items) => Tuple(TupleStorage::Named(rc_slice_from_iter(
-                        items.len(),
-                        items
-                            .iter()
-                            .map(|(name, value)| (name.clone(), value.type_of())),
-                    ))),
+                    TupleStorage::Named(items) => {
+                        Tuple(TupleStorage::Named(rc_slice_try_from_iter(
+                            items.len(),
+                            items.iter().map(|(name, value)| {
+                                value.type_of().map(|value| (name.clone(), value))
+                            }),
+                        )?))
+                    }
                 };
                 // The type of a tuple containing only types is `type`, not `(type, type, ..)`
                 if complex
@@ -303,8 +313,9 @@ impl<'host> Value<'host> {
                 Type::Enum(enum_variant.definition.clone()).into()
             }
             Storage::Option { contents: _, ty } => Type::Option(ty.clone()).into(),
+            Storage::Mut(inner) => Type::Mut(inner.try_borrow()?.type_of()?.into()).into(),
             Storage::Type(_) => Type::Type.into(),
-        }
+        })
     }
 
     pub fn concat(self, r: Self) -> Self {
@@ -427,6 +438,13 @@ impl<'host> Value<'host> {
 
     pub fn into_enum_variant(self) -> Result<Rc<EnumVariant<'host>>, Error<'host>> {
         self.try_into()
+    }
+
+    pub fn into_refcell(self) -> Result<Rc<RefCell<Value<'host>>>, Error<'host>> {
+        match &self.storage {
+            Storage::Mut(inner) => Ok(inner.clone()),
+            _ => Err(Error::ExpectedReference(self)),
+        }
     }
 
     pub fn into_complex_type(self) -> Result<ComplexType<'host>, Error<'host>> {
@@ -822,7 +840,7 @@ impl<'host> Function<'host> {
                 definition,
             } => {
                 let ty = &definition.variants[variant].1;
-                if *ty != Type::Any.into() && self.argument.type_of() != *ty {
+                if *ty != Type::Any.into() && self.argument.type_of()? != *ty {
                     return Err(Error::type_error(self.argument, ty.clone()));
                 }
                 Storage::EnumVariant(Rc::new(EnumVariant {
@@ -832,11 +850,12 @@ impl<'host> Function<'host> {
                 }))
                 .into()
             }
+            FunctionAction::Mut => Storage::Mut(Rc::new(RefCell::new(self.argument))).into(),
             FunctionAction::Option => {
                 Type::Option(Rc::new(self.argument.into_complex_type()?)).into()
             }
             FunctionAction::Some(ty) => {
-                if self.argument.type_of() != *ty {
+                if self.argument.type_of()? != *ty {
                     return Err(Error::type_error(self.argument, (*ty).clone()));
                 }
                 Storage::Option {
@@ -852,7 +871,7 @@ impl<'host> Function<'host> {
             FunctionAction::Borrow(external) => external.call(self.argument)?,
         };
         if let Some(structure) = self.constructor {
-            if structure.inner != Type::Any.into() && structure.inner != result.type_of() {
+            if structure.inner != Type::Any.into() && structure.inner != result.type_of()? {
                 Err(Error::type_error(result, structure.inner.clone()))
             } else {
                 Ok(Storage::Struct {
@@ -891,6 +910,7 @@ enum FunctionAction<'host> {
         variant: usize,
         definition: Rc<EnumType<'host>>,
     },
+    Mut,
     Option,
     Some(Rc<ComplexType<'host>>),
     None(Rc<ComplexType<'host>>),
@@ -928,6 +948,7 @@ impl std::fmt::Debug for FunctionAction<'_> {
                 .field("variant", variant)
                 .field("definition", definition)
                 .finish(),
+            Self::Mut => write!(f, "Mut"),
             Self::Option => write!(f, "Option"),
             Self::Some(arg0) => f.debug_tuple("Some").field(arg0).finish(),
             Self::None(arg0) => f.debug_tuple("None").field(arg0).finish(),
@@ -1009,6 +1030,8 @@ pub enum Error<'host> {
     ExpectedStructType(Value<'host>),
     ExpectedTuple(Value<'host>),
     ExpectedNamedTuple(Value<'host>),
+    ExpectedReference(Value<'host>),
+
     IncomparableValues(Value<'host>, Value<'host>),
     TypeError {
         value: Value<'host>,
@@ -1018,6 +1041,8 @@ pub enum Error<'host> {
         index: Value<'host>,
         container: Value<'host>,
     },
+    BorrowError(std::cell::BorrowError),
+    BorrowMutError(std::cell::BorrowMutError),
     /// Errors that occur during host interop.
     ///
     /// These may carry less information than a typical espyscript error,
@@ -1043,13 +1068,24 @@ impl<'host> Error<'host> {
 pub enum ExternError {
     MissingFunctionImpl,
     MissingIndexImpl,
-    BorrowMutError,
     Other(Box<dyn std::error::Error>),
 }
 
 impl<'host> From<ExternError> for Error<'host> {
     fn from(e: ExternError) -> Error<'host> {
         Error::ExternError(e)
+    }
+}
+
+impl<'host> From<std::cell::BorrowError> for Error<'host> {
+    fn from(e: std::cell::BorrowError) -> Error<'host> {
+        Error::BorrowError(e)
+    }
+}
+
+impl<'host> From<std::cell::BorrowMutError> for Error<'host> {
+    fn from(e: std::cell::BorrowMutError) -> Error<'host> {
+        Error::BorrowMutError(e)
     }
 }
 

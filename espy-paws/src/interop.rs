@@ -71,8 +71,6 @@ where
     F: for<'host> FnMut(Value<'host>) -> Result<Value<'host>, Error<'host>>,
 {
     fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        self.0
-            .try_borrow_mut()
-            .map_err(|_| ExternError::BorrowMutError)?(argument)
+        self.0.try_borrow_mut()?(argument)
     }
 }

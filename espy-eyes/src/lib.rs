@@ -34,6 +34,7 @@ pub enum Lexigram {
     Let,
     Match,
     Or,
+    Set,
     Struct,
     Then,
     True,
@@ -184,10 +185,10 @@ impl<'source> Iterator for Lexer<'source> {
                 match ident {
                     "array" | "as" | "async" | "await" | "case" | "class" | "const"
                     | "continue" | "do" | "dyn" | "fn" | "import" | "include" | "iterator"
-                    | "loop" | "macro" | "mod" | "move" | "mut" | "never" | "priv" | "pub"
-                    | "ref" | "require" | "return" | "safe" | "static" | "super" | "switch"
-                    | "trait" | "try" | "tuple" | "type" | "union" | "unsafe" | "use" | "where"
-                    | "while" | "yield" => {
+                    | "loop" | "macro" | "mod" | "move" | "never" | "priv" | "pub" | "ref"
+                    | "require" | "return" | "safe" | "static" | "super" | "switch" | "trait"
+                    | "try" | "tuple" | "type" | "union" | "unsafe" | "use" | "where" | "while"
+                    | "yield" => {
                         return Some(Err(Error {
                             origin: ident,
                             kind: ErrorKind::ReservedSymbol,
@@ -206,6 +207,7 @@ impl<'source> Iterator for Lexer<'source> {
                     "let" => Lexigram::Let,
                     "match" => Lexigram::Match,
                     "or" => Lexigram::Or,
+                    "set" => Lexigram::Set,
                     "struct" => Lexigram::Struct,
                     "true" => Lexigram::True,
                     "then" => Lexigram::Then,

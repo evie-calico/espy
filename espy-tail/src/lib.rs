@@ -13,7 +13,7 @@
 
 use espy_ears::{
     Binding, BindingMethod, Block, BlockResult, Diagnostics, Evaluation, Expression, For, Node,
-    Statement,
+    Set, Statement,
 };
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;
@@ -139,6 +139,8 @@ pub enum Instruction {
     LesserEqual,
     LogicalAnd,
     LogicalOr,
+    Deref,
+    Set,
 }
 
 pub struct InstructionIter {
@@ -204,6 +206,8 @@ impl Iterator for InstructionIter {
             Instruction::LesserEqual => decompose!(instruction::LESSER_EQUAL,),
             Instruction::LogicalAnd => decompose!(instruction::LOGICAL_AND,),
             Instruction::LogicalOr => decompose!(instruction::LOGICAL_OR,),
+            Instruction::Deref => decompose!(instruction::DEREF,),
+            Instruction::Set => decompose!(instruction::SET,),
         };
         self.index += 1;
         Some(byte)
@@ -469,6 +473,18 @@ impl<'source> Program<'source> {
                     scope.stack_pointer -= 1;
                 }
             }
+            Statement::Set(Set {
+                target,
+                expression,
+                diagnostics,
+                ..
+            }) => {
+                try_validate(diagnostics)?;
+                self.add_expression(block_id, target, scope)?;
+                self.add_expression(block_id, expression, scope)?;
+                block!().extend(Instruction::Set);
+                scope.stack_pointer -= 2;
+            }
             Statement::For(For {
                 binding,
                 iterator,
@@ -599,6 +615,10 @@ impl<'source> Program<'source> {
                 Node::Negative(_) => {
                     scope.stack_pointer += 0;
                     block!().extend(Instruction::Negative);
+                }
+                Node::Deref(_) => {
+                    scope.stack_pointer += 0;
+                    block!().extend(Instruction::Deref);
                 }
                 Node::Name {
                     name,

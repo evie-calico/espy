@@ -20,6 +20,7 @@ fn format_lexigram(mut f: impl Write, lexigram: lexer::Lexigram) {
         lexer::Lexigram::Let => write!(f, "let"),
         lexer::Lexigram::Match => write!(f, "match"),
         lexer::Lexigram::Or => write!(f, "or"),
+        lexer::Lexigram::Set => write!(f, "set"),
         lexer::Lexigram::Struct => write!(f, "struct"),
         lexer::Lexigram::Then => write!(f, "then"),
         lexer::Lexigram::True => write!(f, "true"),
@@ -247,6 +248,34 @@ fn diagnose_statement(source: &str, statement: &Statement, for_each: &mut impl F
                 for_each(diagnostic);
             }
             diagnose_expression(source, &evaluation.expression, &mut *for_each);
+        }
+        Statement::Set(set) => {
+            let set_range = origin_range(set.set_token.origin, source);
+            let anchored_range = set
+                .expression
+                .as_ref()
+                .and_then(|x| x.first_token)
+                .map(|first_token| {
+                    let (_, last) = origin_range(first_token.origin, source);
+                    (set_range.0, last)
+                })
+                .unwrap_or(set_range);
+            for error in &set.diagnostics.errors {
+                let mut diagnostic = Diagnostic::from_error(error, source);
+                if diagnostic
+                    .primary
+                    .range
+                    .is_none_or(|range| range.0 > anchored_range.1)
+                {
+                    diagnostic.secondary.push(Comment {
+                        message: "for this assignment".to_string(),
+                        range: Some(anchored_range),
+                    })
+                }
+                for_each(diagnostic);
+            }
+            diagnose_expression(source, &set.target, &mut *for_each);
+            diagnose_expression(source, &set.expression, &mut *for_each);
         }
         Statement::For(for_loop) => {
             for error in &for_loop.diagnostics.errors {
