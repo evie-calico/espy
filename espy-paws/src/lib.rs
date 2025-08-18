@@ -272,21 +272,25 @@ impl<'host> Value<'host> {
         match &self.storage {
             Storage::Unit => Type::Unit.into(),
             Storage::Tuple(tuple) => {
-                let complex = rc_slice_from_iter(
-                    tuple.len(),
-                    tuple
-                        .0
-                        .iter()
-                        .map(|(name, value)| (name.clone(), value.type_of())),
-                );
+                let complex = match &tuple.0 {
+                    TupleStorage::Numeric(items) => Tuple(TupleStorage::Numeric(
+                        rc_slice_from_iter(items.len(), items.iter().map(Value::type_of)),
+                    )),
+                    TupleStorage::Named(items) => Tuple(TupleStorage::Named(rc_slice_from_iter(
+                        items.len(),
+                        items
+                            .iter()
+                            .map(|(name, value)| (name.clone(), value.type_of())),
+                    ))),
+                };
                 // The type of a tuple containing only types is `type`, not `(type, type, ..)`
                 if complex
-                    .iter()
-                    .all(|x| matches!(x.1, ComplexType::Simple(Type::Type)))
+                    .values()
+                    .all(|x| matches!(x, ComplexType::Simple(Type::Type)))
                 {
                     Type::Type.into()
                 } else {
-                    Tuple(complex).into()
+                    complex.into()
                 }
             }
             Storage::Borrow(_) => Type::Any.into(),
@@ -307,18 +311,33 @@ impl<'host> Value<'host> {
         match (self, r) {
             (
                 Value {
-                    storage: Storage::Tuple(l),
+                    storage: Storage::Tuple(Tuple(TupleStorage::Numeric(l))),
                     ..
                 },
                 Value {
-                    storage: Storage::Tuple(r),
+                    storage: Storage::Tuple(Tuple(TupleStorage::Numeric(r))),
                     ..
                 },
             ) => Value {
-                storage: Storage::Tuple(Tuple(rc_slice_from_iter(
+                storage: Storage::Tuple(Tuple(TupleStorage::Numeric(rc_slice_from_iter(
                     l.len() + r.len(),
-                    l.0.iter().chain(r.0.iter()).cloned(),
-                ))),
+                    l.iter().chain(r.iter()).cloned(),
+                )))),
+            },
+            (
+                Value {
+                    storage: Storage::Tuple(Tuple(TupleStorage::Named(l))),
+                    ..
+                },
+                Value {
+                    storage: Storage::Tuple(Tuple(TupleStorage::Named(r))),
+                    ..
+                },
+            ) => Value {
+                storage: Storage::Tuple(Tuple(TupleStorage::Named(rc_slice_from_iter(
+                    l.len() + r.len(),
+                    l.iter().chain(r.iter()).cloned(),
+                )))),
             },
             (
                 l,
@@ -336,30 +355,30 @@ impl<'host> Value<'host> {
             ) => Value { storage: r.storage },
             (
                 Value {
-                    storage: Storage::Tuple(l),
+                    storage: Storage::Tuple(Tuple(TupleStorage::Numeric(l))),
                     ..
                 },
                 r,
             ) => Value {
-                storage: Storage::Tuple(Tuple(rc_slice_from_iter(
+                storage: Storage::Tuple(Tuple(TupleStorage::Numeric(rc_slice_from_iter(
                     l.len() + 1,
-                    l.0.iter().cloned().chain(Some((None, r))),
-                ))),
+                    l.iter().cloned().chain([r]),
+                )))),
             },
             (
                 l,
                 Value {
-                    storage: Storage::Tuple(r),
+                    storage: Storage::Tuple(Tuple(TupleStorage::Numeric(r))),
                     ..
                 },
             ) => Value {
-                storage: Storage::Tuple(Tuple(rc_slice_from_iter(
+                storage: Storage::Tuple(Tuple(TupleStorage::Numeric(rc_slice_from_iter(
                     1 + r.len(),
-                    Some((None, l)).into_iter().chain(r.0.iter().cloned()),
-                ))),
+                    [l].into_iter().chain(r.iter().cloned()),
+                )))),
             },
             (l, r) => Value {
-                storage: Storage::Tuple(Tuple(Rc::new([(None, l), (None, r)]))),
+                storage: Storage::Tuple(Tuple(TupleStorage::Numeric(Rc::new([l, r])))),
             },
         }
     }
@@ -652,11 +671,20 @@ impl<'host> TryFrom<Value<'host>> for StructType<'host> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Tuple<T>(Rc<[(Option<Rc<str>>, T)]>);
+enum TupleStorage<T> {
+    Numeric(Rc<[T]>),
+    Named(Rc<[(Rc<str>, T)]>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Tuple<T>(TupleStorage<T>);
 
 impl<T> Tuple<T> {
     pub fn len(&self) -> usize {
-        self.0.len()
+        match &self.0 {
+            TupleStorage::Numeric(items) => items.len(),
+            TupleStorage::Named(items) => items.len(),
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -664,21 +692,26 @@ impl<T> Tuple<T> {
     }
 
     pub fn value(&self, index: usize) -> Option<&T> {
-        self.0.get(index).map(|(_name, value)| value)
+        match &self.0 {
+            TupleStorage::Numeric(items) => items.get(index),
+            TupleStorage::Named(items) => items.get(index).map(|(_name, value)| value),
+        }
     }
 
     pub fn find_value(&self, name: &str) -> Option<&T> {
-        self.0.iter().find_map(|(n, v)| {
-            if n.as_ref().is_some_and(|n| **n == *name) {
-                Some(v)
-            } else {
-                None
-            }
-        })
+        let TupleStorage::Named(items) = &self.0 else {
+            return None;
+        };
+        items
+            .iter()
+            .find_map(|(n, v)| if **n == *name { Some(v) } else { None })
     }
 
     pub fn values(&self) -> impl Iterator<Item = &T> {
-        self.0.iter().map(|(_name, value)| value)
+        (0..self.len()).map(|i| match &self.0 {
+            TupleStorage::Numeric(items) => &items[i],
+            TupleStorage::Named(items) => &items[i].1,
+        })
     }
 }
 
@@ -686,14 +719,22 @@ impl<'host> TryFrom<Tuple<Value<'host>>> for Tuple<ComplexType<'host>> {
     type Error = Error<'host>;
 
     fn try_from(tuple: Tuple<Value<'host>>) -> Result<Self, Self::Error> {
-        rc_slice_try_from_iter(
-            tuple.len(),
-            tuple
-                .0
-                .iter()
-                .map(|(name, value)| Ok((name.clone(), value.clone().try_into()?))),
-        )
-        .map(Tuple)
+        match &tuple.0 {
+            TupleStorage::Numeric(items) => rc_slice_try_from_iter(
+                items.len(),
+                items.iter().map(|value| value.clone().try_into()),
+            )
+            .map(TupleStorage::Numeric)
+            .map(Tuple),
+            TupleStorage::Named(items) => rc_slice_try_from_iter(
+                items.len(),
+                items.iter().map(|(name, value)| {
+                    value.clone().try_into().map(|value| (name.clone(), value))
+                }),
+            )
+            .map(TupleStorage::Named)
+            .map(Tuple),
+        }
     }
 }
 
@@ -701,40 +742,46 @@ impl<'host> TryFrom<Tuple<Value<'host>>> for Tuple<Function<'host>> {
     type Error = Error<'host>;
 
     fn try_from(tuple: Tuple<Value<'host>>) -> Result<Self, Self::Error> {
-        rc_slice_try_from_iter(
-            tuple.len(),
-            tuple
-                .0
-                .iter()
-                .map(|(name, value)| Ok((name.clone(), value.clone().try_into()?))),
-        )
-        .map(Tuple)
+        match &tuple.0 {
+            TupleStorage::Numeric(items) => rc_slice_try_from_iter(
+                items.len(),
+                items.iter().map(|value| value.clone().try_into()),
+            )
+            .map(TupleStorage::Numeric)
+            .map(Tuple),
+            TupleStorage::Named(items) => rc_slice_try_from_iter(
+                items.len(),
+                items.iter().map(|(name, value)| {
+                    value.clone().try_into().map(|value| (name.clone(), value))
+                }),
+            )
+            .map(TupleStorage::Named)
+            .map(Tuple),
+        }
     }
 }
 
-impl<T> From<Rc<[(Option<Rc<str>>, T)]>> for Tuple<T> {
-    fn from(value: Rc<[(Option<Rc<str>>, T)]>) -> Self {
-        Self(value)
+impl<T> From<Rc<[T]>> for Tuple<T> {
+    fn from(value: Rc<[T]>) -> Self {
+        Self(TupleStorage::Numeric(value))
     }
 }
 
-impl<T, const N: usize> From<[(Option<Rc<str>>, T); N]> for Tuple<T> {
-    fn from(value: [(Option<Rc<str>>, T); N]) -> Self {
-        Self(Rc::from(value))
+impl<const N: usize, T> From<[T; N]> for Tuple<T> {
+    fn from(value: [T; N]) -> Self {
+        Self(TupleStorage::Numeric(Rc::from(value)))
     }
 }
 
-impl<T> AsRef<[(Option<Rc<str>>, T)]> for Tuple<T> {
-    fn as_ref(&self) -> &[(Option<Rc<str>>, T)] {
-        &self.0
+impl<T> From<Rc<[(Rc<str>, T)]>> for Tuple<T> {
+    fn from(value: Rc<[(Rc<str>, T)]>) -> Self {
+        Self(TupleStorage::Named(value))
     }
 }
 
-impl<T> std::ops::Index<usize> for Tuple<T> {
-    type Output = (Option<Rc<str>>, T);
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
+impl<const N: usize, T> From<[(Rc<str>, T); N]> for Tuple<T> {
+    fn from(value: [(Rc<str>, T); N]) -> Self {
+        Self(TupleStorage::Named(Rc::from(value)))
     }
 }
 
@@ -774,10 +821,7 @@ impl<'host> Function<'host> {
                 variant,
                 definition,
             } => {
-                let ty = definition
-                    .variants
-                    .value(variant)
-                    .expect("enum variant must not be missing");
+                let ty = &definition.variants[variant].1;
                 if *ty != Type::Any.into() && self.argument.type_of() != *ty {
                     return Err(Error::type_error(self.argument, ty.clone()));
                 }
@@ -931,7 +975,7 @@ impl<'host> EnumVariant<'host> {
         self.variant
     }
 
-    pub fn unwrap(self) -> (Option<Rc<str>>, Value<'host>) {
+    pub fn unwrap(self) -> (Rc<str>, Value<'host>) {
         (
             self.definition.variants[self.variant].0.clone(),
             self.contents,
@@ -941,7 +985,7 @@ impl<'host> EnumVariant<'host> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EnumType<'host> {
-    pub variants: Tuple<ComplexType<'host>>,
+    pub variants: Rc<[(Rc<str>, ComplexType<'host>)]>,
 }
 
 impl<'host> From<Rc<EnumType<'host>>> for Type<'host> {
@@ -964,6 +1008,7 @@ pub enum Error<'host> {
     ExpectedEnumType(Value<'host>),
     ExpectedStructType(Value<'host>),
     ExpectedTuple(Value<'host>),
+    ExpectedNamedTuple(Value<'host>),
     IncomparableValues(Value<'host>, Value<'host>),
     TypeError {
         value: Value<'host>,

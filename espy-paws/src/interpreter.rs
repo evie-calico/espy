@@ -244,11 +244,19 @@ impl Program {
                     );
                 }
                 instruction::PUSH_ENUM => {
-                    let variants = stack
-                        .pop()
-                        .ok_or(InvalidBytecode::StackUnderflow)?
-                        .into_tuple()?
-                        .try_into()?;
+                    let variants = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let Value {
+                        storage: Storage::Tuple(Tuple(TupleStorage::Named(variants))),
+                    } = variants
+                    else {
+                        Err(Error::ExpectedNamedTuple(variants))?
+                    };
+                    let variants = rc_slice_try_from_iter(
+                        variants.len(),
+                        variants.iter().map(|(name, value)| {
+                            value.clone().try_into().map(|value| (name.clone(), value))
+                        }),
+                    )?;
                     stack.push(Type::from(EnumType { variants }).into());
                 }
                 instruction::PUSH_STRUCT => {
@@ -434,9 +442,7 @@ impl Program {
                                 .as_ref()
                                 .iter()
                                 .enumerate()
-                                .find(|(_, (variant, _))| {
-                                    variant.as_ref().is_some_and(|variant| *variant == name)
-                                })
+                                .find(|(_, (variant, _))| *variant == name)
                                 .map(|(i, _)| i)
                             {
                                 stack.push(
@@ -558,11 +564,11 @@ impl Program {
                         .ok_or(InvalidBytecode::UnexpectedStringId)?
                         .clone();
                     let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Storage::Tuple(Tuple::from([(Some(name), value)])).into())
+                    stack.push(Storage::Tuple(Tuple::from([(name, value)])).into())
                 }
                 instruction::NEST => {
                     let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    stack.push(Storage::Tuple(Tuple::from([(None, value)])).into())
+                    stack.push(Storage::Tuple(Tuple::from([value])).into())
                 }
                 instruction::NEGATIVE => {
                     let value = stack

@@ -103,7 +103,7 @@ mod tests {
         let (variant, value) = interpreter::EnumVariant::try_from(actual.eval().unwrap())
             .unwrap()
             .unwrap();
-        assert_eq!(variant, Some("Some".into()));
+        assert_eq!(variant, "Some".into());
         assert!(value.eq(1.into()).unwrap());
     }
 
@@ -132,8 +132,8 @@ mod tests {
         assert_eq!(
             struct_type.inner,
             interpreter::ComplexType::from(interpreter::Tuple::from([
-                (Some(Rc::from("x")), Type::Any.into()),
-                (Some(Rc::from("y")), Type::Any.into()),
+                (Rc::from("x"), Type::Any.into()),
+                (Rc::from("y"), Type::Any.into()),
             ]))
         )
     }
