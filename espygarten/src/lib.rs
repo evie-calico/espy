@@ -6,12 +6,12 @@ use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen::prelude::*;
 
 #[derive(Debug, Default)]
-struct StdLib {
-    io: IoLib,
-    string: StringLib,
+struct EspygartenLibContainer {
+    std: espystandard::StdLib,
+    espygarten: EspygartenLib,
 }
 
-impl espyscript::Extern for StdLib {
+impl espyscript::Extern for EspygartenLibContainer {
     fn index<'host>(
         &'host self,
         index: espyscript::Value<'host>,
@@ -19,28 +19,28 @@ impl espyscript::Extern for StdLib {
         match index {
             espyscript::Value {
                 storage: espyscript::Storage::String(index),
-            } if &*index == "io" => Ok(espyscript::Value::borrow(&self.io)),
+            } if &*index == "std" => Ok(espyscript::Value::borrow(&self.std)),
             espyscript::Value {
                 storage: espyscript::Storage::String(index),
-            } if &*index == "string" => Ok(espyscript::Value::borrow(&self.string)),
+            } if &*index == "espygarten" => Ok(espyscript::Value::borrow(&self.espygarten)),
             index => Err(espyscript::Error::IndexNotFound {
                 index,
-                container: espyscript::Value::borrow(self),
+                container: espyscript::Storage::Borrow(self).into(),
             }),
         }
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::write!(f, "std module")
+        std::write!(f, "espygarten libraries")
     }
 }
 
 #[derive(Debug, Default)]
-struct IoLib {
-    print: IoPrintFn,
+struct EspygartenLib {
+    print: PrintFn,
 }
 
-impl espyscript::Extern for IoLib {
+impl espyscript::Extern for EspygartenLib {
     fn index<'host>(
         &'host self,
         index: espyscript::Value<'host>,
@@ -57,16 +57,16 @@ impl espyscript::Extern for IoLib {
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::write!(f, "std.io module")
+        std::write!(f, "espygarten module")
     }
 }
 
 #[derive(Debug, Default)]
-struct IoPrintFn {
+struct PrintFn {
     output: RefCell<String>,
 }
 
-impl espyscript::ExternFn for IoPrintFn {
+impl espyscript::ExternFn for PrintFn {
     fn call<'host>(
         &'host self,
         message: espyscript::Value<'host>,
@@ -80,57 +80,6 @@ impl espyscript::ExternFn for IoPrintFn {
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std.io.print function")
-    }
-}
-
-#[derive(Debug, Default)]
-struct StringLib {
-    concat: StringConcatFn,
-}
-
-impl espyscript::Extern for StringLib {
-    fn index<'host>(
-        &'host self,
-        index: espyscript::Value<'host>,
-    ) -> Result<espyscript::Value<'host>, espyscript::interpreter::Error<'host>> {
-        match index {
-            espyscript::Value {
-                storage: espyscript::Storage::String(index),
-            } if &*index == "concat" => Ok(espyscript::Function::borrow(&self.concat).into()),
-            index => Err(espyscript::Error::IndexNotFound {
-                index,
-                container: espyscript::Value::borrow(self),
-            }),
-        }
-    }
-
-    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::write!(f, "std.string module")
-    }
-}
-
-#[derive(Debug, Default)]
-struct StringConcatFn;
-
-impl espyscript::ExternFn for StringConcatFn {
-    fn call<'host>(
-        &'host self,
-        argument: espyscript::Value<'host>,
-    ) -> Result<espyscript::Value<'host>, espyscript::Error<'host>> {
-        argument
-            .into_tuple()?
-            .values()
-            .map(|s| {
-                s.as_str().ok_or_else(|| {
-                    espyscript::Error::type_error(s.clone(), espyscript::Type::String)
-                })
-            })
-            .collect::<Result<String, _>>()
-            .map(|s| espyscript::Value::from(Rc::<str>::from(s.as_str())))
-    }
-
-    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::write!(f, "std.string.concat function")
     }
 }
 
@@ -257,15 +206,15 @@ pub fn espyscript_eval(source: &str) -> String {
         Ok(program) => match espyscript::interpreter::Program::try_from(Rc::from(program.compile())).expect("textual programs may not produce invalid bytecode").eval(0, Vec::new()) {
             Ok(result) => match espyscript::Function::try_from(result) {
                 Ok(function) => {
-                    let std = StdLib::default();
+                    let libs = EspygartenLibContainer::default();
 
                     match function
-                        .piped(espyscript::Value::borrow(&std))
+                        .piped(espyscript::Value::borrow(&libs))
                         .eval()
                     {
                         Ok(result) => {
                             let result = format!("{result:#?}");
-                            let output = std.io.print.output.into_inner();
+                            let output = libs.espygarten.print.output.into_inner();
 
                             format!(
                                 "<pre id=\"console-output\">{output}</pre><pre id=\"return-value\">{result}</pre>"
@@ -273,7 +222,7 @@ pub fn espyscript_eval(source: &str) -> String {
                         }
                         Err(e) => {
                             let e = format!("{e:#?}");
-                            let output = std.io.print.output.into_inner();
+                            let output = libs.espygarten.print.output.into_inner();
                             format!(
                                 "<pre id=\"console-output\">{output}</pre><pre id=\"eval-error\">Failed to evaluate program: {e}</pre>"
                             )

@@ -1,0 +1,7 @@
+[package]
+name = "espystandard"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+espy-paws = { version = "0.1.0", path = "../espy-paws" }

@@ -158,6 +158,7 @@ name = "espygarten"
 version = "0.1.0"
 dependencies = [
  "espyscript",
+ "espystandard",
  "wasm-bindgen",
 ]
 
@@ -177,6 +178,13 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "espyscript",
+]
+
+[[package]]
+name = "espystandard"
+version = "0.1.0"
+dependencies = [
+ "espy-paws",
 ]
 
 [[package]]
