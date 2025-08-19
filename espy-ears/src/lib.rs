@@ -1211,8 +1211,8 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Implementation<'source> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Function<'source> {
-    pub with_token: Option<Token<'source>>,
-    pub argument: Option<Token<'source>>,
+    pub with_token: Token<'source>,
+    pub argument: Option<Binding<'source>>,
     pub semicolon_token: Option<Token<'source>>,
     pub block: Box<Block<'source>>,
     pub diagnostics: Diagnostics<'source>,
@@ -1316,14 +1316,17 @@ impl<'source> Block<'source> {
                         statements,
                     );
                 }
-                with_token @ Some(Token {
-                    lexigram: Lexigram::With,
-                    ..
-                }) => {
+                Some(
+                    with_token @ Token {
+                        lexigram: Lexigram::With,
+                        ..
+                    },
+                ) => {
                     lexer.next();
                     let mut st_diagnostics = Diagnostics::default();
-                    let argument =
-                        st_diagnostics.next_if(&mut *lexer, &[Lexigram::Ident, Lexigram::Discard]);
+                    let argument = Binding::new(lexer)
+                        .map_err(|e| st_diagnostics.errors.push(e))
+                        .ok();
                     let semicolon_token =
                         st_diagnostics.next_if(&mut *lexer, &[Lexigram::Semicolon]);
                     let block = Block::new(&mut *lexer);

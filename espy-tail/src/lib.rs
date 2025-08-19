@@ -315,10 +315,6 @@ impl<'source> Program<'source> {
     fn insert_block(
         &mut self,
         block_id: BlockId,
-        #[expect(
-            clippy::boxed_local,
-            reason = "callers prefer passing an owned expression"
-        )]
         mut block: Box<Block<'source>>,
         scope: &mut Scope<'_, 'source>,
     ) -> Result<(), Error<'source>> {
@@ -371,23 +367,12 @@ impl<'source> Program<'source> {
                 try_validate(function.diagnostics)?;
                 let mut scope = scope.promote();
                 let captures = scope.stack_pointer;
-                scope.stack_pointer += 1;
-                if let Some(
-                    argument @ Token {
-                        // Lexigram::Discard may also appear here,
-                        // but it should obviously be ignored.
-                        lexigram: Lexigram::Ident,
-                        ..
-                    },
-                ) = function.argument
-                {
-                    scope.insert(
-                        argument
-                            .resolve()
-                            .map_err(|e| Error::InvalidIdentifier(argument, e))?,
-                    );
-                }
                 let function_id = self.create_block()?;
+                // to be filled in by the argument (which is about to be bound)
+                scope.stack_pointer += 1;
+                if let Some(argument) = function.argument {
+                    self.add_binding(function_id, argument, &mut scope)?;
+                }
                 self.add_block(function_id, function.block, scope)?;
                 self.blocks[block_id as usize].extend(Instruction::PushFunction {
                     captures,
@@ -528,6 +513,7 @@ impl<'source> Program<'source> {
                 let escape_address = block!().len() - 4;
                 let mut child = scope.child().implicit_break();
                 if let Some(binding) = binding {
+                    // This doesn't use Binding, but i want to remove For anyways so who cares
                     child.insert(
                         binding
                             .resolve()

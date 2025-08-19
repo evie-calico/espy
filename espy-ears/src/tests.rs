@@ -447,8 +447,11 @@ fn function() {
     let actual = Block::new(&mut Lexer::from(source).peekable());
     let expected = Block::build(
         Function {
-            with_token: Some(WITH),
-            argument: Some(ident("x")),
+            with_token: WITH,
+            argument: Some(Binding {
+                method: BindingMethod::Single(ident("x")),
+                diagnostics: Diagnostics::default(),
+            }),
             semicolon_token: Some(SEMICOLON),
             block: result(expression(
                 ident("x"),
@@ -508,8 +511,11 @@ fn structure() {
                                 CLOSE_BRACE,
                                 [Node::Block(Block::build(
                                     Function {
-                                        with_token: Some(WITH),
-                                        argument: Some(ident("pos")),
+                                        with_token: WITH,
+                                        argument: Some(Binding {
+                                            method: BindingMethod::Single(ident("pos")),
+                                            diagnostics: Diagnostics::default(),
+                                        }),
                                         semicolon_token: Some(SEMICOLON),
                                         block: result(expression(
                                             ident("pos"),
@@ -670,8 +676,11 @@ fn implementation() {
                 [
                     Node::Block(Block::build(
                         Function {
-                            with_token: Some(WITH),
-                            argument: Some(ident("self")),
+                            with_token: WITH,
+                            argument: Some(Binding {
+                                method: BindingMethod::Single(ident("self")),
+                                diagnostics: Diagnostics::default(),
+                            }),
                             semicolon_token: Some(SEMICOLON),
                             block: result(expression(
                                 ident("next"),
