@@ -1,4 +1,6 @@
-use std::{cell::RefCell, mem, rc::Rc};
+use std::cell::RefCell;
+use std::mem;
+use std::rc::{Rc, Weak};
 
 mod interpreter;
 pub use interpreter::*;
@@ -58,7 +60,7 @@ pub enum Storage<'host> {
         contents: Option<Rc<Value<'host>>>,
         ty: Rc<ComplexType<'host>>,
     },
-    Mut(Rc<RefCell<Value<'host>>>),
+    Mut(Mut<'host>),
 
     Type(Type<'host>),
 }
@@ -93,7 +95,7 @@ impl PartialEq for Type<'_> {
             (Self::Struct(l), Self::Struct(r)) => Rc::as_ptr(l) == Rc::as_ptr(r),
             (Self::Enum(l), Self::Enum(r)) => l == r,
             (Self::Option(l), Self::Option(r)) => l == r,
-            _ => std::mem::discriminant(self) == std::mem::discriminant(other),
+            _ => mem::discriminant(self) == mem::discriminant(other),
         }
     }
 }
@@ -313,7 +315,15 @@ impl<'host> Value<'host> {
                 Type::Enum(enum_variant.definition.clone()).into()
             }
             Storage::Option { contents: _, ty } => Type::Option(ty.clone()).into(),
-            Storage::Mut(inner) => Type::Mut(inner.try_borrow()?.type_of()?.into()).into(),
+            Storage::Mut(inner) => Type::Mut(
+                inner
+                    .upgrade()
+                    .ok_or(Error::UpgradeError)?
+                    .try_borrow()?
+                    .type_of()?
+                    .into(),
+            )
+            .into(),
             Storage::Type(_) => Type::Type.into(),
         })
     }
@@ -442,7 +452,7 @@ impl<'host> Value<'host> {
 
     pub fn into_refcell(self) -> Result<Rc<RefCell<Value<'host>>>, Error<'host>> {
         match &self.storage {
-            Storage::Mut(inner) => Ok(inner.clone()),
+            Storage::Mut(inner) => Ok(inner.upgrade().ok_or(Error::UpgradeError)?),
             _ => Err(Error::ExpectedReference(self)),
         }
     }
@@ -850,7 +860,13 @@ impl<'host> Function<'host> {
                 }))
                 .into()
             }
-            FunctionAction::Mut => Storage::Mut(Rc::new(RefCell::new(self.argument))).into(),
+            FunctionAction::Mut => {
+                if let Ok(ty) = ComplexType::try_from(self.argument.clone()) {
+                    Type::Mut(Rc::new(ty)).into()
+                } else {
+                    Storage::Mut(Mut::new(Rc::new(RefCell::new(self.argument)))).into()
+                }
+            }
             FunctionAction::Option => {
                 Type::Option(Rc::new(self.argument.into_complex_type()?)).into()
             }
@@ -957,6 +973,46 @@ impl std::fmt::Debug for FunctionAction<'_> {
     }
 }
 
+#[derive(Debug)]
+enum MutRefSource<'host> {
+    Origin(Rc<RefCell<Value<'host>>>),
+    Child(Weak<RefCell<Value<'host>>>),
+}
+
+#[derive(Debug)]
+pub struct Mut<'host> {
+    source: MutRefSource<'host>,
+}
+
+impl<'host> Mut<'host> {
+    pub fn new(rc: Rc<RefCell<Value<'host>>>) -> Self {
+        Self {
+            source: MutRefSource::Origin(rc),
+        }
+    }
+    /// Creates a strong reference to the mutable reference's origin if it still exists.
+    ///
+    /// This can be used to create reference cycles and leak memory,
+    /// so it should only be exposed to trusted espyscript programs.
+    pub fn upgrade(&self) -> Option<Rc<RefCell<Value<'host>>>> {
+        match &self.source {
+            MutRefSource::Origin(rc) => Some(rc.clone()),
+            MutRefSource::Child(weak) => weak.upgrade(),
+        }
+    }
+}
+
+impl<'host> Clone for Mut<'host> {
+    fn clone(&self) -> Self {
+        Self {
+            source: MutRefSource::Child(match &self.source {
+                MutRefSource::Origin(rc) => Rc::downgrade(rc),
+                MutRefSource::Child(weak) => weak.clone(),
+            }),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct StructType<'host> {
     pub inner: ComplexType<'host>,
@@ -1041,6 +1097,7 @@ pub enum Error<'host> {
         index: Value<'host>,
         container: Value<'host>,
     },
+    UpgradeError,
     BorrowError(std::cell::BorrowError),
     BorrowMutError(std::cell::BorrowMutError),
     /// Errors that occur during host interop.
