@@ -64,5 +64,6 @@ body {
 
 	footer {
 		padding-inline: var(--page-padding);
+		padding-bottom: 1lh;
 	}
 }

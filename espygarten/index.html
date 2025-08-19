@@ -60,17 +60,18 @@
 	</header>
 	<main style="display: flex; flex-direction: column">
 		<p>
-			use <code>with espygarten;</code> to recieve the runtime library.
+			use <code>with { std, espygarten };</code> to recieve the runtime libraries.
 			<code>with</code> turns the rest of the scope into a function and returns it,
-			which the runtime will immediately call with the library as an argument.
+			which the host (espygarten) will immediately call with its libraries as arguments.
+			curly braces are used to destructure an object by key names.
 		</p>
 		<p>
-			this library provides <code>espygarten.io.print</code>,
+			the espygarten library provides <code>espygarten.print</code>,
 			which can be used to append text to this page's "console output".
 			you may invoke a function by following it with a value, for example:
-			<code>espygarten.io.print "Hello, world!"</code> calls <code>espygarten.io.print</code>
+			<code>espygarten.print "Hello, world!"</code> calls <code>espygarten.print</code>
 			with <code>"Hello, world!"</code> as its argument.
-			more information on this library may be found in the
+			more information on std and espygarten may be found in the
 			<a href="#runtime-interoperability">runtime interoperability</a> section.
 		</p>
 		<p>
@@ -79,10 +80,13 @@
 
 		<label for="input"> <h2> input </h2> </label>
 		<textarea id="input" style="height: 16lh">
-with espygarten;
-let print = espygarten.io.print;
+with { std, espygarten };
+let print = espygarten.print;
+let string = std.string;
 
-print "Hello, world!";</textarea>
+let name = "world";
+
+print (string.concat "Hello, ", name, "!");</textarea>
 		<h2> output </h2>
 		<output id="output"></output>
 		<h2 id="runtime-interoperability"> runtime interoperability </h2>
@@ -96,17 +100,33 @@ print "Hello, world!";</textarea>
 			the libraries provided by espygarten are listed below.
 		</p>
 
-		<h3> io library </h3>
-		<p> facilitates input and output on this page </p>
+		<h3> std library </h3>
+		<p> basic & universal functionality not provided by the core language </p>
 
-		<h4> io.print </h4>
-		<p>appends the provided string to this page's "console output" </p>
-
-		<h3> string library </h3>
+		<h4> std.string library </h4>
 		<p> provides basic operations for dynamic creation and manipulation of strings. </p>
 
-		<h4> string.concat </h4>
+		<h5> std.string.concat </h5>
 		<p> expects a tuple of strings as an argument and concatenates them into a single string </p>
+
+		<h4> std.option library </h4>
+		<p> provides functions for manipulating the built-in option type. </p>
+
+		<h5> std.option.unwrap </h5>
+		<p> returns the inner value of the option, or throws an error if it is None </p>
+
+		<h5> std.option.expect </h5>
+		<p>
+			returns the inner value of the option, or throws a custom error if it is None.
+			the error message should be provided as the second argument to expect
+		</p>
+
+		<h3> espygarten library </h3>
+		<p> utilities for interacting with this website </p>
+
+		<h5> espygarten.print </h5>
+		<p> appends a string to the output section </p>
+
  	</main>
-	<footer></footer>
+	<footer style="display: flex;justify-content: center"><a style="color: var(--page-accent-color)" href="https://github.com/evie-calico/espyscript">https://github.com/evie-calico/espyscript</a></footer>
 </body>
