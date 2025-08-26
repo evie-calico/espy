@@ -78,7 +78,7 @@ pub enum Type<'host> {
     I64,
     Bool,
     String,
-    // TODO: FunctionType
+    Function(Rc<FunctionType<'host>>),
     Struct(Rc<StructType<'host>>),
     Enum(Rc<EnumType<'host>>),
     Option(Rc<ComplexType<'host>>),
@@ -87,6 +87,15 @@ pub enum Type<'host> {
     /// The type of types.
     Type,
     Unit,
+}
+
+impl Type<'_> {
+    pub fn compare(&self, r: &Self) -> bool {
+        match (self, r) {
+            (Self::Any, _) | (_, Self::Any) => true,
+            _ => self == r,
+        }
+    }
 }
 
 impl PartialEq for Type<'_> {
@@ -108,6 +117,19 @@ impl Eq for Type<'_> {}
 pub enum ComplexType<'host> {
     Simple(Type<'host>),
     Complex(Tuple<ComplexType<'host>>),
+}
+
+impl ComplexType<'_> {
+    pub fn compare(&self, r: &Self) -> bool {
+        match (self, r) {
+            (ComplexType::Simple(Type::Any), _) | (_, ComplexType::Simple(Type::Any)) => true,
+            (ComplexType::Simple(l), ComplexType::Simple(r)) => l == r,
+            (ComplexType::Complex(l), ComplexType::Complex(r)) => {
+                l.values().zip(r.values()).all(|(l, r)| l.compare(r))
+            }
+            _ => false,
+        }
+    }
 }
 
 impl<'host> From<Type<'host>> for ComplexType<'host> {
@@ -309,7 +331,16 @@ impl<'host> Value<'host> {
             Storage::I64(_) => Type::I64.into(),
             Storage::Bool(_) => Type::Bool.into(),
             Storage::String(_) => Type::String.into(),
-            Storage::Function(function) => todo!(),
+            Storage::Function(function) => match &function.action {
+                FunctionAction::With { signature, .. } => {
+                    Type::Function(Rc::new(signature.clone())).into()
+                }
+                _ => Type::Function(Rc::new(FunctionType {
+                    input: Type::Any.into(),
+                    output: Type::Any.into(),
+                }))
+                .into(),
+            },
             Storage::Struct { inner: _, ty } => Type::Struct(ty.clone()).into(),
             Storage::EnumVariant(enum_variant) => {
                 Type::Enum(enum_variant.definition.clone()).into()
@@ -837,13 +868,21 @@ impl<'host> Function<'host> {
 
     pub fn eval(self) -> Result<Value<'host>, Error<'host>> {
         let result = match self.action {
-            FunctionAction::Block {
+            FunctionAction::With {
                 program,
                 block_id,
+                signature: FunctionType { input, output },
                 mut captures,
             } => {
+                if !self.argument.type_of()?.compare(&input) {
+                    return Err(Error::type_error(self.argument, input));
+                }
                 captures.push(self.argument);
-                program.eval(block_id, captures)?
+                let result = program.eval(block_id, captures)?;
+                if !result.type_of()?.compare(&output) {
+                    return Err(Error::type_error(result, output));
+                }
+                result
             }
             FunctionAction::Enum {
                 variant,
@@ -917,9 +956,10 @@ impl<'host> Function<'host> {
 
 #[derive(Clone)]
 enum FunctionAction<'host> {
-    Block {
+    With {
         program: Program,
         block_id: usize,
+        signature: FunctionType<'host>,
         captures: Vec<Value<'host>>,
     },
     Enum {
@@ -946,14 +986,16 @@ impl<'host> From<FunctionAction<'host>> for Function<'host> {
 impl std::fmt::Debug for FunctionAction<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Block {
+            Self::With {
                 program,
                 block_id,
+                signature,
                 captures,
             } => f
                 .debug_struct("Block")
                 .field("program", &Rc::as_ptr(&program.bytes))
                 .field("block_id", block_id)
+                .field("signature", signature)
                 .field("captures", captures)
                 .finish(),
             Self::Enum {
@@ -1011,6 +1053,12 @@ impl<'host> Clone for Mut<'host> {
             }),
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct FunctionType<'host> {
+    pub input: ComplexType<'host>,
+    pub output: ComplexType<'host>,
 }
 
 #[derive(Clone, Debug)]

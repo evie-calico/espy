@@ -238,8 +238,12 @@ impl Program {
                     let new_stack = stack.split_off(stack.len() - captures);
                     stack.push(
                         Storage::Function(Rc::new(
-                            FunctionAction::Block {
+                            FunctionAction::With {
                                 program: self.clone(),
+                                signature: FunctionType {
+                                    input: Type::Any.into(),
+                                    output: Type::Any.into(),
+                                },
                                 block_id: function,
                                 captures: new_stack,
                             }
