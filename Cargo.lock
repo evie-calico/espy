@@ -122,6 +122,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "espy"
+version = "0.1.0"
+dependencies = [
+ "espy-ears",
+ "espy-eyes",
+ "espy-paws",
+ "espy-tail",
+]
+
+[[package]]
 name = "espy-ears"
 version = "0.1.0"
 dependencies = [
@@ -157,19 +167,9 @@ dependencies = [
 name = "espygarten"
 version = "0.1.0"
 dependencies = [
- "espyscript",
+ "espy",
  "espystandard",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "espyscript"
-version = "0.1.0"
-dependencies = [
- "espy-ears",
- "espy-eyes",
- "espy-paws",
- "espy-tail",
 ]
 
 [[package]]
@@ -177,7 +177,7 @@ name = "espysh"
 version = "0.1.0"
 dependencies = [
  "clap",
- "espyscript",
+ "espy",
 ]
 
 [[package]]

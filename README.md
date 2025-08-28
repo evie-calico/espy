@@ -1,11 +1,11 @@
-# espyscript
+# espy
 as with evscript, this is stylized as lowercase!
 do not capitalize the e!
 
-the espyscript crate is the primary library for end users,
-and provides a simple API for parsing, compiling, and executing espyscript.
+the espy crate is the primary library for end users,
+and provides a simple API for parsing, compiling, and executing espy.
 refer to the individual component crates' README.md files for implementation details;
-this document will describe the espyscript language.
+this document will describe the espy language.
 
 - [espy-eyes](espy-eyes/README.md) (lexer)
 - [espy-ears](espy-ears/README.md) (parser)
@@ -33,9 +33,9 @@ this document will describe the espyscript language.
 
 type inference and strong, static typing imply a more expensive compilation step,
 which is sometimes undesirable for a scripting language.
-because of this, espyscript is designed to be both dynamically and statically typed.
+because of this, espy is designed to be both dynamically and statically typed.
 static typing is provided through an additional, optional compiler pass,
-which can be used for precompilation, linting, or optimizing espyscript code at runtime.
+which can be used for precompilation, linting, or optimizing espy code at runtime.
 
 this has limitations:
 type inference cannot have any semantic implications
@@ -50,11 +50,11 @@ string indexing of named tuples may be optimized away to integer indexing when t
 (and named tuples support both forms of indexing to facilitate this).
 
 i think this is a reasonable compromise:
-users compiling espyscript code immediately before running it may skip the type checking step
+users compiling espy code immediately before running it may skip the type checking step
 to reduce compilation time without any semantic change to the code,
-espyscript files may be linted outside of their runtime environment before this happens,
+espy files may be linted outside of their runtime environment before this happens,
 should the programmer desire static guarantees,
-and precompiled espyscript bytecode may have optimizations applied to it
+and precompiled espy bytecode may have optimizations applied to it
 —even if the runtime does not perform them.
 
 it's also worth noting that this could change as the language develops.

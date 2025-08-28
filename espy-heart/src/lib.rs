@@ -1,4 +1,4 @@
-//! espyscript bytecode constants.
+//! espy bytecode constants.
 //!
 //! Shared between the compiler and interpreter.
 

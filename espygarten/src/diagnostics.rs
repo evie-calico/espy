@@ -1,5 +1,5 @@
-use espyscript::lexer;
-use espyscript::parser::{Block, BlockResult, Error, Expression, Statement};
+use espy::lexer;
+use espy::parser::{Block, BlockResult, Error, Expression, Statement};
 use std::fmt::Write;
 
 // While this is comprehensive, lexigrams unused by `expect` have less thought put into them.
@@ -328,8 +328,8 @@ fn diagnose_expression(
     }
     for node in &expression.contents {
         match node {
-            espyscript::parser::Node::Block(block) => diagnose_block(source, block, for_each),
-            espyscript::parser::Node::If(if_node) => {
+            espy::parser::Node::Block(block) => diagnose_block(source, block, for_each),
+            espy::parser::Node::If(if_node) => {
                 let mut range = origin_range(if_node.if_token.origin, source);
                 if let Some(token) = if_node
                     .end_token
@@ -350,7 +350,7 @@ fn diagnose_expression(
                 diagnose_block(source, &if_node.first, for_each);
                 diagnose_block(source, &if_node.second, for_each);
             }
-            espyscript::parser::Node::Match(match_node) => {
+            espy::parser::Node::Match(match_node) => {
                 let mut range = origin_range(match_node.match_token.origin, source);
                 if let Some(token) = match_node.end_token.or(match_node.then_token) {
                     range.1 = origin_range(token.origin, source).1;
@@ -369,7 +369,7 @@ fn diagnose_expression(
                     diagnose_expression(source, &case.expression, for_each);
                 }
             }
-            espyscript::parser::Node::Struct(struct_node) => {
+            espy::parser::Node::Struct(struct_node) => {
                 let mut range = origin_range(struct_node.struct_token.origin, source);
                 if let Some(token) = struct_node.end_token.or(struct_node.then_token) {
                     range.1 = origin_range(token.origin, source).1;
@@ -393,7 +393,7 @@ fn diagnose_expression(
                     diagnose_expression(source, &members.result, for_each);
                 }
             }
-            espyscript::parser::Node::Enum(enum_node) => {
+            espy::parser::Node::Enum(enum_node) => {
                 let mut range = origin_range(enum_node.enum_token.origin, source);
                 if let Some(token) = enum_node.end_token {
                     range.1 = origin_range(token.origin, source).1;

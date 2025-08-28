@@ -1,5 +1,5 @@
 //! The lexer on its own is merely an iterator of tokens.
-//! Use espy-ears to parse espyscript.
+//! Use espy-ears to parse espy.
 //!
 //! See [`Lexigram`] for a complete list of token types.
 //!
@@ -81,7 +81,7 @@ pub enum Lexigram {
     String,
 }
 
-/// A unit of espyscript source code.
+/// A unit of espy source code.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Token<'source> {
     /// Tracks the string slice that this token originated from.

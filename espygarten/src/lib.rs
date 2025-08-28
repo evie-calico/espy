@@ -11,21 +11,21 @@ struct EspygartenLibContainer {
     espygarten: EspygartenLib,
 }
 
-impl espyscript::Extern for EspygartenLibContainer {
+impl espy::Extern for EspygartenLibContainer {
     fn index<'host>(
         &'host self,
-        index: espyscript::Value<'host>,
-    ) -> Result<espyscript::Value<'host>, espyscript::interpreter::Error<'host>> {
+        index: espy::Value<'host>,
+    ) -> Result<espy::Value<'host>, espy::interpreter::Error<'host>> {
         match index {
-            espyscript::Value {
-                storage: espyscript::Storage::String(index),
-            } if &*index == "std" => Ok(espyscript::Value::borrow(&self.std)),
-            espyscript::Value {
-                storage: espyscript::Storage::String(index),
-            } if &*index == "espygarten" => Ok(espyscript::Value::borrow(&self.espygarten)),
-            index => Err(espyscript::Error::IndexNotFound {
+            espy::Value {
+                storage: espy::Storage::String(index),
+            } if &*index == "std" => Ok(espy::Value::borrow(&self.std)),
+            espy::Value {
+                storage: espy::Storage::String(index),
+            } if &*index == "espygarten" => Ok(espy::Value::borrow(&self.espygarten)),
+            index => Err(espy::Error::IndexNotFound {
                 index,
-                container: espyscript::Storage::Borrow(self).into(),
+                container: espy::Storage::Borrow(self).into(),
             }),
         }
     }
@@ -40,18 +40,18 @@ struct EspygartenLib {
     print: PrintFn,
 }
 
-impl espyscript::Extern for EspygartenLib {
+impl espy::Extern for EspygartenLib {
     fn index<'host>(
         &'host self,
-        index: espyscript::Value<'host>,
-    ) -> Result<espyscript::Value<'host>, espyscript::interpreter::Error<'host>> {
+        index: espy::Value<'host>,
+    ) -> Result<espy::Value<'host>, espy::interpreter::Error<'host>> {
         match index {
-            espyscript::Value {
-                storage: espyscript::Storage::String(index),
-            } if &*index == "print" => Ok(espyscript::Function::borrow(&self.print).into()),
-            index => Err(espyscript::Error::IndexNotFound {
+            espy::Value {
+                storage: espy::Storage::String(index),
+            } if &*index == "print" => Ok(espy::Function::borrow(&self.print).into()),
+            index => Err(espy::Error::IndexNotFound {
                 index,
-                container: espyscript::Storage::Borrow(self).into(),
+                container: espy::Storage::Borrow(self).into(),
             }),
         }
     }
@@ -66,11 +66,11 @@ struct PrintFn {
     output: RefCell<String>,
 }
 
-impl espyscript::ExternFn for PrintFn {
+impl espy::ExternFn for PrintFn {
     fn call<'host>(
         &'host self,
-        message: espyscript::Value<'host>,
-    ) -> Result<espyscript::Value<'host>, espyscript::Error<'host>> {
+        message: espy::Value<'host>,
+    ) -> Result<espy::Value<'host>, espy::Error<'host>> {
         let message = message.into_str()?;
         let mut output = self.output.borrow_mut();
         output.push_str(&message);
@@ -176,9 +176,9 @@ impl std::fmt::Display for MaybeSnippetFmt<'_> {
 }
 
 #[wasm_bindgen]
-pub fn espyscript_eval(source: &str) -> String {
+pub fn espy_eval(source: &str) -> String {
     let ast =
-        espyscript::parser::Block::new(&mut espyscript::lexer::Lexer::from(source).peekable());
+        espy::parser::Block::new(&mut espy::lexer::Lexer::from(source).peekable());
     let mut parser_diagnostics = None;
     diagnostics::for_each(source, &ast, |diagnostic| {
         let f =
@@ -202,14 +202,14 @@ pub fn espyscript_eval(source: &str) -> String {
         return parser_diagnostics;
     }
 
-    match espyscript::compiler::Program::try_from(ast) {
-        Ok(program) => match espyscript::interpreter::Program::try_from(Rc::from(program.compile())).expect("textual programs may not produce invalid bytecode").eval(0, &mut Vec::new()) {
-            Ok(result) => match espyscript::Function::try_from(result) {
+    match espy::compiler::Program::try_from(ast) {
+        Ok(program) => match espy::interpreter::Program::try_from(Rc::from(program.compile())).expect("textual programs may not produce invalid bytecode").eval(0, &mut Vec::new()) {
+            Ok(result) => match espy::Function::try_from(result) {
                 Ok(function) => {
                     let libs = EspygartenLibContainer::default();
 
                     match function
-                        .piped(espyscript::Value::borrow(&libs))
+                        .piped(espy::Value::borrow(&libs))
                         .eval()
                     {
                         Ok(result) => {
@@ -229,7 +229,7 @@ pub fn espyscript_eval(source: &str) -> String {
                         }
                     }
                 }
-                Err(espyscript::Error::ExpectedFunction(value)) => {
+                Err(espy::Error::ExpectedFunction(value)) => {
                     format!("<pre id=\"return-value\">{value:?}</pre>")
                 }
                 Err(_) => unreachable!("Function::try_from may only return ExpectedFunction"),
@@ -239,42 +239,42 @@ pub fn espyscript_eval(source: &str) -> String {
             }
         },
         Err(e) => match e {
-            espyscript::compiler::Error::ProgramLimitExceeded => {
+            espy::compiler::Error::ProgramLimitExceeded => {
                 "<p id=\"compile-error\">Program limit exceeded (bytecode must be less than 4GiB)</p>"
                     .to_string()
             }
-            espyscript::compiler::Error::InvalidBreak(token) => {
+            espy::compiler::Error::InvalidBreak(token) => {
                 let snippet = SnippetFmt::new(origin_range(token.origin, source), source);
                 format!(
                     "<p id=\"compile-error\">Attempted to break out of a scope, but no parent scope accepted unlabeled breaks.{snippet}</p>"
                 )
             }
-            espyscript::compiler::Error::InvalidInteger(token, e) => {
+            espy::compiler::Error::InvalidInteger(token, e) => {
                 let snippet = SnippetFmt::new(origin_range(token.origin, source), source);
                 format!(
                     "<p id=\"compile-error\">Invalid integer literal: {e}.{snippet}</p>"
                 )
             }
-            espyscript::compiler::Error::InvalidString(token, e) => {
+            espy::compiler::Error::InvalidString(token, e) => {
                 let snippet = SnippetFmt::new(origin_range(token.origin, source), source);
                 format!(
                     "<p id=\"compile-error\">Invalid string literal: {e:?}.{snippet}</p>"
                 )
             }
-            espyscript::compiler::Error::InvalidIdentifier(token, e) => {
+            espy::compiler::Error::InvalidIdentifier(token, e) => {
                 let snippet = SnippetFmt::new(origin_range(token.origin, source), source);
                 format!(
                     "<p id=\"compile-error\">Invalid raw identifier: {e:?}.{snippet}</p>"
                 )
             }
-            espyscript::compiler::Error::UndefinedSymbol(token) => {
+            espy::compiler::Error::UndefinedSymbol(token) => {
                 let symbol = token.origin;
                 let snippet = SnippetFmt::new(origin_range(token.origin, source), source);
                 format!(
                     "<p id=\"compile-error\">Undefined symbol: {symbol}.{snippet}</p>"
                 )
             }
-            espyscript::compiler::Error::InvalidAst(e) => {
+            espy::compiler::Error::InvalidAst(e) => {
                 format!("<p id=\"parse-error\">Failed to parse program:<br><pre>{e:#?}</pre></p>")
             }
         },

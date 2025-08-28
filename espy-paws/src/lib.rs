@@ -37,7 +37,7 @@ pub struct Value<'host> {
 }
 
 // Cloning this type should be cheap;
-// every binding usage is a clone in espyscript!
+// every binding usage is a clone in espy!
 // Use Rcs over boxes and try to put allocations as far up as possible.
 #[derive(Clone)]
 pub enum Storage<'host> {
@@ -111,8 +111,8 @@ impl PartialEq for Type<'_> {
 
 impl Eq for Type<'_> {}
 
-/// ComplexType is usually the only form of [`Type`] that the espyscript interpreter is concerned with,
-/// but it cannot be represented within espyscript itself (tuples of types represent Complex, instead).
+/// ComplexType is usually the only form of [`Type`] that the espy interpreter is concerned with,
+/// but it cannot be represented within espy itself (tuples of types represent Complex, instead).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ComplexType<'host> {
     Simple(Type<'host>),
@@ -299,7 +299,7 @@ impl<'host> Value<'host> {
     ///
     /// Returns an error if a mutable reference is being mutably borrowed.
     ///
-    /// This can be safely ignored by the host if it has not deliberately borrowed an espyscript value.
+    /// This can be safely ignored by the host if it has not deliberately borrowed an espy value.
     fn type_of(&self) -> Result<ComplexType<'host>, Error<'host>> {
         Ok(match &self.storage {
             Storage::Unit => Type::Unit.into(),
@@ -1035,7 +1035,7 @@ impl<'host> Mut<'host> {
     /// Creates a strong reference to the mutable reference's origin if it still exists.
     ///
     /// This can be used to create reference cycles and leak memory,
-    /// so it should only be exposed to trusted espyscript programs.
+    /// so it should only be exposed to trusted espy programs.
     pub fn upgrade(&self) -> Option<Rc<RefCell<Value<'host>>>> {
         match &self.source {
             MutRefSource::Origin(rc) => Some(rc.clone()),
@@ -1150,12 +1150,12 @@ pub enum Error<'host> {
     BorrowMutError(std::cell::BorrowMutError),
     /// Errors that occur during host interop.
     ///
-    /// These may carry less information than a typical espyscript error,
+    /// These may carry less information than a typical espy error,
     /// or wrap the error type of another crate.
     ExternError(ExternError),
     /// Errors that occur due to invalid bytecode.
     ///
-    /// If this is emitted due to bytecode from the espyscript compiler,
+    /// If this is emitted due to bytecode from the espy compiler,
     /// it should be considered a bug in either program.
     InvalidBytecode(InvalidBytecode),
 }

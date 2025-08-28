@@ -1,4 +1,4 @@
-//! Compiles an espyscript abstract syntax tree into bytecode.
+//! Compiles an espy abstract syntax tree into bytecode.
 //!
 //! ```rust
 //! use espy_eyes::Lexer;

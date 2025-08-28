@@ -2,7 +2,7 @@ use super::*;
 use Instruction::*;
 use espy_eyes::Lexer;
 
-// espyscript assembly parser :3
+// espy assembly parser :3
 macro_rules! program {
     [
         $(

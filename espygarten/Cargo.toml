@@ -7,6 +7,6 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-espyscript.path = "../espyscript"
+espy.path = "../espy"
 espystandard = { version = "0.1.0", path = "../espystandard" }
 wasm-bindgen = "0.2.100"
