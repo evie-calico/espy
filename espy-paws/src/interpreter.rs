@@ -235,14 +235,16 @@ impl Program {
                 instruction::PUSH_FUNCTION => {
                     let captures = program.next4()?;
                     let function = program.next4()?;
+                    let output = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let input = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
                     let new_stack = stack.split_off(stack.len() - captures);
                     stack.push(
                         Storage::Function(Rc::new(
                             FunctionAction::With {
                                 program: self.clone(),
                                 signature: FunctionType {
-                                    input: Type::Any.into(),
-                                    output: Type::Any.into(),
+                                    input: input.try_into()?,
+                                    output: output.try_into()?,
                                 },
                                 block_id: function,
                                 captures: new_stack,

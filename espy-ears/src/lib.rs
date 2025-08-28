@@ -1213,12 +1213,20 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Implementation<'source> {
 pub struct Function<'source> {
     pub with_token: Token<'source>,
     pub argument: Option<Binding<'source>>,
+    pub colon_token: Option<Token<'source>>,
+    pub input: Option<Box<Expression<'source>>>,
+    pub single_arrow_token: Option<Token<'source>>,
+    pub output: Option<Box<Expression<'source>>>,
     pub semicolon_token: Option<Token<'source>>,
     pub block: Box<Block<'source>>,
     pub diagnostics: Diagnostics<'source>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "this is already inside of a (very large) boxed block"
+)]
 pub enum BlockResult<'source> {
     Expression(Option<Box<Expression<'source>>>),
     Break {
@@ -1327,6 +1335,31 @@ impl<'source> Block<'source> {
                     let argument = Binding::new(lexer)
                         .map_err(|e| st_diagnostics.errors.push(e))
                         .ok();
+                    let (colon_token, input) = if let Some(
+                        t @ Token {
+                            lexigram: Lexigram::Colon,
+                            ..
+                        },
+                    ) = st_diagnostics.wrap(lexer.peek().copied())
+                    {
+                        lexer.next();
+                        (Some(t), diagnostics.expect_expression(lexer))
+                    } else {
+                        (None, None)
+                    };
+                    let (single_arrow_token, output) = if let Some(
+                        t @ Token {
+                            lexigram: Lexigram::SingleArrow,
+                            ..
+                        },
+                    ) =
+                        st_diagnostics.wrap(lexer.peek().copied())
+                    {
+                        lexer.next();
+                        (Some(t), diagnostics.expect_expression(lexer))
+                    } else {
+                        (None, None)
+                    };
                     let semicolon_token =
                         st_diagnostics.next_if(&mut *lexer, &[Lexigram::Semicolon]);
                     let block = Block::new(&mut *lexer);
@@ -1335,6 +1368,10 @@ impl<'source> Block<'source> {
                         Function {
                             with_token,
                             argument,
+                            colon_token,
+                            input,
+                            single_arrow_token,
+                            output,
                             semicolon_token,
                             block,
                             diagnostics: st_diagnostics,

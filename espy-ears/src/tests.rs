@@ -452,6 +452,10 @@ fn function() {
                 method: BindingMethod::Single(ident("x")),
                 diagnostics: Diagnostics::default(),
             }),
+            colon_token: None,
+            input: None,
+            single_arrow_token: None,
+            output: None,
             semicolon_token: Some(SEMICOLON),
             block: result(expression(
                 ident("x"),
@@ -516,6 +520,10 @@ fn structure() {
                                             method: BindingMethod::Single(ident("pos")),
                                             diagnostics: Diagnostics::default(),
                                         }),
+                                        colon_token: None,
+                                        input: None,
+                                        single_arrow_token: None,
+                                        output: None,
                                         semicolon_token: Some(SEMICOLON),
                                         block: result(expression(
                                             ident("pos"),
@@ -681,6 +689,10 @@ fn implementation() {
                                 method: BindingMethod::Single(ident("self")),
                                 diagnostics: Diagnostics::default(),
                             }),
+                            colon_token: None,
+                            input: None,
+                            single_arrow_token: None,
+                            output: None,
                             semicolon_token: Some(SEMICOLON),
                             block: result(expression(
                                 ident("next"),

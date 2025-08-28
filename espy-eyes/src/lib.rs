@@ -21,6 +21,7 @@
 pub enum Lexigram {
     // Keywords
     And,
+    As,
     Break,
     Discard,
     Else,
@@ -34,6 +35,7 @@ pub enum Lexigram {
     Let,
     Match,
     Or,
+    Return,
     Set,
     Struct,
     Then,
@@ -267,18 +269,18 @@ impl<'source> Iterator for Lexer<'source> {
                 }
                 let ident = &root[0..length];
                 match ident {
-                    "array" | "as" | "async" | "await" | "case" | "class" | "const"
-                    | "continue" | "do" | "dyn" | "fn" | "import" | "include" | "iterator"
-                    | "loop" | "macro" | "mod" | "move" | "never" | "priv" | "pub" | "ref"
-                    | "require" | "return" | "safe" | "static" | "super" | "switch" | "trait"
-                    | "try" | "tuple" | "type" | "union" | "unsafe" | "use" | "where" | "while"
-                    | "yield" => {
+                    "array" | "async" | "await" | "case" | "class" | "const" | "continue"
+                    | "do" | "dyn" | "fn" | "import" | "include" | "iterator" | "loop"
+                    | "macro" | "mod" | "move" | "never" | "priv" | "pub" | "ref" | "require"
+                    | "safe" | "static" | "super" | "switch" | "trait" | "try" | "tuple"
+                    | "type" | "union" | "unsafe" | "use" | "where" | "while" | "yield" => {
                         return Some(Err(Error {
                             origin: ident,
                             kind: ErrorKind::ReservedSymbol,
                         }));
                     }
                     "and" => Lexigram::And,
+                    "as" => Lexigram::As,
                     "break" => Lexigram::Break,
                     "else" => Lexigram::Else,
                     "end" => Lexigram::End,
@@ -291,10 +293,11 @@ impl<'source> Iterator for Lexer<'source> {
                     "let" => Lexigram::Let,
                     "match" => Lexigram::Match,
                     "or" => Lexigram::Or,
+                    "return" => Lexigram::Return,
                     "set" => Lexigram::Set,
                     "struct" => Lexigram::Struct,
-                    "true" => Lexigram::True,
                     "then" => Lexigram::Then,
+                    "true" => Lexigram::True,
                     "with" => Lexigram::With,
                     "_" => Lexigram::Discard,
                     _ => Lexigram::Ident,

@@ -138,6 +138,8 @@ fn function_creation() {
     let expected = program![
         fn _main {
             PushI64(2i64),
+            Clone(builtins::ANY),
+            Clone(builtins::ANY),
             PushFunction {
                 captures: 1,
                 function: f,
@@ -160,6 +162,8 @@ fn function_usage() {
     let actual = program.compile();
     let expected = program![
         fn _main {
+            Clone(builtins::ANY),
+            Clone(builtins::ANY),
             PushFunction {
                 captures: 0,
                 function: f,

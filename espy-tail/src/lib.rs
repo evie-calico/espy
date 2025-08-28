@@ -77,7 +77,11 @@ pub enum Instruction {
 
     PushUnit,
     PushI64(i64),
-    /// Pop the top `captures` values off the stack and onto a new stack,
+    /// Pop the top value off the stack and use it as the return type of the function.
+    ///
+    /// Pop the next value off the stack and use it as the input type of the function.
+    ///
+    /// Pop the following `captures` values off the stack and onto a new stack,
     /// and then push a function containing the new stack and the proceeding block id to the current stack.
     PushFunction {
         captures: StackPointer,
@@ -365,6 +369,20 @@ impl<'source> Program<'source> {
             }
             BlockResult::Function(function) => {
                 try_validate(function.diagnostics)?;
+                if let Some(input) = function.input {
+                    self.add_expression(block_id, input, scope)?;
+                } else {
+                    self.blocks[block_id as usize].extend(Instruction::Clone(builtins::ANY));
+                    scope.stack_pointer += 1;
+                }
+                if let Some(output) = function.output {
+                    self.add_expression(block_id, output, scope)?;
+                } else {
+                    self.blocks[block_id as usize].extend(Instruction::Clone(builtins::ANY));
+                    scope.stack_pointer += 1;
+                }
+                // Account for input and output being popped by PushFunction.
+                scope.stack_pointer -= 2;
                 let mut scope = scope.promote();
                 let captures = scope.stack_pointer;
                 let function_id = self.create_block()?;

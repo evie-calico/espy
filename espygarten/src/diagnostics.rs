@@ -6,59 +6,61 @@ use std::fmt::Write;
 // These are marked with "symbol only".
 fn format_lexigram(mut f: impl Write, lexigram: lexer::Lexigram) {
     let _ = match lexigram {
-        lexer::Lexigram::And => write!(f, "and"),
-        lexer::Lexigram::Break => write!(f, "break"),
-        lexer::Lexigram::Discard => write!(f, "_ (discard)"),
-        lexer::Lexigram::Else => write!(f, "else"),
-        lexer::Lexigram::End => write!(f, "end"),
-        lexer::Lexigram::Enum => write!(f, "enum"),
-        lexer::Lexigram::False => write!(f, "false"),
-        lexer::Lexigram::For => write!(f, "for"),
-        lexer::Lexigram::If => write!(f, "if"),
-        lexer::Lexigram::Impl => write!(f, "impl"),
-        lexer::Lexigram::In => write!(f, "in"),
-        lexer::Lexigram::Let => write!(f, "let"),
-        lexer::Lexigram::Match => write!(f, "match"),
-        lexer::Lexigram::Or => write!(f, "or"),
-        lexer::Lexigram::Set => write!(f, "set"),
-        lexer::Lexigram::Struct => write!(f, "struct"),
-        lexer::Lexigram::Then => write!(f, "then"),
-        lexer::Lexigram::True => write!(f, "true"),
-        lexer::Lexigram::With => write!(f, "with"),
         lexer::Lexigram::Ampersand => write!(f, "& (ampersand)"),
-        lexer::Lexigram::Bang => write!(f, "! (bang)"),
+        lexer::Lexigram::And => write!(f, "and"),
+        lexer::Lexigram::As => write!(f, "as"),
         lexer::Lexigram::BangEqual => write!(f, "!="), // symbol only
+        lexer::Lexigram::Bang => write!(f, "! (bang)"),
+        lexer::Lexigram::Break => write!(f, "break"),
         lexer::Lexigram::Caret => write!(f, "^ (caret)"),
         lexer::Lexigram::CloseBrace => write!(f, "}} (closing curly brace)"),
         lexer::Lexigram::CloseParen => write!(f, ") (closing parenthesis)"),
         lexer::Lexigram::CloseSquare => write!(f, "] (closing square bracket)"),
         lexer::Lexigram::Colon => write!(f, ": (colon)"),
         lexer::Lexigram::Comma => write!(f, ", (comma)"),
-        lexer::Lexigram::Dot => write!(f, ". (dot)"),
-        lexer::Lexigram::DotDot => write!(f, ".."), // symbol only
+        lexer::Lexigram::Discard => write!(f, "_ (discard)"),
         lexer::Lexigram::DotDotEqual => write!(f, "..="), // symbol only
+        lexer::Lexigram::DotDot => write!(f, ".."),       // symbol only
+        lexer::Lexigram::Dot => write!(f, ". (dot)"),
         lexer::Lexigram::DoubleArrow => write!(f, "=> (double arrow)"),
         lexer::Lexigram::DoubleEqual => write!(f, "=="), // symbol only
         lexer::Lexigram::Ellipses => write!(f, "..."),   // symbol only
-        lexer::Lexigram::Greater => write!(f, ">"),      // symbol only
+        lexer::Lexigram::Else => write!(f, "else"),
+        lexer::Lexigram::End => write!(f, "end"),
+        lexer::Lexigram::Enum => write!(f, "enum"),
+        lexer::Lexigram::False => write!(f, "false"),
+        lexer::Lexigram::For => write!(f, "for"),
         lexer::Lexigram::GreaterEqual => write!(f, "greaterequal"), // symbol only
-        lexer::Lexigram::Lesser => write!(f, "lesser"),  // symbol only
+        lexer::Lexigram::Greater => write!(f, ">"),                 // symbol only
+        lexer::Lexigram::Ident => write!(f, "identifier"),
+        lexer::Lexigram::If => write!(f, "if"),
+        lexer::Lexigram::Impl => write!(f, "impl"),
+        lexer::Lexigram::In => write!(f, "in"),
         lexer::Lexigram::LesserEqual => write!(f, "lesserequal"), // symbol only
-        lexer::Lexigram::Minus => write!(f, "minus"),    // symbol only
+        lexer::Lexigram::Lesser => write!(f, "lesser"),           // symbol only
+        lexer::Lexigram::Let => write!(f, "let"),
+        lexer::Lexigram::Match => write!(f, "match"),
+        lexer::Lexigram::Minus => write!(f, "minus"), // symbol only
+        lexer::Lexigram::Number => write!(f, "number"),
         lexer::Lexigram::OpenBrace => write!(f, "{{ (opening curly brace)"),
         lexer::Lexigram::OpenParen => write!(f, "( (opening parenthesis)"),
         lexer::Lexigram::OpenSquare => write!(f, "[ (opening square bracket)"),
+        lexer::Lexigram::Or => write!(f, "or"),
         lexer::Lexigram::Pipe => write!(f, "|"), // symbol only
         lexer::Lexigram::Plus => write!(f, "plus"), // symbol only
+        lexer::Lexigram::Return => write!(f, "return"),
         lexer::Lexigram::Semicolon => write!(f, "; (semicolon)"),
+        lexer::Lexigram::Set => write!(f, "set"),
         lexer::Lexigram::SingleArrow => write!(f, "-> (single arrow)"),
         lexer::Lexigram::SingleEqual => write!(f, "= (equals)"),
         lexer::Lexigram::Slash => write!(f, "slash"), // symbol only
         lexer::Lexigram::Star => write!(f, "star"),   // symbol only
-        lexer::Lexigram::Triangle => write!(f, "triangle"), // symbol only
-        lexer::Lexigram::Ident => write!(f, "identifier"),
-        lexer::Lexigram::Number => write!(f, "number"),
         lexer::Lexigram::String => write!(f, "string"),
+        lexer::Lexigram::Struct => write!(f, "struct"),
+        lexer::Lexigram::Then => write!(f, "then"),
+        lexer::Lexigram::Triangle => write!(f, "triangle"), // symbol only
+        lexer::Lexigram::True => write!(f, "true"),
+        lexer::Lexigram::With => write!(f, "with"),
     };
 }
 
