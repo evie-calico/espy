@@ -203,7 +203,7 @@ pub fn espyscript_eval(source: &str) -> String {
     }
 
     match espyscript::compiler::Program::try_from(ast) {
-        Ok(program) => match espyscript::interpreter::Program::try_from(Rc::from(program.compile())).expect("textual programs may not produce invalid bytecode").eval(0, Vec::new()) {
+        Ok(program) => match espyscript::interpreter::Program::try_from(Rc::from(program.compile())).expect("textual programs may not produce invalid bytecode").eval(0, &mut Vec::new()) {
             Ok(result) => match espyscript::Function::try_from(result) {
                 Ok(function) => {
                     let libs = EspygartenLibContainer::default();

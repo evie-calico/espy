@@ -85,7 +85,7 @@ impl Program {
     pub fn eval<'host>(
         &self,
         block_id: usize,
-        mut stack: Vec<Value<'host>>,
+        stack: &mut Vec<Value<'host>>,
     ) -> Result<Value<'host>, Error<'host>> {
         struct Frame<'a> {
             bytecode: &'a [u8],
@@ -121,6 +121,14 @@ impl Program {
                     self.next()?,
                 ]))
             }
+
+            fn pop<'host>(
+                // This doesn't use self yet, but i want to include pc in errors eventually.
+                &'_ self,
+                stack: &mut Vec<Value<'host>>,
+            ) -> Result<Value<'host>, Error<'host>> {
+                stack.pop().ok_or(InvalidBytecode::StackUnderflow.into())
+            }
         }
 
         let mut program = Frame {
@@ -129,12 +137,12 @@ impl Program {
         };
 
         // The program counter reaching the first (and only the first)
-        //,  out-of-bounds byte should be considered a return.
+        // out-of-bounds byte should be considered a return.
         while program.pc != program.bytecode.len() {
             macro_rules! bi_op {
                 (let $l:ident, $r:ident: $type:ident => $expr_type:ident: $expr:expr) => {{
-                    let $r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let $l = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let $r = program.pop(stack)?;
+                    let $l = program.pop(stack)?;
                     match (&$l.storage, &$r.storage) {
                         (Storage::$type($l), Storage::$type($r)) => stack.push(Value {
                             storage: Storage::$expr_type($expr),
@@ -183,14 +191,14 @@ impl Program {
                                 Storage::Function(Rc::new(FunctionAction::Mut.into())).into(),
                             );
                         }
-                        _ => {}
+                        _ => Err(InvalidBytecode::InvalidBuiltin)?,
                     }
                 }
                 instruction::POP => {
-                    stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    program.pop(stack)?;
                 }
                 instruction::COLLAPSE => {
-                    let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let value = program.pop(stack)?;
                     for _ in 0..(stack.len() - program.next4()?) {
                         stack.pop();
                     }
@@ -203,7 +211,7 @@ impl Program {
                     let target = program.next4()?;
                     if let Value {
                         storage: Storage::Bool(false),
-                    } = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?
+                    } = program.pop(stack)?
                     {
                         program.pc = target;
                     }
@@ -235,8 +243,8 @@ impl Program {
                 instruction::PUSH_FUNCTION => {
                     let captures = program.next4()?;
                     let function = program.next4()?;
-                    let output = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let input = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let output = program.pop(stack)?;
+                    let input = program.pop(stack)?;
                     let new_stack = stack.split_off(stack.len() - captures);
                     stack.push(
                         Storage::Function(Rc::new(
@@ -255,7 +263,7 @@ impl Program {
                     );
                 }
                 instruction::PUSH_ENUM => {
-                    let variants = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let variants = program.pop(stack)?;
                     let Value {
                         storage: Storage::Tuple(Tuple(TupleStorage::Named(variants))),
                     } = variants
@@ -271,9 +279,8 @@ impl Program {
                     stack.push(Type::from(EnumType { variants }).into());
                 }
                 instruction::PUSH_STRUCT => {
-                    let methods = stack
-                        .pop()
-                        .ok_or(InvalidBytecode::StackUnderflow)?
+                    let methods = program
+                        .pop(stack)?
                         .into_tuple_or_unit()?
                         .map(Tuple::<Function>::try_from)
                         .transpose()?;
@@ -291,21 +298,13 @@ impl Program {
                                 .clone();
                             Ok::<_, Error>((
                                 name,
-                                Rc::unwrap_or_clone(
-                                    stack
-                                        .pop()
-                                        .ok_or(InvalidBytecode::StackUnderflow)?
-                                        .into_function()?,
-                                ),
+                                Rc::unwrap_or_clone(program.pop(stack)?.into_function()?),
                             ))
                         }),
                     )?;
                     // TODO: if set was removed and statics were inlined, this reverse could be done by the compiler.
                     Rc::make_mut(&mut constructors).reverse();
-                    let inner = stack
-                        .pop()
-                        .ok_or(InvalidBytecode::StackUnderflow)?
-                        .into_complex_type()?;
+                    let inner = program.pop(stack)?.into_complex_type()?;
                     stack.push(
                         Type::from(StructType {
                             inner,
@@ -328,20 +327,20 @@ impl Program {
                 instruction::LESSER => bi_cmp!(let l, r => l < r),
                 instruction::LESSER_EQUAL => bi_cmp!(let l, r => l <= r),
                 instruction::EQUAL_TO => {
-                    let r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let l = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let r = program.pop(stack)?;
+                    let l = program.pop(stack)?;
                     stack.push(l.eq(r)?.into());
                 }
                 instruction::NOT_EQUAL_TO => {
-                    let r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let l = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let r = program.pop(stack)?;
+                    let l = program.pop(stack)?;
                     stack.push((!l.eq(r)?).into());
                 }
                 instruction::LOGICAL_AND => bi_op!(let l, r: Bool => Bool: *l && *r),
                 instruction::LOGICAL_OR => bi_op!(let l, r: Bool => Bool: *l || *r),
                 instruction::PIPE => {
-                    let function = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let argument = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let function = program.pop(stack)?;
+                    let argument = program.pop(stack)?;
                     match function.storage {
                         Storage::Function(mut function) => {
                             let function_mut = Rc::make_mut(&mut function);
@@ -356,8 +355,8 @@ impl Program {
                 }
 
                 instruction::CALL => {
-                    let argument = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let function = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let argument = program.pop(stack)?;
+                    let function = program.pop(stack)?;
                     let result = match function {
                         Value {
                             storage: Storage::Function(function),
@@ -370,13 +369,13 @@ impl Program {
                     stack.push(result);
                 }
                 instruction::TUPLE => {
-                    let r = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let l = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let r = program.pop(stack)?;
+                    let l = program.pop(stack)?;
                     stack.push(Value::concat(l, r));
                 }
                 instruction::INDEX => {
-                    let index = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let container = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let index = program.pop(stack)?;
+                    let container = program.pop(stack)?;
                     match (container, index) {
                         (
                             Value {
@@ -574,39 +573,30 @@ impl Program {
                         .get(name_id)
                         .ok_or(InvalidBytecode::UnexpectedStringId)?
                         .clone();
-                    let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let value = program.pop(stack)?;
                     stack.push(Storage::Tuple(Tuple::from([(name, value)])).into())
                 }
                 instruction::NEST => {
-                    let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
+                    let value = program.pop(stack)?;
                     stack.push(Storage::Tuple(Tuple::from([value])).into())
                 }
                 instruction::NEGATIVE => {
-                    let value = stack
-                        .pop()
-                        .ok_or(InvalidBytecode::StackUnderflow)?
-                        .into_i64()?;
+                    let value = program.pop(stack)?.into_i64()?;
                     stack.push((-value).into());
                 }
                 instruction::DEREF => {
-                    let value = stack
-                        .pop()
-                        .ok_or(InvalidBytecode::StackUnderflow)?
-                        .into_refcell()?;
+                    let value = program.pop(stack)?.into_refcell()?;
                     stack.push(value.try_borrow()?.clone());
                 }
                 instruction::SET => {
-                    let value = stack.pop().ok_or(InvalidBytecode::StackUnderflow)?;
-                    let target = stack
-                        .pop()
-                        .ok_or(InvalidBytecode::StackUnderflow)?
-                        .into_refcell()?;
+                    let value = program.pop(stack)?;
+                    let target = program.pop(stack)?.into_refcell()?;
                     *target.borrow_mut() = value;
                 }
 
                 _ => Err(InvalidBytecode::InvalidInstruction)?,
             }
         }
-        Ok(stack.pop().ok_or(InvalidBytecode::StackUnderflow)?)
+        Ok(program.pop(stack)?)
     }
 }

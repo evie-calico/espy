@@ -14,7 +14,7 @@ pub struct Program(interpreter::Program);
 
 impl Program {
     pub fn eval<'host>(&self) -> Result<Value<'host>, Error<'host>> {
-        self.0.eval(0, Vec::new())
+        self.0.eval(0, &mut Vec::new())
     }
 }
 

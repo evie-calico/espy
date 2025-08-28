@@ -878,7 +878,7 @@ impl<'host> Function<'host> {
                     return Err(Error::type_error(self.argument, input));
                 }
                 captures.push(self.argument);
-                let result = program.eval(block_id, captures)?;
+                let result = program.eval(block_id, &mut captures)?;
                 if !result.type_of()?.compare(&output) {
                     return Err(Error::type_error(result, output));
                 }
@@ -1202,6 +1202,8 @@ pub enum InvalidBytecode {
     StackUnderflow,
     /// An instruction byte had an unexpected value.
     InvalidInstruction,
+    /// A clone referred to a builtin value that does not exist.
+    InvalidBuiltin,
     /// An instruction referred to a string id that did not exist.
     UnexpectedStringId,
     /// Occurs when the header is too short or
