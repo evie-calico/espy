@@ -100,13 +100,36 @@ though because concatenating with unit is a no-op, you can still specify all of
 your arguments on the "left side" of the function.
 
 ```espy
-"hello, world" |> print ();
+# these are equivalent
+print "hello, world!"; # hello, world!
+"hello, world!" |> print (); # hello, world!
 
-# the result of a pipe can be bound to a variable and reused.
-let add4 = 4 |> add;
+# these are equivalent
+add 1, 5; # 6
+1 |> add 5; # 6
+```
 
-add4 3; # 7
-add4 28; # 32
+the pipe operator is useful for chaining a sequence of operations:
+
+```espy
+# these are equivalent
+square (add 1, 5); # 36
+1 |> add 5 |> square (); # 36
+
+# these are equivalent
+let evens_squared = collect (map (filter list_of_ints, is_even), square));
+let evens_squared = list_of_ints |> filter is_even |> map square |> collect ();
+```
+
+a pipeline does not always have to end in a call expression. each pipe operation
+results in a new function that may be used as a value, similar to the effect
+achieved by currying.
+
+```espy
+let increment = 1 |> add;
+
+increment 3; # 4
+increment 28; # 29
 ```
 
 ### with
@@ -120,7 +143,7 @@ let f = {
 };
 ```
 
-any values bound to the current scope (but not the scope's parent) are captured by the function.
+any values bound to the current scope (but not the scope's parents) are captured by the function.
 
 ```espy
 let add4 = {
