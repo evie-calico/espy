@@ -580,24 +580,9 @@ impl<'source> Program<'source> {
             block!().extend(Instruction::PushUnit);
             return Ok(());
         };
-        // these are easier to access while expression is a reference.
-        let expression_layout = ::std::alloc::Layout::for_value(&*expression);
-        let contents_len = expression.contents.len();
-        // fun part
-        let expression = Box::into_raw(expression);
-        // SAFETY: expression's pointer came from the above into_raw and points to a valid Expression.
-        let (contents, diagnostics) = unsafe {
-            (
-                (*expression).contents.as_mut_ptr(),
-                // SAFETY: the Box's drop implementation will not be called, so taking ownership of its fields won't cause a double free.
-                (&raw mut (*expression).diagnostics).read(),
-                // first_node and last_node may be ignored because they do not have Drop implementations
-            )
-        };
+        let (_first_token, _last_token, diagnostics, nodes) = Expression::destroy(expression);
         try_validate(diagnostics)?;
-        for i in 0..contents_len {
-            // SAFETY: the Box's drop implementation will not be called, so taking ownership of its contents won't cause a double free.
-            let node = unsafe { contents.add(i).read() };
+        for node in nodes {
             match node {
                 Node::Unit(_, _) => {
                     scope.stack_pointer += 1;
@@ -813,8 +798,6 @@ impl<'source> Program<'source> {
                 Node::Match(_) => todo!(),
             };
         }
-        // SAFETY: into_raw only operates on boxes using the global allocator.
-        unsafe { ::std::alloc::dealloc(expression.cast(), expression_layout) };
         Ok(())
     }
 }
