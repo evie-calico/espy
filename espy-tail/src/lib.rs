@@ -575,27 +575,29 @@ impl<'source> Program<'source> {
                 block!().extend($instruction)
             }};
         }
-        let Some(mut expression) = expression.into() else {
+        let Some(expression) = expression.into() else {
             scope.stack_pointer += 1;
             block!().extend(Instruction::PushUnit);
             return Ok(());
         };
-        try_validate(expression.diagnostics)?;
-        for old_node in &mut expression.contents {
-            // There's no reason for this swap as far as i can tell,
-            // but contents doesn't implement IntoIterator because it can't be owned.
-            // TODO: I think it might be possible for dst-factory to generate an owned iterator.
-            let mut node = Node::Unit(
-                Token {
-                    origin: "(",
-                    lexigram: Lexigram::OpenParen,
-                },
-                Token {
-                    origin: ")",
-                    lexigram: Lexigram::CloseParen,
-                },
-            );
-            std::mem::swap(&mut node, old_node);
+        // these are easier to access while expression is a reference.
+        let expression_layout = ::std::alloc::Layout::for_value(&*expression);
+        let contents_len = expression.contents.len();
+        // fun part
+        let expression = Box::into_raw(expression);
+        // SAFETY: expression's pointer came from the above into_raw and points to a valid Expression.
+        let (contents, diagnostics) = unsafe {
+            (
+                (*expression).contents.as_mut_ptr(),
+                // SAFETY: the Box's drop implementation will not be called, so taking ownership of its fields won't cause a double free.
+                (&raw mut (*expression).diagnostics).read(),
+                // first_node and last_node may be ignored because they do not have Drop implementations
+            )
+        };
+        try_validate(diagnostics)?;
+        for i in 0..contents_len {
+            // SAFETY: the Box's drop implementation will not be called, so taking ownership of its contents won't cause a double free.
+            let node = unsafe { contents.add(i).read() };
             match node {
                 Node::Unit(_, _) => {
                     scope.stack_pointer += 1;
@@ -811,6 +813,8 @@ impl<'source> Program<'source> {
                 Node::Match(_) => todo!(),
             };
         }
+        // SAFETY: into_raw only operates on boxes using the global allocator.
+        unsafe { ::std::alloc::dealloc(expression.cast(), expression_layout) };
         Ok(())
     }
 }
