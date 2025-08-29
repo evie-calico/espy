@@ -580,7 +580,7 @@ impl<'source> Program<'source> {
             block!().extend(Instruction::PushUnit);
             return Ok(());
         };
-        let (_first_token, _last_token, diagnostics, nodes) = Expression::destroy(expression);
+        let (_first_token, _last_token, diagnostics, nodes) = Expression::destructure(expression);
         try_validate(diagnostics)?;
         for node in nodes {
             match node {

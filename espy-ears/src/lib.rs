@@ -133,7 +133,7 @@ pub enum Node<'source> {
 
 /// This type must not contain any incomplete expressions.
 #[derive(Debug, Eq, PartialEq)]
-#[make_dst_factory]
+#[make_dst_factory(destructor = destructure, pub)]
 pub struct Expression<'source> {
     pub first_token: Option<Token<'source>>,
     pub last_token: Option<Token<'source>>,
@@ -141,72 +141,9 @@ pub struct Expression<'source> {
     pub contents: [Node<'source>],
 }
 
-pub struct ExpressionIter<'source> {
-    ptr: *mut Node<'source>,
-    index: usize,
-    len: usize,
-
-    free_ptr: *mut u8,
-    layout: ::core::alloc::Layout,
-}
-
-impl<'source> Iterator for ExpressionIter<'source> {
-    type Item = Node<'source>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.len {
-            return None;
-        }
-        // SAFETY: `ptr` points to a valid value received from `destroy`.
-        // SAFETY: `index` points to within the allocation because of the `len` check above.
-        let value = unsafe { self.ptr.add(self.index).read() };
-        self.index += 1;
-        Some(value)
-    }
-}
-
-impl Drop for ExpressionIter<'_> {
-    fn drop(&mut self) {
-        // SAFETY: `ptr` points to a valid value received from `destroy`.
-        // SAFETY: `destroy` and the `Box::into_raw` function it uses only operate using the global allocator.
-        unsafe { ::std::alloc::dealloc(self.free_ptr, self.layout) };
-    }
-}
-
-/// Parse an expression until an unexpected token is upcoming (via peek).
 impl<'source> Expression<'source> {
-    pub fn destroy(
-        expression: Box<Self>,
-    ) -> (
-        Option<Token<'source>>,
-        Option<Token<'source>>,
-        Diagnostics<'source>,
-        ExpressionIter<'source>,
-    ) {
-        // these are easier to access while expression is a reference.
-        let expression_layout = ::std::alloc::Layout::for_value(&*expression);
-        let contents_len = expression.contents.len();
-        // fun part
-        let expression = Box::into_raw(expression);
-        // SAFETY: expression's pointer came from the above into_raw and points to a valid Expression.
-        // SAFETY: the Box's drop implementation will not be called, so taking ownership of its fields won't cause a double free.
-        unsafe {
-            (
-                (&raw mut (*expression).first_token).read(),
-                (&raw mut (*expression).last_token).read(),
-                (&raw mut (*expression).diagnostics).read(),
-                ExpressionIter {
-                    ptr: (*expression).contents.as_mut_ptr(),
-                    index: 0,
-                    len: contents_len,
-
-                    free_ptr: expression.cast(),
-                    layout: expression_layout,
-                },
-            )
-        }
-    }
-    fn new(lexer: &mut Peekable<Lexer<'source>>) -> Option<Box<Self>> {
+    /// Parse an expression until an unexpected token is upcoming (via peek).
+    pub fn new(lexer: &mut Peekable<Lexer<'source>>) -> Option<Box<Self>> {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         enum Operation<'source> {
             Call(Token<'source>),

@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-dst-factory = "0.2.3"
+dst-factory = { git = "ssh://git@github.com/evie-calico/dst-factory" }
 espy-eyes.path = "../espy-eyes"

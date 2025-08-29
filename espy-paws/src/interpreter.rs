@@ -597,6 +597,6 @@ impl Program {
                 _ => Err(InvalidBytecode::InvalidInstruction)?,
             }
         }
-        Ok(program.pop(stack)?)
+        program.pop(stack)
     }
 }
