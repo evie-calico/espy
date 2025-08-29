@@ -72,7 +72,7 @@ print xyz.1 # foo
 let (one, foo, three) = xyz;
 ```
 
-the comma operator accepts unit, singles, and tuples. two singles obvious
+the comma operator accepts unit, singles, and tuples. two singles obviously
 produce a tuple of two values, while concatenating two tuples produces a new
 tuple with their values in order (not nested). unit is a special case: it
 behaves as if it was an empty tuple, returning the other operand with no change.
