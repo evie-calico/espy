@@ -109,7 +109,7 @@ add4 3; # 7
 add4 28; # 32
 ```
 
-### functions
+### with
 
 espy functions may be declared in any block using the `with` statement.
 
@@ -144,7 +144,7 @@ sub11 23; # 12
 
 because espy is largely "pure" and does not have global variables, libraries
 may only be provided to an espy program by passing them as function arguments
-from the host environment. this means that, practically, every single espyscript
+from the host environment. this means that practically every single espyscript
 program is a single function which is immediately returned to the host. in most
 languages this would mean the entirety of the program has to be indented in a
 block, so espy's `with` syntax is designed to reuse the top-level block for the
