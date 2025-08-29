@@ -12,8 +12,8 @@
 //! ```
 
 use espy_ears::{
-    Binding, BindingMethod, Block, BlockResult, Diagnostics, Evaluation, Expression, For, Node,
-    Set, Statement,
+    Binding, BindingMethod, Block, BlockExpression, BlockResult, Diagnostics, Evaluation,
+    Expression, For, Node, Set, Statement,
 };
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;
@@ -319,18 +319,12 @@ impl<'source> Program<'source> {
     fn insert_block(
         &mut self,
         block_id: BlockId,
-        mut block: Box<Block<'source>>,
+        block: Box<Block<'source>>,
         scope: &mut Scope<'_, 'source>,
     ) -> Result<(), Error<'source>> {
-        try_validate(block.diagnostics)?;
-        for i in &mut block.statements {
-            let mut statement = Statement::Evaluation(Evaluation {
-                binding: None,
-                expression: None,
-                semicolon_token: None,
-                diagnostics: Diagnostics::default(),
-            });
-            std::mem::swap(&mut statement, i);
+        let (result, diagnostics, statements) = Block::destroy(block);
+        try_validate(diagnostics)?;
+        for statement in statements {
             self.add_statement(block_id, statement, scope)?;
         }
         // Collapse the scope if any additional values are left the stack.
@@ -342,7 +336,7 @@ impl<'source> Program<'source> {
             .parent
             .filter(|parent| parent.stack_pointer < scope.stack_pointer)
             .map(|parent| parent.stack_pointer);
-        match block.result {
+        match result {
             BlockResult::Expression(i) => {
                 self.add_expression(block_id, i, scope)?;
             }
@@ -580,7 +574,7 @@ impl<'source> Program<'source> {
             block!().extend(Instruction::PushUnit);
             return Ok(());
         };
-        let (_first_token, _last_token, diagnostics, nodes) = Expression::destructure(expression);
+        let (_first_token, _last_token, diagnostics, nodes) = Expression::destroy(expression);
         try_validate(diagnostics)?;
         for node in nodes {
             match node {
@@ -749,18 +743,13 @@ impl<'source> Program<'source> {
                     // note that only one value (the inner value's type) exists on the current scope;
                     // this will be important later.
                     let mut child = scope.child();
-                    let statics = if let Some(mut members) = structure.members {
-                        for i in &mut members.statements {
-                            let mut statement = Statement::Evaluation(Evaluation {
-                                binding: None,
-                                expression: None,
-                                semicolon_token: None,
-                                diagnostics: Diagnostics::default(),
-                            });
-                            std::mem::swap(&mut statement, i);
+                    let statics = if let Some(members) = structure.members {
+                        let (result, diagnostics, statements) = BlockExpression::destroy(members);
+                        try_validate(diagnostics)?;
+                        for statement in statements {
                             self.add_statement(block_id, statement, &mut child)?;
                         }
-                        self.add_expression(block_id, members.result, &mut child)?;
+                        self.add_expression(block_id, result, &mut child)?;
                         let set = child
                             .bindings
                             .into_iter()

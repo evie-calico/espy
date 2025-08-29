@@ -571,15 +571,17 @@ fn match_expression() {
     let expected = result(expression(
         MATCH,
         END,
-        [Match {
-            match_token: MATCH,
-            expression: Some(expression(
+        [Match::build(
+            MATCH,
+            Some(expression(
                 number("0"),
                 number("0"),
                 [number_node("0")].into_iter(),
             )),
-            then_token: Some(THEN),
-            cases: vec![
+            Some(THEN),
+            Some(END),
+            Diagnostics::default(),
+            [
                 MatchCase {
                     let_token: Some(LET),
                     binding: Some(ident("x")),
@@ -609,9 +611,7 @@ fn match_expression() {
                     semicolon_token: Some(SEMICOLON),
                 },
             ],
-            end_token: Some(END),
-            diagnostics: Diagnostics::default(),
-        }
+        )
         .into()]
         .into_iter(),
     ));

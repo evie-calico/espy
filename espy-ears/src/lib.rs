@@ -133,7 +133,7 @@ pub enum Node<'source> {
 
 /// This type must not contain any incomplete expressions.
 #[derive(Debug, Eq, PartialEq)]
-#[make_dst_factory(destructor = destructure, pub)]
+#[make_dst_factory(pub)]
 pub struct Expression<'source> {
     pub first_token: Option<Token<'source>>,
     pub last_token: Option<Token<'source>>,
@@ -460,7 +460,7 @@ impl<'source> Expression<'source> {
                 lexi!(t @ Triangle) if !unary_position => op!(Pipe(t)),
                 lexi!(t @ Comma) if !unary_position => op!(Tuple(t)),
                 lexi!(  @ If) => contents.push(If::from(&mut *lexer).into()),
-                lexi!(  @ Match) => contents.push(Match::from(&mut *lexer).into()),
+                lexi!(  @ Match) => contents.push(Match::new(&mut *lexer).into()),
                 lexi!(  @ Struct) => contents.push(Struct::from(&mut *lexer).into()),
                 lexi!(  @ Enum) => contents.push(Enum::from(&mut *lexer).into()),
                 lexi!(t @ CloseParen) if unary_position => {
@@ -615,24 +615,24 @@ pub struct MatchCase<'source> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
+#[make_dst_factory(pub)]
 pub struct Match<'source> {
     pub match_token: Token<'source>,
     pub expression: Option<Box<Expression<'source>>>,
     pub then_token: Option<Token<'source>>,
-    // TODO: this could be a dst field since Match is always boxed.
-    pub cases: Vec<MatchCase<'source>>,
     pub end_token: Option<Token<'source>>,
     pub diagnostics: Diagnostics<'source>,
+    pub cases: [MatchCase<'source>],
 }
 
-impl<'source> From<Match<'source>> for Node<'source> {
-    fn from(struct_block: Match<'source>) -> Self {
-        Self::Match(Box::new(struct_block))
+impl<'source> From<Box<Match<'source>>> for Node<'source> {
+    fn from(struct_block: Box<Match<'source>>) -> Self {
+        Self::Match(struct_block)
     }
 }
 
-impl<'source> From<&mut Peekable<Lexer<'source>>> for Match<'source> {
-    fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
+impl<'source> Match<'source> {
+    fn new(lexer: &mut Peekable<Lexer<'source>>) -> Box<Self> {
         let match_token = lexer
             .next()
             .transpose()
@@ -692,14 +692,14 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Match<'source> {
             }
         }
         let end_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
-        Self {
+        Match::build(
             match_token,
             expression,
             then_token,
-            cases,
             end_token,
             diagnostics,
-        }
+            cases,
+        )
     }
 }
 
@@ -1264,7 +1264,7 @@ impl<'source> From<Function<'source>> for BlockResult<'source> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-#[make_dst_factory]
+#[make_dst_factory(pub)]
 pub struct Block<'source> {
     pub result: BlockResult<'source>,
     pub diagnostics: Diagnostics<'source>,
@@ -1272,7 +1272,7 @@ pub struct Block<'source> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-#[make_dst_factory]
+#[make_dst_factory(pub)]
 pub struct BlockExpression<'source> {
     pub result: Option<Box<Expression<'source>>>,
     pub diagnostics: Diagnostics<'source>,
