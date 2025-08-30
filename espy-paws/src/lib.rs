@@ -1065,7 +1065,6 @@ pub struct FunctionType<'host> {
 pub struct StructType<'host> {
     pub inner: ComplexType<'host>,
     pub methods: Option<Tuple<Function<'host>>>,
-    pub constructors: Rc<[(Rc<str>, Function<'host>)]>,
 }
 
 impl<'host> From<Rc<StructType<'host>>> for Type<'host> {

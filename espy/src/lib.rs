@@ -87,7 +87,7 @@ mod tests {
     #[test]
     fn structs_usage() {
         let actual = Program::try_from(
-            "let Point = struct x: i64, y: i64 then let new = { with args; x: args.0, y: args.1 }; x: { with this; this.x } end; (Point.new 1, 2).x ()",
+            "let Point = struct x: i64, y: i64 then new: { with args; x: args.0, y: args.1 }, x: { with this; this.x } end; (Point.new 1, 2).x ()",
         )
         .unwrap();
         println!("{actual:?}");

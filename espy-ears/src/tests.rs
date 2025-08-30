@@ -476,7 +476,7 @@ fn function() {
 
 #[test]
 fn structure() {
-    let source = "let Coord = struct x: u32, y: u32 then let new = {with pos; pos.0, pos.1}; end;";
+    let source = "let Coord = struct x: u32, y: u32 end;";
     let actual = Block::new(&mut Lexer::from(source).peekable());
     let expected = statements(
         [binding(
@@ -504,55 +504,8 @@ fn structure() {
                         ]
                         .into_iter(),
                     )),
-                    then_token: Some(THEN),
-                    members: Some(BlockExpression::build(
-                        None,
-                        Diagnostics::default(),
-                        [binding(
-                            "new",
-                            expression(
-                                OPEN_BRACE,
-                                CLOSE_BRACE,
-                                [Node::Block(Block::build(
-                                    Function {
-                                        with_token: WITH,
-                                        argument: Some(Binding {
-                                            method: BindingMethod::Single(ident("pos")),
-                                            diagnostics: Diagnostics::default(),
-                                        }),
-                                        colon_token: None,
-                                        input: None,
-                                        single_arrow_token: None,
-                                        output: None,
-                                        semicolon_token: Some(SEMICOLON),
-                                        block: result(expression(
-                                            ident("pos"),
-                                            number("1"),
-                                            [
-                                                variable("pos"),
-                                                Node::Field {
-                                                    dot_token: DOT,
-                                                    index: number("0"),
-                                                },
-                                                variable("pos"),
-                                                Node::Field {
-                                                    dot_token: DOT,
-                                                    index: number("1"),
-                                                },
-                                                TUPLE,
-                                            ]
-                                            .into_iter(),
-                                        )),
-                                        diagnostics: Diagnostics::default(),
-                                    }
-                                    .into(),
-                                    Diagnostics::default(),
-                                    [],
-                                ))]
-                                .into_iter(),
-                            ),
-                        )],
-                    )),
+                    then_token: None,
+                    members: None,
                     end_token: Some(END),
                     diagnostics: Diagnostics::default(),
                 }))]
@@ -654,67 +607,6 @@ fn enum_creation() {
                 .into_iter(),
             ),
         )]
-        .into_iter(),
-    );
-    assert_eq!(actual, expected);
-}
-
-#[test]
-fn implementation() {
-    let source = "impl Iterator for Array then next: {with self; next} end";
-    let actual = Block::new(&mut Lexer::from(source).peekable());
-    let expected = statements(
-        [Statement::Implementation(Implementation {
-            impl_token: IMPL,
-            trait_expression: Some(expression(
-                ident("Iterator"),
-                ident("Iterator"),
-                [variable("Iterator")].into_iter(),
-            )),
-            for_token: Some(FOR),
-            struct_expression: Some(expression(
-                ident("Array"),
-                ident("Array"),
-                [variable("Array")].into_iter(),
-            )),
-            then_token: Some(THEN),
-            block: result(expression(
-                ident("next"),
-                CLOSE_BRACE,
-                [
-                    Node::Block(Block::build(
-                        Function {
-                            with_token: WITH,
-                            argument: Some(Binding {
-                                method: BindingMethod::Single(ident("self")),
-                                diagnostics: Diagnostics::default(),
-                            }),
-                            colon_token: None,
-                            input: None,
-                            single_arrow_token: None,
-                            output: None,
-                            semicolon_token: Some(SEMICOLON),
-                            block: result(expression(
-                                ident("next"),
-                                ident("next"),
-                                [variable("next")].into_iter(),
-                            )),
-                            diagnostics: Diagnostics::default(),
-                        }
-                        .into(),
-                        Diagnostics::default(),
-                        [],
-                    )),
-                    Node::Name {
-                        name: ident("next"),
-                        colon_token: COLON,
-                    },
-                ]
-                .into_iter(),
-            )),
-            end_token: Some(END),
-            diagnostics: Diagnostics::default(),
-        })]
         .into_iter(),
     );
     assert_eq!(actual, expected);

@@ -284,35 +284,19 @@ impl Program {
                         .into_tuple_or_unit()?
                         .map(Tuple::<Function>::try_from)
                         .transpose()?;
-                    let set = set(&self.bytes, program.next4()?)?;
-                    let mut constructors: Rc<[(Rc<str>, Function<'_>)]> = rc_slice_try_from_iter(
-                        set.len() / 4,
-                        set.chunks(4).map(|name| {
-                            let name = name
-                                .try_into()
-                                .map_err(|_| InvalidBytecode::MalformedHeader)?;
-                            let name = self
-                                .owned_strings
-                                .get(u32::from_le_bytes(name) as usize)
-                                .ok_or(InvalidBytecode::UnexpectedStringId)?
-                                .clone();
-                            Ok::<_, Error>((
-                                name,
-                                Rc::unwrap_or_clone(program.pop(stack)?.into_function()?),
-                            ))
-                        }),
-                    )?;
-                    // TODO: if set was removed and statics were inlined, this reverse could be done by the compiler.
-                    Rc::make_mut(&mut constructors).reverse();
+                    let traits = program.next4()?;
+                    for _ in 0..traits {
+                        let methods = program
+                            .pop(stack)?
+                            .into_tuple_or_unit()?
+                            .map(Tuple::<Function>::try_from)
+                            .transpose()?;
+                        let trait_reference = program.pop(stack)?;
+                    }
+                    // ignore accessor function
+                    program.pop(stack)?;
                     let inner = program.pop(stack)?.into_complex_type()?;
-                    stack.push(
-                        Type::from(StructType {
-                            inner,
-                            methods,
-                            constructors,
-                        })
-                        .into(),
-                    );
+                    stack.push(Type::from(StructType { inner, methods }).into());
                 }
 
                 instruction::ADD => bi_num!(let l, r => l + r),
@@ -523,10 +507,9 @@ impl Program {
                             },
                         ) => {
                             if let Some(function) = structure
-                                .constructors
-                                .iter()
-                                .find(|(name, _value)| *name == index)
-                                .map(|(_name, value)| value)
+                                .methods
+                                .as_ref()
+                                .and_then(|x| x.find_value(&index))
                             {
                                 stack.push(function.clone().as_constructor(structure).into())
                             } else {

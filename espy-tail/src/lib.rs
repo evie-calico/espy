@@ -12,8 +12,8 @@
 //! ```
 
 use espy_ears::{
-    Binding, BindingMethod, Block, BlockExpression, BlockResult, Diagnostics, Evaluation,
-    Expression, For, Node, Set, Statement,
+    Binding, BindingMethod, Block, BlockResult, Diagnostics, Evaluation, Expression, For,
+    ImplementationBlock, Node, Set, Statement,
 };
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;
@@ -99,9 +99,13 @@ pub enum Instruction {
     /// it should be unit or a named tuple of functions.
     /// Use this value as the struct's methods.
     ///
-    /// Then, pop a value off the stack for each string in the string set `statics`.
-    /// Each of these values is a static member of the struct;
-    /// any functions may construct this enum and access its fields.
+    /// Then, pop `traits` pairs of values off the stack.
+    /// The uppermost value of each pair is the trait's methods,
+    /// while the following value is the trait itself.
+    ///
+    /// Pop the next value off the stack and ignore it.
+    /// This value was the accessor key,
+    /// which was bound so that methods could use it but is no longer needed.
     ///
     /// Pop the next value off the stack;
     /// it should be a type.
@@ -109,7 +113,7 @@ pub enum Instruction {
     ///
     /// Push the resulting struct type to the stack.
     PushStruct {
-        statics: StringSet,
+        traits: StackPointer,
     },
     PushString(StringId),
 
@@ -187,8 +191,8 @@ impl Iterator for InstructionIter {
             Instruction::PushTrue => decompose!(instruction::PUSH_TRUE,),
             Instruction::PushFalse => decompose!(instruction::PUSH_FALSE,),
             Instruction::PushEnum => decompose!(instruction::PUSH_ENUM,),
-            Instruction::PushStruct { statics } => {
-                decompose!(instruction::PUSH_STRUCT, statics as 1..=4)
+            Instruction::PushStruct { traits } => {
+                decompose!(instruction::PUSH_STRUCT, traits as 1..=4)
             }
             Instruction::PushString(s) => decompose!(instruction::PUSH_STRING, s as 1..=4),
 
@@ -545,7 +549,6 @@ impl<'source> Program<'source> {
                 // Remove the iterator from the stack.
                 block!().extend(Instruction::Pop);
             }
-            Statement::Implementation(_) => todo!(),
         }
         Ok(())
     }
@@ -739,41 +742,32 @@ impl<'source> Program<'source> {
                 }
                 Node::Struct(structure) => {
                     try_validate(structure.diagnostics)?;
+                    let stack_origin = scope.stack_pointer;
                     self.add_expression(block_id, structure.inner, scope)?;
+                    self.blocks[block_id as usize].extend(Instruction::PushUnit);
+                    scope.stack_pointer += 1;
                     // note that only one value (the inner value's type) exists on the current scope;
                     // this will be important later.
-                    let mut child = scope.child();
-                    let statics = if let Some(members) = structure.members {
-                        let (result, diagnostics, statements) = BlockExpression::destroy(members);
+                    let traits = if let Some(members) = structure.members {
+                        let implementations_len = members.implementations.len();
+                        let (members, diagnostics, implementations) =
+                            ImplementationBlock::destroy(members);
                         try_validate(diagnostics)?;
-                        for statement in statements {
-                            self.add_statement(block_id, statement, &mut child)?;
+                        for implementation in implementations {
+                            self.add_expression(block_id, implementation.trait_expression, scope)?;
+                            self.add_expression(block_id, implementation.methods, scope)?;
                         }
-                        self.add_expression(block_id, result, &mut child)?;
-                        let set = child
-                            .bindings
-                            .into_iter()
-                            .rev()
-                            .map(|(case, _)| self.create_string(case))
-                            .collect::<Result<Vec<_>, Error<'source>>>()?;
-                        if set.is_empty() {
-                            0
-                        } else {
-                            self.string_sets.push(set);
-                            // this happens after because string sets start at 1;
-                            // 0 is an empty set!
-                            self.string_sets.len() as StringSet
-                        }
+                        self.add_expression(block_id, members, &mut *scope)?;
+                        implementations_len
+                            .try_into()
+                            .map_err(|_| Error::ProgramLimitExceeded)?
                     } else {
-                        // missing methods should be treated as none (unit) (obviously)
                         self.blocks[block_id as usize].extend(Instruction::PushUnit);
+                        scope.stack_pointer += 1;
                         0
                     };
-                    // at this point, the stack has grown by 2 + statics.
-                    // however only the variants (bottom of the stack) are accounted for in our scope,
-                    // and the resulting struct will replace it.
-                    scope.stack_pointer += 0;
-                    self.blocks[block_id as usize].extend(Instruction::PushStruct { statics });
+                    scope.stack_pointer = stack_origin + 1;
+                    self.blocks[block_id as usize].extend(Instruction::PushStruct { traits });
                 }
                 Node::Enum(enumeration) => {
                     try_validate(enumeration.diagnostics)?;

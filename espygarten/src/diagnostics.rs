@@ -296,14 +296,6 @@ fn diagnose_statement(source: &str, statement: &Statement, for_each: &mut impl F
             diagnose_expression(source, &for_loop.iterator, &mut *for_each);
             diagnose_block(source, &for_loop.block, &mut *for_each);
         }
-        Statement::Implementation(implementation) => {
-            for error in &implementation.diagnostics.errors {
-                for_each(Diagnostic::from_error(error, source));
-            }
-            diagnose_expression(source, &implementation.trait_expression, &mut *for_each);
-            diagnose_expression(source, &implementation.struct_expression, &mut *for_each);
-            diagnose_block(source, &implementation.block, &mut *for_each);
-        }
     }
 }
 
@@ -387,8 +379,12 @@ fn diagnose_expression(
                     for error in &members.diagnostics.errors {
                         for_each(Diagnostic::from_error(error, source));
                     }
-                    for statement in &members.statements {
-                        diagnose_statement(source, statement, for_each)
+                    for implementation in &members.implementations {
+                        for error in &implementation.diagnostics.errors {
+                            for_each(Diagnostic::from_error(error, source));
+                        }
+                        diagnose_expression(source, &implementation.trait_expression, for_each);
+                        diagnose_expression(source, &implementation.methods, for_each);
                     }
                     diagnose_expression(source, &members.result, for_each);
                 }
