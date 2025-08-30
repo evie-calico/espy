@@ -8,16 +8,12 @@ macro_rules! program {
         $(
             let $s:ident = $slit:literal;
         )*
-        $(
-            enum $e:ident = [$($case:expr),* $(,)?];
-        )*
         $(fn $block:ident {
             $($i:expr,)*
         })*
     ] => {
         {
             let mut program = Vec::new();
-            program.extend([0; 4]);
             program.extend([0; 4]);
             program.extend([0; 4]);
             let block_count = program.len();
@@ -40,17 +36,6 @@ macro_rules! program {
             )*
             program[4..8].copy_from_slice(&i.to_le_bytes());
 
-            #[allow(unused)]
-            let enum_count = program.len();
-            #[allow(unused)]
-            let mut i: BlockId = 0;
-            $(
-                let $e = i;
-                program.extend([0; 4]);
-                i += 1;
-            )*
-            program[8..12].copy_from_slice(&i.to_le_bytes());
-
             let mut i = 0;
             $(
                 let offset = program.len() as u32;
@@ -70,17 +55,6 @@ macro_rules! program {
                 #[allow(unused_assignments)]
                 { i += 1; }
             )*
-            #[allow(unused)]
-            let mut i = 0;
-            $(
-                let offset = program.len() as u32;
-                $(program.extend($case.to_le_bytes());)*
-                program[(enum_count + i * size_of::<u32>())..(enum_count + (i + 1) * size_of::<u32>())]
-                    .copy_from_slice(&offset.to_le_bytes());
-                #[allow(unused_assignments)]
-                { i += 1; }
-            )*
-
             program
         }
     }

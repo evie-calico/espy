@@ -241,9 +241,6 @@ impl IntoIterator for Instruction {
 pub struct Program<'source> {
     blocks: Vec<Vec<u8>>,
     strings: Vec<Cow<'source, str>>,
-    /// To index this, subtract 1 from the string set's Id.
-    /// A string set 0 should be considered an empty set.
-    string_sets: Vec<Vec<StringId>>,
 }
 
 impl<'source> Program<'source> {
@@ -251,7 +248,6 @@ impl<'source> Program<'source> {
         let mut output = Vec::new();
         output.extend((self.blocks.len() as u32).to_le_bytes());
         output.extend((self.strings.len() as u32).to_le_bytes());
-        output.extend((self.string_sets.len() as u32).to_le_bytes());
         // Reserve space for vector offsets.
         // Blocks, strings, and string sets are only referred to by index,
         // so this is the only program-wide retroactive filling required.
@@ -260,9 +256,6 @@ impl<'source> Program<'source> {
         // same for strings.
         let string_offsets = output.len();
         output.extend(iter::repeat_n(0, self.strings.len() * size_of::<u32>()));
-        // and string sets (these are currently only used for enums)
-        let string_set_offsets = output.len();
-        output.extend(iter::repeat_n(0, self.string_sets.len() * size_of::<u32>()));
 
         // Fill in offsets.
         for (block_id, block) in self.blocks.into_iter().enumerate() {
@@ -277,13 +270,6 @@ impl<'source> Program<'source> {
             output[dest..(dest + size_of::<u32>())].copy_from_slice(&src.to_le_bytes());
             output.extend(string.bytes());
         }
-        for (string_set_id, string_set) in self.string_sets.into_iter().enumerate() {
-            let src = output.len() as u32;
-            let dest = string_set_offsets + string_set_id * size_of::<u32>();
-            output[dest..(dest + size_of::<u32>())].copy_from_slice(&src.to_le_bytes());
-            output.extend(string_set.into_iter().flat_map(|x| x.to_le_bytes()));
-        }
-
         output
     }
 

@@ -1,50 +1,39 @@
 use crate::*;
 use espy_heart::prelude::*;
 
-fn read4(bytes: &[u8], at: usize) -> Option<usize> {
-    Some(u32::from_le_bytes([
-        *bytes.get(at)?,
-        *bytes.get(at + 1)?,
-        *bytes.get(at + 2)?,
-        *bytes.get(at + 3)?,
-    ]) as usize)
+/// Reads a u32 and casts it to usize for convenience.
+fn read_header(bytes: &[u8], at: usize) -> Result<usize, InvalidBytecode> {
+    let (((a, b), c), d) = bytes
+        .get(at)
+        .zip(bytes.get(at + 1))
+        .zip(bytes.get(at + 2))
+        .zip(bytes.get(at + 3))
+        .ok_or(InvalidBytecode::MalformedHeader)?;
+    Ok(u32::from_le_bytes([*a, *b, *c, *d]) as usize)
 }
 
 fn block_count(bytes: &[u8]) -> Result<usize, InvalidBytecode> {
-    read4(bytes, 0).ok_or(InvalidBytecode::MalformedHeader)
+    read_header(bytes, 0)
 }
 
 fn string_count(bytes: &[u8]) -> Result<usize, InvalidBytecode> {
-    read4(bytes, 4).ok_or(InvalidBytecode::MalformedHeader)
-}
-
-fn set_count(bytes: &[u8]) -> Result<usize, InvalidBytecode> {
-    read4(bytes, 8).ok_or(InvalidBytecode::MalformedHeader)
+    read_header(bytes, size_of::<u32>())
 }
 
 fn offsets(bytes: &[u8]) -> Result<&[u8], InvalidBytecode> {
+    let offset_count = block_count(bytes)? + string_count(bytes)?;
+    let first_offset = size_of::<u32>() * 2;
+    let last_offset = first_offset + size_of::<u32>() * offset_count;
     bytes
-        .get(12..(12 + 4 * (block_count(bytes)? + string_count(bytes)? + set_count(bytes)?)))
+        .get(first_offset..last_offset)
         .ok_or(InvalidBytecode::MalformedHeader)
 }
 
 fn block(bytes: &[u8], block_id: usize) -> Result<&[u8], InvalidBytecode> {
     let offsets = offsets(bytes)?;
-    let start = read4(offsets, 4 * block_id).ok_or(InvalidBytecode::MalformedHeader)?;
-    let end = read4(offsets, 4 * block_id + 4).unwrap_or(bytes.len());
-    bytes
-        .get(start..end)
-        .ok_or(InvalidBytecode::MalformedHeader)
-}
-
-fn set(bytes: &[u8], set_id: usize) -> Result<&[u8], InvalidBytecode> {
-    let Some(set_id) = set_id.checked_sub(1) else {
-        return Ok(&[]);
-    };
-    let i = set_id + block_count(bytes)? + string_count(bytes)?;
-    let offsets = offsets(bytes)?;
-    let start = read4(offsets, 4 * i).ok_or(InvalidBytecode::MalformedHeader)?;
-    let end = read4(offsets, 4 * i + 4).unwrap_or(bytes.len());
+    let block_position = size_of::<u32>() * block_id;
+    let start = read_header(offsets, block_position)?;
+    let end = read_header(offsets, size_of::<u32>() + block_position).unwrap_or(bytes.len());
     bytes
         .get(start..end)
         .ok_or(InvalidBytecode::MalformedHeader)
@@ -62,11 +51,11 @@ impl TryFrom<Rc<[u8]>> for Program {
     fn try_from(bytes: Rc<[u8]>) -> Result<Self, Self::Error> {
         let string_count = string_count(&bytes)?;
         let owned_strings = (0..string_count)
-            .map(|i| {
-                let i = i + block_count(&bytes)?;
+            .map(|string| {
+                let string = size_of::<u32>() * (string + block_count(&bytes)?);
                 let offsets = offsets(&bytes)?;
-                let start = read4(offsets, 4 * i).ok_or(InvalidBytecode::MalformedHeader)?;
-                let end = read4(offsets, 4 * i + 4).unwrap_or(bytes.len());
+                let start = read_header(offsets, string)?;
+                let end = read_header(offsets, size_of::<u32>() + string).unwrap_or(bytes.len());
                 let string_bytes = bytes
                     .get(start..end)
                     .ok_or(InvalidBytecode::MalformedHeader)?;
