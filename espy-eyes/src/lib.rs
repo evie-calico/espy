@@ -30,7 +30,6 @@ pub enum Lexigram {
     False,
     For,
     If,
-    Impl,
     In,
     Let,
     Match,
@@ -270,7 +269,7 @@ impl<'source> Iterator for Lexer<'source> {
                 let ident = &root[0..length];
                 match ident {
                     "array" | "async" | "await" | "case" | "class" | "const" | "continue"
-                    | "do" | "dyn" | "fn" | "import" | "include" | "iterator" | "loop"
+                    | "do" | "dyn" | "fn" | "impl" | "import" | "include" | "iterator" | "loop"
                     | "macro" | "mod" | "move" | "never" | "priv" | "pub" | "ref" | "require"
                     | "safe" | "static" | "super" | "switch" | "trait" | "try" | "tuple"
                     | "type" | "union" | "unsafe" | "use" | "where" | "while" | "yield" => {
@@ -288,7 +287,6 @@ impl<'source> Iterator for Lexer<'source> {
                     "false" => Lexigram::False,
                     "for" => Lexigram::For,
                     "if" => Lexigram::If,
-                    "impl" => Lexigram::Impl,
                     "in" => Lexigram::In,
                     "let" => Lexigram::Let,
                     "match" => Lexigram::Match,

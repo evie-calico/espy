@@ -12,8 +12,8 @@
 //! ```
 
 use espy_ears::{
-    Binding, BindingMethod, Block, BlockResult, Diagnostics, Evaluation, Expression, For,
-    ImplementationBlock, Node, Set, Statement,
+    Binding, BindingMethod, Block, BlockResult, Diagnostics, Evaluation, Expression, For, Node,
+    Set, Statement,
 };
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;
@@ -112,9 +112,7 @@ pub enum Instruction {
     /// Use this type as the type of the struct's inner value.
     ///
     /// Push the resulting struct type to the stack.
-    PushStruct {
-        traits: StackPointer,
-    },
+    PushStruct,
     PushString(StringId),
 
     Add,
@@ -191,8 +189,8 @@ impl Iterator for InstructionIter {
             Instruction::PushTrue => decompose!(instruction::PUSH_TRUE,),
             Instruction::PushFalse => decompose!(instruction::PUSH_FALSE,),
             Instruction::PushEnum => decompose!(instruction::PUSH_ENUM,),
-            Instruction::PushStruct { traits } => {
-                decompose!(instruction::PUSH_STRUCT, traits as 1..=4)
+            Instruction::PushStruct => {
+                decompose!(instruction::PUSH_STRUCT,)
             }
             Instruction::PushString(s) => decompose!(instruction::PUSH_STRING, s as 1..=4),
 
@@ -728,32 +726,10 @@ impl<'source> Program<'source> {
                 }
                 Node::Struct(structure) => {
                     try_validate(structure.diagnostics)?;
-                    let stack_origin = scope.stack_pointer;
                     self.add_expression(block_id, structure.inner, scope)?;
-                    self.blocks[block_id as usize].extend(Instruction::PushUnit);
-                    scope.stack_pointer += 1;
-                    // note that only one value (the inner value's type) exists on the current scope;
-                    // this will be important later.
-                    let traits = if let Some(members) = structure.members {
-                        let implementations_len = members.implementations.len();
-                        let (members, diagnostics, implementations) =
-                            ImplementationBlock::destroy(members);
-                        try_validate(diagnostics)?;
-                        for implementation in implementations {
-                            self.add_expression(block_id, implementation.trait_expression, scope)?;
-                            self.add_expression(block_id, implementation.methods, scope)?;
-                        }
-                        self.add_expression(block_id, members, &mut *scope)?;
-                        implementations_len
-                            .try_into()
-                            .map_err(|_| Error::ProgramLimitExceeded)?
-                    } else {
-                        self.blocks[block_id as usize].extend(Instruction::PushUnit);
-                        scope.stack_pointer += 1;
-                        0
-                    };
-                    scope.stack_pointer = stack_origin + 1;
-                    self.blocks[block_id as usize].extend(Instruction::PushStruct { traits });
+                    self.add_expression(block_id, structure.members, &mut *scope)?;
+                    self.blocks[block_id as usize].extend(Instruction::PushStruct);
+                    scope.stack_pointer -= 1;
                 }
                 Node::Enum(enumeration) => {
                     try_validate(enumeration.diagnostics)?;

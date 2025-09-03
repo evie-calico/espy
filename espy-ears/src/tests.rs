@@ -17,7 +17,6 @@ token!(END: End = "end");
 token!(ENUM: Enum = "enum");
 token!(FOR: For = "for");
 token!(IF: If = "if");
-token!(IMPL: Impl = "impl");
 token!(IN: In = "in");
 token!(LET: Let = "let");
 token!(MATCH: Match = "match");

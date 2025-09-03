@@ -34,7 +34,6 @@ fn format_lexigram(mut f: impl Write, lexigram: lexer::Lexigram) {
         lexer::Lexigram::Greater => write!(f, ">"),                 // symbol only
         lexer::Lexigram::Ident => write!(f, "identifier"),
         lexer::Lexigram::If => write!(f, "if"),
-        lexer::Lexigram::Impl => write!(f, "impl"),
         lexer::Lexigram::In => write!(f, "in"),
         lexer::Lexigram::LesserEqual => write!(f, "lesserequal"), // symbol only
         lexer::Lexigram::Lesser => write!(f, "lesser"),           // symbol only
@@ -375,19 +374,7 @@ fn diagnose_expression(
                     for_each(diagnostic);
                 }
                 diagnose_expression(source, &struct_node.inner, for_each);
-                if let Some(members) = &struct_node.members {
-                    for error in &members.diagnostics.errors {
-                        for_each(Diagnostic::from_error(error, source));
-                    }
-                    for implementation in &members.implementations {
-                        for error in &implementation.diagnostics.errors {
-                            for_each(Diagnostic::from_error(error, source));
-                        }
-                        diagnose_expression(source, &implementation.trait_expression, for_each);
-                        diagnose_expression(source, &implementation.methods, for_each);
-                    }
-                    diagnose_expression(source, &members.result, for_each);
-                }
+                diagnose_expression(source, &struct_node.members, for_each);
             }
             espy::parser::Node::Enum(enum_node) => {
                 let mut range = origin_range(enum_node.enum_token.origin, source);

@@ -273,17 +273,6 @@ impl Program {
                         .into_tuple_or_unit()?
                         .map(Tuple::<Function>::try_from)
                         .transpose()?;
-                    let traits = program.next4()?;
-                    for _ in 0..traits {
-                        let methods = program
-                            .pop(stack)?
-                            .into_tuple_or_unit()?
-                            .map(Tuple::<Function>::try_from)
-                            .transpose()?;
-                        let trait_reference = program.pop(stack)?;
-                    }
-                    // ignore accessor function
-                    program.pop(stack)?;
                     let inner = program.pop(stack)?.into_complex_type()?;
                     stack.push(Type::from(StructType { inner, methods }).into());
                 }
