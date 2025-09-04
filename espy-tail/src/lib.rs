@@ -12,8 +12,8 @@
 //! ```
 
 use espy_ears::{
-    Binding, BindingMethod, Block, BlockResult, Diagnostics, Evaluation, Expression, For, Node,
-    Set, Statement,
+    Binding, BindingMethod, Block, BlockResult, Diagnostics, Evaluation, Expression, Node, Set,
+    Statement,
 };
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;
@@ -69,11 +69,6 @@ pub enum Instruction {
     /// Pop a boolean value off the stack.
     /// If it is *false*, set the program counter.
     If(ProgramCounter),
-    /// Shortcut for for loops.
-    /// This reads the top value on the stack but does not pop it,
-    /// unwraps the inner value and pushes it to the stack if it is Some,
-    /// and jumps to the following address if it is None.
-    For(ProgramCounter),
 
     PushUnit,
     PushI64(i64),
@@ -161,7 +156,6 @@ impl Iterator for InstructionIter {
             Instruction::Collapse(to) => decompose!(instruction::COLLAPSE, to as 1..=4),
             Instruction::Jump(pc) => decompose!(instruction::JUMP, pc as 1..=4),
             Instruction::If(pc) => decompose!(instruction::IF, pc as 1..=4),
-            Instruction::For(escape) => decompose!(instruction::FOR, escape as 1..=4),
 
             Instruction::PushUnit => decompose!(instruction::PUSH_UNIT,),
             Instruction::PushI64(literal) => decompose!(instruction::PUSH_I64, literal as 1..=8),
@@ -454,39 +448,6 @@ impl<'source> Program<'source> {
                 self.add_expression(block_id, expression, scope)?;
                 block!().extend(Instruction::Set);
                 scope.stack_pointer -= 2;
-            }
-            Statement::For(For {
-                binding,
-                iterator,
-                block,
-                diagnostics,
-                ..
-            }) => {
-                try_validate(diagnostics)?;
-                self.add_expression(block_id, iterator, scope)?;
-                let for_address = block!().len();
-                block!().extend(Instruction::For(0));
-                scope.stack_pointer += 1;
-                let escape_address = block!().len() - 4;
-                let mut child = scope.child();
-                if let Some(binding) = binding {
-                    // This doesn't use Binding, but i want to remove For anyways so who cares
-                    child.insert(
-                        binding
-                            .resolve()
-                            .map_err(|e| Error::InvalidIdentifier(binding, e))?,
-                    );
-                }
-                // Note the insert-we need to inject two more instructions into this block.
-                self.insert_block(block_id, block, &mut child)?;
-                // For loop return values can't be used.
-                block!().extend(Instruction::Pop);
-                block!().extend(Instruction::Jump(for_address as u32));
-                let escape_target = block!().len() as u32;
-                block!()[escape_address..(escape_address + size_of::<u32>())]
-                    .copy_from_slice(&escape_target.to_le_bytes());
-                // Remove the iterator from the stack.
-                block!().extend(Instruction::Pop);
             }
         }
         Ok(())

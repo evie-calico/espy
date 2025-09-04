@@ -20,7 +20,6 @@ pub mod instruction {
     pub const COLLAPSE: u8 = 0x02;
     pub const JUMP: u8 = 0x03;
     pub const IF: u8 = 0x04;
-    pub const FOR: u8 = 0x05;
 
     // Push ops: 0x10-0x2F
     pub const PUSH_UNIT: u8 = 0x10;

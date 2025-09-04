@@ -28,12 +28,10 @@ fn format_lexigram(mut f: impl Write, lexigram: lexer::Lexigram) {
         lexer::Lexigram::End => write!(f, "end"),
         lexer::Lexigram::Enum => write!(f, "enum"),
         lexer::Lexigram::False => write!(f, "false"),
-        lexer::Lexigram::For => write!(f, "for"),
         lexer::Lexigram::GreaterEqual => write!(f, "greaterequal"), // symbol only
         lexer::Lexigram::Greater => write!(f, ">"),                 // symbol only
         lexer::Lexigram::Ident => write!(f, "identifier"),
         lexer::Lexigram::If => write!(f, "if"),
-        lexer::Lexigram::In => write!(f, "in"),
         lexer::Lexigram::LesserEqual => write!(f, "lesserequal"), // symbol only
         lexer::Lexigram::Lesser => write!(f, "lesser"),           // symbol only
         lexer::Lexigram::Let => write!(f, "let"),
@@ -283,13 +281,6 @@ fn diagnose_statement(source: &str, statement: &Statement, for_each: &mut impl F
             }
             diagnose_expression(source, &set.target, &mut *for_each);
             diagnose_expression(source, &set.expression, &mut *for_each);
-        }
-        Statement::For(for_loop) => {
-            for error in &for_loop.diagnostics.errors {
-                for_each(Diagnostic::from_error(error, source));
-            }
-            diagnose_expression(source, &for_loop.iterator, &mut *for_each);
-            diagnose_block(source, &for_loop.block, &mut *for_each);
         }
     }
 }

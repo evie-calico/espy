@@ -27,9 +27,7 @@ pub enum Lexigram {
     End,
     Enum,
     False,
-    For,
     If,
-    In,
     Let,
     Match,
     Or,
@@ -267,11 +265,11 @@ impl<'source> Iterator for Lexer<'source> {
                 let ident = &root[0..length];
                 match ident {
                     "array" | "async" | "await" | "break" | "case" | "class" | "const"
-                    | "continue" | "do" | "dyn" | "fn" | "impl" | "import" | "include"
-                    | "iterator" | "loop" | "macro" | "mod" | "move" | "never" | "priv" | "pub"
-                    | "ref" | "require" | "safe" | "static" | "struct" | "super" | "switch"
-                    | "trait" | "try" | "tuple" | "type" | "union" | "unsafe" | "use" | "where"
-                    | "while" | "yield" => {
+                    | "continue" | "do" | "dyn" | "fn" | "for" | "impl" | "import" | "in"
+                    | "include" | "iterator" | "loop" | "macro" | "mod" | "move" | "never"
+                    | "priv" | "pub" | "ref" | "require" | "safe" | "static" | "struct"
+                    | "super" | "switch" | "trait" | "try" | "tuple" | "type" | "union"
+                    | "unsafe" | "use" | "where" | "while" | "yield" => {
                         return Some(Err(Error {
                             origin: ident,
                             kind: ErrorKind::ReservedSymbol,
@@ -283,9 +281,7 @@ impl<'source> Iterator for Lexer<'source> {
                     "end" => Lexigram::End,
                     "enum" => Lexigram::Enum,
                     "false" => Lexigram::False,
-                    "for" => Lexigram::For,
                     "if" => Lexigram::If,
-                    "in" => Lexigram::In,
                     "let" => Lexigram::Let,
                     "match" => Lexigram::Match,
                     "or" => Lexigram::Or,

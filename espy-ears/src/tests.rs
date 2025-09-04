@@ -15,9 +15,7 @@ token!(DOT: Dot = ".");
 token!(ELSE: Else = "else");
 token!(END: End = "end");
 token!(ENUM: Enum = "enum");
-token!(FOR: For = "for");
 token!(IF: If = "if");
-token!(IN: In = "in");
 token!(LET: Let = "let");
 token!(MATCH: Match = "match");
 token!(OPEN_PAREN: OpenParen = "(");
@@ -81,15 +79,6 @@ fn binding<'source>(
             }),
             equals_token: Some(SINGLE_EQUAL),
         }),
-        expression: Some(expression),
-        semicolon_token: Some(SEMICOLON),
-        diagnostics: Diagnostics::default(),
-    })
-}
-
-fn evaluation<'source>(expression: Box<Expression<'source>>) -> Statement<'source> {
-    Statement::Evaluation(Evaluation {
-        binding: None,
         expression: Some(expression),
         semicolon_token: Some(SEMICOLON),
         diagnostics: Diagnostics::default(),
@@ -335,37 +324,6 @@ fn malformed_binding() {
                     },
                 ],
             },
-        })]
-        .into_iter(),
-    );
-    assert_eq!(actual, expected);
-}
-
-#[test]
-fn for_loop() {
-    let source = "for i in iter then print i; end";
-    let actual = Block::new(&mut Lexer::from(source).peekable());
-    let expected = statements(
-        [Statement::For(For {
-            for_token: FOR,
-            binding: Some(ident("i")),
-            in_token: Some(IN),
-            iterator: Some(expression(
-                ident("iter"),
-                ident("iter"),
-                [variable("iter")].into_iter(),
-            )),
-            then_token: Some(THEN),
-            block: statements(
-                [evaluation(expression(
-                    ident("print"),
-                    ident("i"),
-                    [variable("print"), variable("i"), Node::Call(ident("i"))].into_iter(),
-                ))]
-                .into_iter(),
-            ),
-            end_token: Some(END),
-            diagnostics: Diagnostics::default(),
         })]
         .into_iter(),
     );

@@ -738,8 +738,8 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Enum<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub enum Statement<'source> {
     Evaluation(Evaluation<'source>),
+    /// Technically this could be an expression too but i actually think being statement based for assignments is a feature.
     Set(Set<'source>),
-    For(For<'source>),
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -1065,84 +1065,6 @@ impl<'source> Binding<'source> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct For<'source> {
-    pub for_token: Token<'source>,
-    pub binding: Option<Token<'source>>,
-    pub in_token: Option<Token<'source>>,
-    pub iterator: Option<Box<Expression<'source>>>,
-    pub then_token: Option<Token<'source>>,
-    pub block: Box<Block<'source>>,
-    pub end_token: Option<Token<'source>>,
-    pub diagnostics: Diagnostics<'source>,
-}
-
-impl<'source> From<&mut Peekable<Lexer<'source>>> for For<'source> {
-    fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
-        let mut diagnostics = Diagnostics::default();
-
-        let for_token = lexer
-            .next()
-            .transpose()
-            .ok()
-            .flatten()
-            .expect("caller must have peeked a token");
-        let binding = diagnostics.next_if(lexer, &[Lexigram::Ident, Lexigram::Discard]);
-        let in_token = diagnostics.next_if(lexer, &[Lexigram::In]);
-        let iterator = diagnostics.expect_expression(lexer);
-        let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
-        let first = Block::new(&mut *lexer);
-        let end_token = diagnostics.next_if(lexer, &[Lexigram::End]);
-
-        For {
-            for_token,
-            binding,
-            in_token,
-            iterator,
-            then_token,
-            block: first,
-            end_token,
-            diagnostics,
-        }
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct Implementation<'source> {
-    pub impl_token: Token<'source>,
-    pub trait_expression: Option<Box<Expression<'source>>>,
-    pub equals_token: Option<Token<'source>>,
-    pub methods: Option<Box<Expression<'source>>>,
-    pub semicolon_token: Option<Token<'source>>,
-    pub diagnostics: Diagnostics<'source>,
-}
-
-impl<'source> From<&mut Peekable<Lexer<'source>>> for Implementation<'source> {
-    fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
-        let mut diagnostics = Diagnostics::default();
-
-        let impl_token = lexer
-            .next()
-            .transpose()
-            .ok()
-            .flatten()
-            .expect("caller must have peeked a token");
-        let trait_expression = diagnostics.expect_expression(lexer);
-        let equals_token = diagnostics.next_if(lexer, &[Lexigram::SingleEqual]);
-        let methods = Expression::new(&mut *lexer);
-        let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
-
-        Self {
-            impl_token,
-            trait_expression,
-            equals_token,
-            methods,
-            semicolon_token,
-            diagnostics,
-        }
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
 pub struct Function<'source> {
     pub with_token: Token<'source>,
     pub argument: Option<Binding<'source>>,
@@ -1220,10 +1142,6 @@ impl<'source> Block<'source> {
                     lexigram: Lexigram::Set,
                     ..
                 }) => Statement::Set(Set::new(lexer)),
-                Some(Token {
-                    lexigram: Lexigram::For,
-                    ..
-                }) => Statement::For(For::from(&mut *lexer)),
                 Some(
                     with_token @ Token {
                         lexigram: Lexigram::With,
