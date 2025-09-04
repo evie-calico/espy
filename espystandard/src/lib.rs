@@ -28,15 +28,12 @@ pub struct StdLib {
 
 impl Extern for StdLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        match index {
-            Value {
-                storage: Storage::String(index),
-            } if &*index == "string" => Ok(Value::borrow(&self.string)),
-            Value {
-                storage: Storage::String(index),
-            } if &*index == "option" => Ok(Value::borrow(&self.option)),
-            index => Err(Error::IndexNotFound {
-                index,
+        let index = index.into_str()?;
+        match &*index {
+            "string" => Ok(Value::borrow(&self.string)),
+            "option" => Ok(Value::borrow(&self.option)),
+            _ => Err(Error::IndexNotFound {
+                index: index.into(),
                 container: Value::borrow(self),
             }),
         }
@@ -54,12 +51,11 @@ pub struct StringLib {
 
 impl Extern for StringLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        match index {
-            Value {
-                storage: Storage::String(index),
-            } if &*index == "concat" => Ok(Function::borrow(&self.concat).into()),
-            index => Err(Error::IndexNotFound {
-                index,
+        let index = index.into_str()?;
+        match &*index {
+            "concat" => Ok(Function::borrow(&self.concat).into()),
+            _ => Err(Error::IndexNotFound {
+                index: index.into(),
                 container: Value::borrow(self),
             }),
         }
@@ -99,22 +95,19 @@ pub struct OptionLib {
 
 impl Extern for OptionLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        match index {
-            Value {
-                storage: Storage::String(index),
-            } if &*index == "unwrap" => Ok(Function::borrow(&self.unwrap).into()),
-            Value {
-                storage: Storage::String(index),
-            } if &*index == "expect" => Ok(Function::borrow(&self.expect).into()),
-            index => Err(Error::IndexNotFound {
-                index,
+        let index = index.into_str()?;
+        match &*index {
+            "unwrap" => Ok(Function::borrow(&self.unwrap).into()),
+            "expect" => Ok(Function::borrow(&self.expect).into()),
+            _ => Err(Error::IndexNotFound {
+                index: index.into(),
                 container: Value::borrow(self),
             }),
         }
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::write!(f, "std.string module")
+        std::write!(f, "std.option module")
     }
 }
 

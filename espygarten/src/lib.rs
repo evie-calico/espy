@@ -16,15 +16,12 @@ impl espy::Extern for EspygartenLibContainer {
         &'host self,
         index: espy::Value<'host>,
     ) -> Result<espy::Value<'host>, espy::interpreter::Error<'host>> {
-        match index {
-            espy::Value {
-                storage: espy::Storage::String(index),
-            } if &*index == "std" => Ok(espy::Value::borrow(&self.std)),
-            espy::Value {
-                storage: espy::Storage::String(index),
-            } if &*index == "espygarten" => Ok(espy::Value::borrow(&self.espygarten)),
-            index => Err(espy::Error::IndexNotFound {
-                index,
+        let index = index.into_str()?;
+        match &*index {
+            "std" => Ok(espy::Value::borrow(&self.std)),
+            "espygarten" => Ok(espy::Value::borrow(&self.espygarten)),
+            _ => Err(espy::Error::IndexNotFound {
+                index: index.into(),
                 container: espy::Storage::Borrow(self).into(),
             }),
         }
@@ -45,12 +42,11 @@ impl espy::Extern for EspygartenLib {
         &'host self,
         index: espy::Value<'host>,
     ) -> Result<espy::Value<'host>, espy::interpreter::Error<'host>> {
-        match index {
-            espy::Value {
-                storage: espy::Storage::String(index),
-            } if &*index == "print" => Ok(espy::Function::borrow(&self.print).into()),
-            index => Err(espy::Error::IndexNotFound {
-                index,
+        let index = index.into_str()?;
+        match &*index {
+            "print" => Ok(espy::Function::borrow(&self.print).into()),
+            _ => Err(espy::Error::IndexNotFound {
+                index: index.into(),
                 container: espy::Storage::Borrow(self).into(),
             }),
         }
@@ -79,7 +75,7 @@ impl espy::ExternFn for PrintFn {
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::write!(f, "std.io.print function")
+        std::write!(f, "espygarten.print function")
     }
 }
 
@@ -177,8 +173,7 @@ impl std::fmt::Display for MaybeSnippetFmt<'_> {
 
 #[wasm_bindgen]
 pub fn espy_eval(source: &str) -> String {
-    let ast =
-        espy::parser::Block::new(&mut espy::lexer::Lexer::from(source).peekable());
+    let ast = espy::parser::Block::new(&mut espy::lexer::Lexer::from(source).peekable());
     let mut parser_diagnostics = None;
     diagnostics::for_each(source, &ast, |diagnostic| {
         let f =
