@@ -274,35 +274,7 @@ mod tests {
     #[test]
     fn iter() {
         #[derive(Default)]
-        struct Lib {
-            print: Print,
-            foreach: ForEach,
-        }
-        #[derive(Default)]
         struct ForEach;
-        #[derive(Default)]
-        struct Print;
-
-        impl Extern for Lib {
-            fn index<'host>(
-                &'host self,
-                index: Value<'host>,
-            ) -> Result<Value<'host>, Error<'host>> {
-                let index = index.into_str()?;
-                match &*index {
-                    "foreach" => Ok(Function::borrow(&self.foreach).into()),
-                    "print" => Ok(Function::borrow(&self.print).into()),
-                    _ => Err(Error::IndexNotFound {
-                        index: index.into(),
-                        container: Value::borrow(self),
-                    }),
-                }
-            }
-
-            fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "iter module")
-            }
-        }
 
         impl ExternFn for ForEach {
             fn call<'host>(&'host self, args: Value<'host>) -> Result<Value<'host>, Error<'host>> {
@@ -315,29 +287,14 @@ mod tests {
                 }
                 Ok(().into())
             }
-
-            fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "iter.foreach function")
-            }
         }
 
-        impl ExternFn for Print {
-            fn call<'host>(&'host self, args: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-                println!("{args:?}");
-                Ok(().into())
-            }
-
-            fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "iter.foreach function")
-            }
-        }
-
-        let iter = Lib::default();
+        let foreach = ForEach;
 
         assert_eq!(
             Function::try_from(
                 Program::try_from(
-                    "with { foreach, print };
+                    "with foreach;
                 let countdown = {
                     let item = option i64, i64;
                     with i;
@@ -361,7 +318,7 @@ mod tests {
                 .unwrap(),
             )
             .unwrap()
-            .piped(Value::borrow(&iter))
+            .piped(Function::borrow(&foreach).into())
             .eval()
             .unwrap()
             .into_i64()
