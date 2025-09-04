@@ -8,7 +8,6 @@ fn format_lexigram(mut f: impl Write, lexigram: lexer::Lexigram) {
     let _ = match lexigram {
         lexer::Lexigram::Ampersand => write!(f, "& (ampersand)"),
         lexer::Lexigram::And => write!(f, "and"),
-        lexer::Lexigram::As => write!(f, "as"),
         lexer::Lexigram::BangEqual => write!(f, "!="), // symbol only
         lexer::Lexigram::Bang => write!(f, "! (bang)"),
         lexer::Lexigram::Caret => write!(f, "^ (caret)"),
@@ -44,7 +43,6 @@ fn format_lexigram(mut f: impl Write, lexigram: lexer::Lexigram) {
         lexer::Lexigram::Or => write!(f, "or"),
         lexer::Lexigram::Pipe => write!(f, "|"), // symbol only
         lexer::Lexigram::Plus => write!(f, "plus"), // symbol only
-        lexer::Lexigram::Return => write!(f, "return"),
         lexer::Lexigram::Semicolon => write!(f, "; (semicolon)"),
         lexer::Lexigram::Set => write!(f, "set"),
         lexer::Lexigram::SingleArrow => write!(f, "-> (single arrow)"),

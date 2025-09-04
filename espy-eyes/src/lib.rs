@@ -21,7 +21,6 @@
 pub enum Lexigram {
     // Keywords
     And,
-    As,
     Discard,
     Else,
     End,
@@ -31,7 +30,6 @@ pub enum Lexigram {
     Let,
     Match,
     Or,
-    Return,
     Set,
     Then,
     True,
@@ -264,19 +262,18 @@ impl<'source> Iterator for Lexer<'source> {
                 }
                 let ident = &root[0..length];
                 match ident {
-                    "array" | "async" | "await" | "break" | "case" | "class" | "const"
+                    "array" | "as" | "async" | "await" | "break" | "case" | "class" | "const"
                     | "continue" | "do" | "dyn" | "fn" | "for" | "impl" | "import" | "in"
                     | "include" | "iterator" | "loop" | "macro" | "mod" | "move" | "never"
-                    | "priv" | "pub" | "ref" | "require" | "safe" | "static" | "struct"
-                    | "super" | "switch" | "trait" | "try" | "tuple" | "type" | "union"
-                    | "unsafe" | "use" | "where" | "while" | "yield" => {
+                    | "priv" | "pub" | "ref" | "require" | "return" | "safe" | "static"
+                    | "struct" | "super" | "switch" | "trait" | "try" | "tuple" | "type"
+                    | "union" | "unsafe" | "use" | "where" | "while" | "yield" => {
                         return Some(Err(Error {
                             origin: ident,
                             kind: ErrorKind::ReservedSymbol,
                         }));
                     }
                     "and" => Lexigram::And,
-                    "as" => Lexigram::As,
                     "else" => Lexigram::Else,
                     "end" => Lexigram::End,
                     "enum" => Lexigram::Enum,
@@ -285,7 +282,6 @@ impl<'source> Iterator for Lexer<'source> {
                     "let" => Lexigram::Let,
                     "match" => Lexigram::Match,
                     "or" => Lexigram::Or,
-                    "return" => Lexigram::Return,
                     "set" => Lexigram::Set,
                     "then" => Lexigram::Then,
                     "true" => Lexigram::True,

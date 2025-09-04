@@ -205,8 +205,6 @@ impl Program {
                         program.pc = target;
                     }
                 }
-                // TODO: need function calls and builtins for this.
-                instruction::FOR => todo!(),
 
                 instruction::PUSH_UNIT => {
                     stack.push(().into());
