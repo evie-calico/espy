@@ -85,16 +85,6 @@ mod tests {
     }
 
     #[test]
-    fn structs_usage() {
-        let actual = Program::try_from(
-            "let Point = struct x: i64, y: i64 then new: { with args; x: args.0, y: args.1 }, x: { with this; this.x } end; (Point.new 1, 2).x ()",
-        )
-        .unwrap();
-        println!("{actual:?}");
-        assert!(actual.eval().unwrap().eq(1.into()).unwrap())
-    }
-
-    #[test]
     fn enums_usage() {
         let actual =
             Program::try_from("let Option = enum Some: any, None: unit end; Option.Some 1")
@@ -120,21 +110,6 @@ mod tests {
                 .unwrap()
                 .eq(Value::concat(Some(1).into(), None::<i64>.into()))
                 .unwrap()
-        )
-    }
-
-    #[test]
-    fn structures() {
-        let actual = Program::try_from("struct x: any, y: any end").unwrap();
-        println!("{actual:?}");
-        let value = actual.eval().unwrap();
-        let struct_type = value.into_struct_type().unwrap();
-        assert_eq!(
-            struct_type.inner,
-            interpreter::ComplexType::from(interpreter::Tuple::from([
-                (Rc::from("x"), Type::Any.into()),
-                (Rc::from("y"), Type::Any.into()),
-            ]))
         )
     }
 

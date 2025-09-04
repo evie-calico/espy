@@ -36,7 +36,6 @@ pub enum Lexigram {
     Or,
     Return,
     Set,
-    Struct,
     Then,
     True,
     With,
@@ -271,8 +270,9 @@ impl<'source> Iterator for Lexer<'source> {
                     "array" | "async" | "await" | "case" | "class" | "const" | "continue"
                     | "do" | "dyn" | "fn" | "impl" | "import" | "include" | "iterator" | "loop"
                     | "macro" | "mod" | "move" | "never" | "priv" | "pub" | "ref" | "require"
-                    | "safe" | "static" | "super" | "switch" | "trait" | "try" | "tuple"
-                    | "type" | "union" | "unsafe" | "use" | "where" | "while" | "yield" => {
+                    | "safe" | "static" | "struct" | "super" | "switch" | "trait" | "try"
+                    | "tuple" | "type" | "union" | "unsafe" | "use" | "where" | "while"
+                    | "yield" => {
                         return Some(Err(Error {
                             origin: ident,
                             kind: ErrorKind::ReservedSymbol,
@@ -293,7 +293,6 @@ impl<'source> Iterator for Lexer<'source> {
                     "or" => Lexigram::Or,
                     "return" => Lexigram::Return,
                     "set" => Lexigram::Set,
-                    "struct" => Lexigram::Struct,
                     "then" => Lexigram::Then,
                     "true" => Lexigram::True,
                     "with" => Lexigram::With,

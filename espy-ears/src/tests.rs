@@ -24,7 +24,6 @@ token!(OPEN_PAREN: OpenParen = "(");
 token!(CLOSE_PAREN: CloseParen= ")");
 token!(OPEN_BRACE: OpenBrace = "{");
 token!(CLOSE_BRACE: CloseBrace = "}");
-token!(STRUCT: Struct = "struct");
 token!(THEN: Then = "then");
 token!(WITH: With = "with");
 token!(DOUBLE_ARROW: DoubleArrow = "=>");
@@ -469,49 +468,6 @@ fn function() {
             "captured",
             expression(number("1"), number("1"), [number_node("1")].into_iter()),
         )],
-    );
-    assert_eq!(actual, expected);
-}
-
-#[test]
-fn structure() {
-    let source = "let Coord = struct x: u32, y: u32 end;";
-    let actual = Block::new(&mut Lexer::from(source).peekable());
-    let expected = statements(
-        [binding(
-            "Coord",
-            expression(
-                STRUCT,
-                END,
-                [Node::Struct(Box::new(Struct {
-                    struct_token: STRUCT,
-                    inner: Some(expression(
-                        ident("x"),
-                        ident("u32"),
-                        [
-                            variable("u32"),
-                            Node::Name {
-                                name: ident("x"),
-                                colon_token: COLON,
-                            },
-                            variable("u32"),
-                            Node::Name {
-                                name: ident("y"),
-                                colon_token: COLON,
-                            },
-                            TUPLE,
-                        ]
-                        .into_iter(),
-                    )),
-                    then_token: None,
-                    members: None,
-                    end_token: Some(END),
-                    diagnostics: Diagnostics::default(),
-                }))]
-                .into_iter(),
-            ),
-        )]
-        .into_iter(),
     );
     assert_eq!(actual, expected);
 }

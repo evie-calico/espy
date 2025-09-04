@@ -97,7 +97,6 @@ pub enum Node<'source> {
     Block(Box<Block<'source>>),
     If(Box<If<'source>>),
     Match(Box<Match<'source>>),
-    Struct(Box<Struct<'source>>),
     Enum(Box<Enum<'source>>),
 
     Pipe(Token<'source>),
@@ -461,7 +460,6 @@ impl<'source> Expression<'source> {
                 lexi!(t @ Comma) if !unary_position => op!(Tuple(t)),
                 lexi!(  @ If) => contents.push(If::from(&mut *lexer).into()),
                 lexi!(  @ Match) => contents.push(Match::new(&mut *lexer).into()),
-                lexi!(  @ Struct) => contents.push(Struct::from(&mut *lexer).into()),
                 lexi!(  @ Enum) => contents.push(Enum::from(&mut *lexer).into()),
                 lexi!(t @ CloseParen) if unary_position => {
                     if let Some(
@@ -700,64 +698,6 @@ impl<'source> Match<'source> {
             diagnostics,
             cases,
         )
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct Struct<'source> {
-    pub struct_token: Token<'source>,
-    pub inner: Option<Box<Expression<'source>>>,
-    pub then_token: Option<Token<'source>>,
-    pub members: Option<Box<Expression<'source>>>,
-    pub end_token: Option<Token<'source>>,
-    pub diagnostics: Diagnostics<'source>,
-}
-
-impl<'source> From<Struct<'source>> for Node<'source> {
-    fn from(struct_block: Struct<'source>) -> Self {
-        Self::Struct(Box::new(struct_block))
-    }
-}
-
-impl<'source> From<&mut Peekable<Lexer<'source>>> for Struct<'source> {
-    fn from(lexer: &mut Peekable<Lexer<'source>>) -> Self {
-        let struct_token = lexer
-            .next()
-            .transpose()
-            .ok()
-            .flatten()
-            .expect("caller must have peeked a token");
-        let mut diagnostics = Diagnostics::default();
-        let inner = diagnostics.expect_expression(lexer);
-        let (then_token, members) = match lexer.peek().copied() {
-            Some(Ok(
-                then_token @ Token {
-                    lexigram: Lexigram::Then,
-                    ..
-                },
-            )) => {
-                lexer.next();
-                let members = Expression::new(&mut *lexer);
-                (Some(then_token), members)
-            }
-            Some(Ok(Token {
-                lexigram: Lexigram::End,
-                ..
-            })) => (None, None),
-            t => {
-                diagnostics.expect(t, &[Lexigram::Then, Lexigram::End]);
-                (None, None)
-            }
-        };
-        let end_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
-        Self {
-            struct_token,
-            inner,
-            then_token,
-            members,
-            end_token,
-            diagnostics,
-        }
     }
 }
 

@@ -267,15 +267,6 @@ impl Program {
                     )?;
                     stack.push(Type::from(EnumType { variants }).into());
                 }
-                instruction::PUSH_STRUCT => {
-                    let methods = program
-                        .pop(stack)?
-                        .into_tuple_or_unit()?
-                        .map(Tuple::<Function>::try_from)
-                        .transpose()?;
-                    let inner = program.pop(stack)?.into_complex_type()?;
-                    stack.push(Type::from(StructType { inner, methods }).into());
-                }
 
                 instruction::ADD => bi_num!(let l, r => l + r),
                 instruction::SUB => bi_num!(let l, r => l - r),

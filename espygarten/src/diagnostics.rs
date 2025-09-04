@@ -55,7 +55,6 @@ fn format_lexigram(mut f: impl Write, lexigram: lexer::Lexigram) {
         lexer::Lexigram::Slash => write!(f, "slash"), // symbol only
         lexer::Lexigram::Star => write!(f, "star"),   // symbol only
         lexer::Lexigram::String => write!(f, "string"),
-        lexer::Lexigram::Struct => write!(f, "struct"),
         lexer::Lexigram::Then => write!(f, "then"),
         lexer::Lexigram::Triangle => write!(f, "triangle"), // symbol only
         lexer::Lexigram::True => write!(f, "true"),
@@ -359,22 +358,6 @@ fn diagnose_expression(
                     diagnose_expression(source, &case.case, for_each);
                     diagnose_expression(source, &case.expression, for_each);
                 }
-            }
-            espy::parser::Node::Struct(struct_node) => {
-                let mut range = origin_range(struct_node.struct_token.origin, source);
-                if let Some(token) = struct_node.end_token.or(struct_node.then_token) {
-                    range.1 = origin_range(token.origin, source).1;
-                }
-                for error in &struct_node.diagnostics.errors {
-                    let mut diagnostic = Diagnostic::from_error(error, source);
-                    diagnostic.secondary.push(Comment {
-                        message: "in this structure definition".to_string(),
-                        range: Some(range),
-                    });
-                    for_each(diagnostic);
-                }
-                diagnose_expression(source, &struct_node.inner, for_each);
-                diagnose_expression(source, &struct_node.members, for_each);
             }
             espy::parser::Node::Enum(enum_node) => {
                 let mut range = origin_range(enum_node.enum_token.origin, source);

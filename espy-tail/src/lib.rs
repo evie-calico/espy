@@ -95,24 +95,6 @@ pub enum Instruction {
     ///
     /// Push the resulting enum type to the stack.
     PushEnum,
-    /// Pop the top value off the stack;
-    /// it should be unit or a named tuple of functions.
-    /// Use this value as the struct's methods.
-    ///
-    /// Then, pop `traits` pairs of values off the stack.
-    /// The uppermost value of each pair is the trait's methods,
-    /// while the following value is the trait itself.
-    ///
-    /// Pop the next value off the stack and ignore it.
-    /// This value was the accessor key,
-    /// which was bound so that methods could use it but is no longer needed.
-    ///
-    /// Pop the next value off the stack;
-    /// it should be a type.
-    /// Use this type as the type of the struct's inner value.
-    ///
-    /// Push the resulting struct type to the stack.
-    PushStruct,
     PushString(StringId),
 
     Add,
@@ -189,9 +171,6 @@ impl Iterator for InstructionIter {
             Instruction::PushTrue => decompose!(instruction::PUSH_TRUE,),
             Instruction::PushFalse => decompose!(instruction::PUSH_FALSE,),
             Instruction::PushEnum => decompose!(instruction::PUSH_ENUM,),
-            Instruction::PushStruct => {
-                decompose!(instruction::PUSH_STRUCT,)
-            }
             Instruction::PushString(s) => decompose!(instruction::PUSH_STRING, s as 1..=4),
 
             Instruction::Add => decompose!(instruction::ADD,),
@@ -723,13 +702,6 @@ impl<'source> Program<'source> {
                     // because while Index pops twice, we performed one of the pushes ourselves.
                     scope.stack_pointer += 0;
                     block!().extend(Instruction::Index)
-                }
-                Node::Struct(structure) => {
-                    try_validate(structure.diagnostics)?;
-                    self.add_expression(block_id, structure.inner, scope)?;
-                    self.add_expression(block_id, structure.members, &mut *scope)?;
-                    self.blocks[block_id as usize].extend(Instruction::PushStruct);
-                    scope.stack_pointer -= 1;
                 }
                 Node::Enum(enumeration) => {
                     try_validate(enumeration.diagnostics)?;
