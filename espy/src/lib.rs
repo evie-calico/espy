@@ -198,11 +198,7 @@ mod tests {
     }
 
     #[test]
-    fn std_io() {
-        #[derive(Default)]
-        struct Std {
-            io: Io,
-        }
+    fn print() {
         #[derive(Default)]
         struct Io {
             print: Print,
@@ -212,38 +208,16 @@ mod tests {
             log: std::cell::Cell<Vec<Rc<str>>>,
         }
 
-        impl Extern for Std {
-            fn index<'host>(
-                &'host self,
-                index: Value<'host>,
-            ) -> Result<Value<'host>, Error<'host>> {
-                match index {
-                    Value {
-                        storage: Storage::String(x),
-                    } if &*x == "io" => Ok(Value::borrow(&self.io)),
-                    index => Err(Error::IndexNotFound {
-                        index,
-                        container: Value::borrow(self),
-                    }),
-                }
-            }
-
-            fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "std module")
-            }
-        }
-
         impl Extern for Io {
             fn index<'host>(
                 &'host self,
                 index: Value<'host>,
             ) -> Result<Value<'host>, Error<'host>> {
-                match index {
-                    Value {
-                        storage: Storage::String(x),
-                    } if &*x == "print" => Ok(Function::borrow(&self.print).into()),
-                    index => Err(Error::IndexNotFound {
-                        index,
+                let index = index.into_str()?;
+                match &*index {
+                    "print" => Ok(Function::borrow(&self.print).into()),
+                    _ => Err(Error::IndexNotFound {
+                        index: index.into(),
                         container: Value::borrow(self),
                     }),
                 }
@@ -272,23 +246,22 @@ mod tests {
             }
         }
 
-        let std = Std::default();
+        let io = Io::default();
 
         assert!(
             Function::try_from(
-                Program::try_from("with std; std.io.print \"Hello, world!\"")
+                Program::try_from("with io; io.print \"Hello, world!\"")
                     .unwrap()
                     .eval()
                     .unwrap(),
             )
             .unwrap()
-            .piped(Value::borrow(&std))
+            .piped(Value::borrow(&io))
             .eval()
             .unwrap()
             .eq(().into())
             .unwrap()
-                && std
-                    .io
+                && io
                     .print
                     .log
                     .take()
@@ -296,5 +269,104 @@ mod tests {
                     .map(|s| &**s)
                     .eq(["Hello, world!"])
         )
+    }
+
+    #[test]
+    fn iter() {
+        #[derive(Default)]
+        struct Lib {
+            print: Print,
+            foreach: ForEach,
+        }
+        #[derive(Default)]
+        struct ForEach;
+        #[derive(Default)]
+        struct Print;
+
+        impl Extern for Lib {
+            fn index<'host>(
+                &'host self,
+                index: Value<'host>,
+            ) -> Result<Value<'host>, Error<'host>> {
+                let index = index.into_str()?;
+                match &*index {
+                    "foreach" => Ok(Function::borrow(&self.foreach).into()),
+                    "print" => Ok(Function::borrow(&self.print).into()),
+                    _ => Err(Error::IndexNotFound {
+                        index: index.into(),
+                        container: Value::borrow(self),
+                    }),
+                }
+            }
+
+            fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "iter module")
+            }
+        }
+
+        impl ExternFn for ForEach {
+            fn call<'host>(&'host self, args: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+                let mut iterator = args.get(0)?;
+                let next = args.get(1)?.into_function()?;
+                let foreach = args.get(2)?.into_function()?;
+                while let Some(result) = next.clone().piped(iterator).eval()?.into_option()? {
+                    iterator = result.get(0)?;
+                    foreach.clone().piped(result.get(1)?).eval()?;
+                }
+                Ok(().into())
+            }
+
+            fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "iter.foreach function")
+            }
+        }
+
+        impl ExternFn for Print {
+            fn call<'host>(&'host self, args: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+                println!("{args:?}");
+                Ok(().into())
+            }
+
+            fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "iter.foreach function")
+            }
+        }
+
+        let iter = Lib::default();
+
+        assert_eq!(
+            Function::try_from(
+                Program::try_from(
+                    "with { foreach, print };
+                let countdown = {
+                    let item = option i64, i64;
+                    with i;
+                    if i >= 0 then
+                        item.Some i - 1, i
+                    else then
+                        item.None ()
+                    end
+                };
+                let accumulator = mut 0;
+                let sum = {
+                    let accumulator = accumulator;
+                    with i;
+                    set accumulator = *accumulator + i;
+                };
+                10, countdown |> foreach sum;
+                *accumulator",
+                )
+                .unwrap()
+                .eval()
+                .unwrap(),
+            )
+            .unwrap()
+            .piped(Value::borrow(&iter))
+            .eval()
+            .unwrap()
+            .into_i64()
+            .unwrap(),
+            55
+        );
     }
 }

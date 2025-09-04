@@ -36,6 +36,168 @@ pub struct Value<'host> {
     pub storage: Storage<'host>,
 }
 
+impl<'host> Value<'host> {
+    pub fn get(&self, index: i64) -> Result<Value<'host>, Error<'host>> {
+        match self {
+            Value {
+                storage: Storage::Tuple(tuple),
+            } => tuple
+                .value(index as usize)
+                .cloned()
+                .ok_or(Error::IndexNotFound {
+                    index: index.into(),
+                    container: self.clone(),
+                }),
+            Value {
+                storage: Storage::Type(Type::Enum(ty)),
+            } => {
+                if (index as usize) < ty.variants.len() {
+                    Ok(Storage::Function(Rc::new(
+                        FunctionAction::Enum {
+                            variant: index as usize,
+                            definition: ty.clone(),
+                        }
+                        .into(),
+                    ))
+                    .into())
+                } else {
+                    Err(Error::IndexNotFound {
+                        index: index.into(),
+                        container: self.clone(),
+                    })
+                }
+            }
+            Value {
+                storage: Storage::Type(Type::Option(ty)),
+            } => match index {
+                0 => Ok(Storage::Function(Rc::new(FunctionAction::Some(ty.clone()).into())).into()),
+                1 => Ok(Storage::Function(Rc::new(FunctionAction::None(ty.clone()).into())).into()),
+                _ => Err(Error::IndexNotFound {
+                    index: index.into(),
+                    container: self.clone(),
+                }),
+            },
+            _ => Err(Error::IndexNotFound {
+                index: index.into(),
+                container: self.clone(),
+            }),
+        }
+    }
+
+    pub fn find(&self, index: Rc<str>) -> Result<Value<'host>, Error<'host>> {
+        match self {
+            Value {
+                storage: Storage::Tuple(tuple),
+            } => tuple
+                .find_value(&index)
+                .cloned()
+                .ok_or(Error::IndexNotFound {
+                    index: index.into(),
+                    container: self.clone(),
+                }),
+            Value {
+                storage: Storage::Type(Type::Enum(ty)),
+            } => {
+                if let Some(variant_id) = ty
+                    .variants
+                    .as_ref()
+                    .iter()
+                    .enumerate()
+                    .find(|(_, (variant, _))| *variant == index)
+                    .map(|(i, _)| i)
+                {
+                    Ok(Storage::Function(Rc::new(
+                        FunctionAction::Enum {
+                            variant: variant_id,
+                            definition: ty.clone(),
+                        }
+                        .into(),
+                    ))
+                    .into())
+                } else {
+                    Err(Error::IndexNotFound {
+                        index: index.into(),
+                        container: self.clone(),
+                    })
+                }
+            }
+            Value {
+                storage: Storage::Type(Type::Option(ty)),
+            } => match &*index {
+                "Some" => {
+                    Ok(Storage::Function(Rc::new(FunctionAction::Some(ty.clone()).into())).into())
+                }
+                "None" => {
+                    Ok(Storage::Function(Rc::new(FunctionAction::None(ty.clone()).into())).into())
+                }
+                _ => Err(Error::IndexNotFound {
+                    container: self.clone(),
+                    index: index.into(),
+                }),
+            },
+            Value {
+                storage: Storage::Type(Type::Struct(structure)),
+            } => {
+                if let Some(function) = structure
+                    .methods
+                    .as_ref()
+                    .and_then(|x| x.find_value(&index))
+                {
+                    Ok(function.clone().as_constructor(structure.clone()).into())
+                } else {
+                    Err(Error::IndexNotFound {
+                        index: index.into(),
+                        container: self.clone(),
+                    })
+                }
+            }
+            Value {
+                storage: Storage::Struct { inner, ty },
+            } => {
+                if let Some(method) = ty.methods.as_ref().and_then(|x| x.find_value(&index)) {
+                    Ok(method.clone().piped((**inner).clone()).into())
+                } else {
+                    Err(Error::IndexNotFound {
+                        index: index.into(),
+                        container: self.clone(),
+                    })
+                }
+            }
+            _ => Err(Error::IndexNotFound {
+                index: index.into(),
+                container: self.clone(),
+            }),
+        }
+    }
+
+    pub fn index(&self, index: impl Into<Value<'host>>) -> Result<Value<'host>, Error<'host>> {
+        match (self, index.into()) {
+            (
+                Value {
+                    storage: Storage::Borrow(external),
+                },
+                index,
+            ) => external.index(index),
+            (
+                _,
+                Value {
+                    storage: Storage::I64(index),
+                },
+            ) => self.get(index),
+            (
+                _,
+                Value {
+                    storage: Storage::String(index),
+                },
+            ) => self.find(index),
+            (_, index) => Err(Error::IndexNotFound {
+                index,
+                container: self.clone(),
+            }),
+        }
+    }
+}
+
 // Cloning this type should be cheap;
 // every binding usage is a clone in espy!
 // Use Rcs over boxes and try to put allocations as far up as possible.
@@ -473,12 +635,19 @@ impl<'host> Value<'host> {
         Storage::Borrow(external).into()
     }
 
-    pub fn into_function(self) -> Result<Rc<Function<'host>>, Error<'host>> {
+    pub fn into_function(self) -> Result<Function<'host>, Error<'host>> {
         self.try_into()
     }
 
     pub fn into_enum_variant(self) -> Result<Rc<EnumVariant<'host>>, Error<'host>> {
         self.try_into()
+    }
+
+    pub fn into_option(self) -> Result<Option<Value<'host>>, Error<'host>> {
+        match self.storage {
+            Storage::Option { contents, ty: _ } => Ok(contents.map(|x| (*x).clone())),
+            _ => Err(Error::ExpectedOption(self)),
+        }
     }
 
     pub fn into_refcell(self) -> Result<Rc<RefCell<Value<'host>>>, Error<'host>> {
@@ -1129,6 +1298,7 @@ pub enum Error<'host> {
     ExpectedNumbers(Value<'host>, Value<'host>),
     ExpectedFunction(Value<'host>),
     ExpectedEnumVariant(Value<'host>),
+    ExpectedOption(Value<'host>),
     ExpectedEnumType(Value<'host>),
     ExpectedStructType(Value<'host>),
     ExpectedTuple(Value<'host>),
