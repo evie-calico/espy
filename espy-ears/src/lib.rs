@@ -1162,10 +1162,6 @@ pub struct Function<'source> {
 )]
 pub enum BlockResult<'source> {
     Expression(Option<Box<Expression<'source>>>),
-    Break {
-        break_token: Token<'source>,
-        expression: Option<Box<Expression<'source>>>,
-    },
     Function(Function<'source>),
 }
 
@@ -1173,7 +1169,7 @@ impl BlockResult<'_> {
     pub fn is_empty(&self) -> bool {
         match self {
             BlockResult::Expression(expression) => expression.is_none(),
-            BlockResult::Break { .. } | BlockResult::Function(_) => false,
+            BlockResult::Function(_) => false,
         }
     }
 }
@@ -1228,23 +1224,6 @@ impl<'source> Block<'source> {
                     lexigram: Lexigram::For,
                     ..
                 }) => Statement::For(For::from(&mut *lexer)),
-                Some(
-                    break_token @ Token {
-                        lexigram: Lexigram::Break,
-                        ..
-                    },
-                ) => {
-                    lexer.next();
-                    let expression = Expression::new(&mut *lexer);
-                    return Self::build(
-                        BlockResult::Break {
-                            break_token,
-                            expression,
-                        },
-                        diagnostics,
-                        statements,
-                    );
-                }
                 Some(
                     with_token @ Token {
                         lexigram: Lexigram::With,

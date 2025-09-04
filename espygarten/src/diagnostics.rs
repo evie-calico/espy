@@ -11,7 +11,6 @@ fn format_lexigram(mut f: impl Write, lexigram: lexer::Lexigram) {
         lexer::Lexigram::As => write!(f, "as"),
         lexer::Lexigram::BangEqual => write!(f, "!="), // symbol only
         lexer::Lexigram::Bang => write!(f, "! (bang)"),
-        lexer::Lexigram::Break => write!(f, "break"),
         lexer::Lexigram::Caret => write!(f, "^ (caret)"),
         lexer::Lexigram::CloseBrace => write!(f, "}} (closing curly brace)"),
         lexer::Lexigram::CloseParen => write!(f, ") (closing parenthesis)"),
@@ -207,11 +206,9 @@ fn diagnose_block(source: &str, block: &Block, for_each: &mut impl FnMut(Diagnos
         diagnose_statement(source, statement, &mut *for_each)
     }
     match &block.result {
-        BlockResult::Expression(expression)
-        | BlockResult::Break {
-            break_token: _,
-            expression,
-        } => diagnose_expression(source, expression, &mut *for_each),
+        BlockResult::Expression(expression) => {
+            diagnose_expression(source, expression, &mut *for_each)
+        }
         BlockResult::Function(function) => {
             for error in &function.diagnostics.errors {
                 for_each(Diagnostic::from_error(error, source));

@@ -22,7 +22,6 @@ pub enum Lexigram {
     // Keywords
     And,
     As,
-    Break,
     Discard,
     Else,
     End,
@@ -267,12 +266,12 @@ impl<'source> Iterator for Lexer<'source> {
                 }
                 let ident = &root[0..length];
                 match ident {
-                    "array" | "async" | "await" | "case" | "class" | "const" | "continue"
-                    | "do" | "dyn" | "fn" | "impl" | "import" | "include" | "iterator" | "loop"
-                    | "macro" | "mod" | "move" | "never" | "priv" | "pub" | "ref" | "require"
-                    | "safe" | "static" | "struct" | "super" | "switch" | "trait" | "try"
-                    | "tuple" | "type" | "union" | "unsafe" | "use" | "where" | "while"
-                    | "yield" => {
+                    "array" | "async" | "await" | "break" | "case" | "class" | "const"
+                    | "continue" | "do" | "dyn" | "fn" | "impl" | "import" | "include"
+                    | "iterator" | "loop" | "macro" | "mod" | "move" | "never" | "priv" | "pub"
+                    | "ref" | "require" | "safe" | "static" | "struct" | "super" | "switch"
+                    | "trait" | "try" | "tuple" | "type" | "union" | "unsafe" | "use" | "where"
+                    | "while" | "yield" => {
                         return Some(Err(Error {
                             origin: ident,
                             kind: ErrorKind::ReservedSymbol,
@@ -280,7 +279,6 @@ impl<'source> Iterator for Lexer<'source> {
                     }
                     "and" => Lexigram::And,
                     "as" => Lexigram::As,
-                    "break" => Lexigram::Break,
                     "else" => Lexigram::Else,
                     "end" => Lexigram::End,
                     "enum" => Lexigram::Enum,

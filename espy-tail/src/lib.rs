@@ -17,7 +17,7 @@ use espy_ears::{
 };
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;
-use std::{borrow::Cow, cell::Cell, iter, mem, num::ParseIntError};
+use std::{borrow::Cow, iter, mem, num::ParseIntError};
 
 #[cfg(test)]
 mod tests;
@@ -279,7 +279,6 @@ impl<'source> Program<'source> {
         mut scope: Scope<'_, 'source>,
     ) -> Result<(), Error<'source>> {
         self.insert_block(block_id, block, &mut scope)?;
-        scope.resolve_breaks(&mut self.blocks[block_id as usize]);
         Ok(())
     }
 
@@ -306,27 +305,6 @@ impl<'source> Program<'source> {
         match result {
             BlockResult::Expression(i) => {
                 self.add_expression(block_id, i, scope)?;
-            }
-            BlockResult::Break {
-                break_token,
-                expression,
-            } => {
-                self.add_expression(block_id, expression, scope)?;
-                let mut candidate = &*scope;
-                while !candidate.implicit_break {
-                    let Some(parent) = candidate.parent else {
-                        return Err(Error::InvalidBreak(break_token));
-                    };
-                    candidate = parent;
-                }
-                if candidate.stack_pointer < scope.stack_pointer {
-                    self.blocks[block_id as usize].extend(Instruction::Collapse(
-                        scope.stack_pointer - candidate.stack_pointer,
-                    ));
-                }
-                self.blocks[block_id as usize].extend(Instruction::Jump(0));
-                candidate.request_break(self.blocks[block_id as usize].len() as ProgramCounter - 4);
-                return Ok(());
             }
             BlockResult::Function(function) => {
                 try_validate(function.diagnostics)?;
@@ -490,7 +468,7 @@ impl<'source> Program<'source> {
                 block!().extend(Instruction::For(0));
                 scope.stack_pointer += 1;
                 let escape_address = block!().len() - 4;
-                let mut child = scope.child().implicit_break();
+                let mut child = scope.child();
                 if let Some(binding) = binding {
                     // This doesn't use Binding, but i want to remove For anyways so who cares
                     child.insert(
@@ -504,8 +482,6 @@ impl<'source> Program<'source> {
                 // For loop return values can't be used.
                 block!().extend(Instruction::Pop);
                 block!().extend(Instruction::Jump(for_address as u32));
-                // Now the inside of the for has been resolved.
-                child.resolve_breaks(&mut block!());
                 let escape_target = block!().len() as u32;
                 block!()[escape_address..(escape_address + size_of::<u32>())]
                     .copy_from_slice(&escape_target.to_le_bytes());
@@ -740,16 +716,6 @@ pub struct Scope<'parent, 'source> {
 
     stack_pointer: StackPointer,
     bindings: Vec<(Cow<'source, str>, Value)>,
-
-    name: Option<&'source str>,
-    /// If true, this block is a candidate for unnamed break statements.
-    ///
-    /// This is used to make "for { if { break } }" break out of the for block and not just the if.
-    implicit_break: bool,
-    /// Indexes of 32-bit addresses that are intended to reference the end of this scope.
-    ///
-    /// Used to implement `break`.
-    break_requests: Cell<Vec<ProgramCounter>>,
 }
 
 impl<'parent, 'source> Scope<'parent, 'source> {
@@ -780,20 +746,6 @@ impl<'parent, 'source> Scope<'parent, 'source> {
         ));
     }
 
-    fn request_break(&self, at: ProgramCounter) {
-        let mut break_requests = self.break_requests.take();
-        break_requests.push(at);
-        self.break_requests.set(break_requests);
-    }
-
-    fn resolve_breaks(self, program: &mut [u8]) {
-        let to = program.len() as ProgramCounter;
-        for break_request in self.break_requests.take().into_iter().map(|x| x as usize) {
-            program[break_request..(break_request + size_of::<u32>())]
-                .copy_from_slice(&to.to_le_bytes());
-        }
-    }
-
     fn child(&'parent self) -> Self {
         Self {
             parent: Some(self),
@@ -815,21 +767,6 @@ impl<'parent, 'source> Scope<'parent, 'source> {
             parent: None,
             stack_pointer: self.stack_pointer - lost_size,
             bindings: new_bindings,
-            ..Default::default()
-        }
-    }
-
-    fn named(self, s: &'source str) -> Self {
-        Self {
-            name: Some(s),
-            ..self
-        }
-    }
-
-    fn implicit_break(self) -> Self {
-        Self {
-            implicit_break: true,
-            ..self
         }
     }
 }

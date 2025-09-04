@@ -289,27 +289,6 @@ fn for_loop() {
 }
 
 #[test]
-fn for_with_break() {
-    let mut lexer = Lexer::from("for i in 5 then break end").peekable();
-    let block = Block::new(&mut lexer);
-    let program = Program::try_from(block).unwrap();
-    let actual = program.compile();
-    let expected = program! {
-        fn _main {
-            PushI64(5),
-            For(26),
-            PushUnit,
-            Jump(26),
-            Pop,
-            Jump(9),
-            Pop,
-            PushUnit,
-        }
-    };
-    assert_eq!(actual, expected);
-}
-
-#[test]
 fn string() {
     let mut lexer = Lexer::from("\"string\"").peekable();
     let block = Block::new(&mut lexer);
