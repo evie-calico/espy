@@ -38,6 +38,7 @@ pub enum Value<'host> {
     Tuple(Tuple<Value<'host>>),
 
     Borrow(&'host dyn Extern),
+    Owned(Rc<dyn ExternOwned>),
     I64(i64),
     Bool(bool),
     String(Rc<str>),
@@ -153,6 +154,7 @@ impl<'host> Value<'host> {
     pub fn index(&self, index: impl Into<Value<'host>>) -> Result<Value<'host>, Error<'host>> {
         match (self, index.into()) {
             (Value::Borrow(external), index) => external.index(index),
+            (Value::Owned(external), index) => external.index(index),
             (_, Value::I64(index)) => self.get(index),
             (_, Value::String(index)) => self.find(index),
             (_, index) => Err(Error::IndexNotFound {
@@ -248,6 +250,11 @@ impl std::fmt::Debug for Value<'_> {
             Value::Tuple(tuple) => write!(f, "Tuple({tuple:?})"),
             Value::Borrow(external) => {
                 write!(f, "Borrow(")?;
+                external.debug(f)?;
+                write!(f, ")")
+            }
+            Value::Owned(external) => {
+                write!(f, "Owned(")?;
                 external.debug(f)?;
                 write!(f, ")")
             }
@@ -356,7 +363,7 @@ impl<'host> Value<'host> {
                     complex.into()
                 }
             }
-            Value::Borrow(_) => Type::Any.into(),
+            Value::Borrow(_) | Value::Owned(_) => Type::Any.into(),
             Value::I64(_) => Type::I64.into(),
             Value::Bool(_) => Type::Bool.into(),
             Value::String(_) => Type::String.into(),
@@ -453,6 +460,10 @@ impl<'host> Value<'host> {
 
     pub fn borrow(external: &'host dyn Extern) -> Self {
         Value::Borrow(external)
+    }
+
+    pub fn owned(external: Rc<dyn ExternOwned>) -> Self {
+        Value::Owned(external)
     }
 
     pub fn into_function(self) -> Result<Function<'host>, Error<'host>> {
@@ -804,6 +815,13 @@ impl<'host> Function<'host> {
         }
     }
 
+    pub fn owned(external: Rc<dyn ExternFnOwned>) -> Self {
+        Function {
+            action: FunctionAction::Owned(external),
+            argument: ().into(),
+        }
+    }
+
     pub fn eval(self) -> Result<Value<'host>, Error<'host>> {
         let result = match self.action {
             FunctionAction::With {
@@ -860,6 +878,7 @@ impl<'host> Function<'host> {
                 Value::Option { contents: None, ty }
             }
             FunctionAction::Borrow(external) => external.call(self.argument)?,
+            FunctionAction::Owned(external) => external.call(self.argument)?,
         };
         Ok(result)
     }
@@ -895,6 +914,7 @@ enum FunctionAction<'host> {
     Some(Rc<ComplexType>),
     None(Rc<ComplexType>),
     Borrow(&'host dyn ExternFn),
+    Owned(Rc<dyn ExternFnOwned>),
 }
 
 impl<'host> From<FunctionAction<'host>> for Function<'host> {
@@ -934,6 +954,7 @@ impl std::fmt::Debug for FunctionAction<'_> {
             Self::Some(arg0) => f.debug_tuple("Some").field(arg0).finish(),
             Self::None(arg0) => f.debug_tuple("None").field(arg0).finish(),
             Self::Borrow(arg0) => arg0.debug(f),
+            Self::Owned(arg0) => arg0.debug(f),
         }
     }
 }
@@ -1483,6 +1504,16 @@ pub trait Extern {
     }
 }
 
+pub trait ExternOwned {
+    fn index<'host>(&self, _index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        Err(ExternError::MissingIndexImpl)?
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{external value}}")
+    }
+}
+
 pub trait ExternFn {
     fn call<'host>(&'host self, _argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         Err(ExternError::MissingFunctionImpl)?
@@ -1493,56 +1524,12 @@ pub trait ExternFn {
     }
 }
 
-pub struct FunctionWrapper<F: for<'host> Fn(Value<'host>) -> Result<Value<'host>, Error<'host>>>(F);
-
-pub fn wrap_fn<F: for<'host> Fn(Value<'host>) -> Result<Value<'host>, Error<'host>>>(
-    f: F,
-) -> FunctionWrapper<F> {
-    FunctionWrapper::from(f)
-}
-
-impl<F> From<F> for FunctionWrapper<F>
-where
-    F: for<'host> Fn(Value<'host>) -> Result<Value<'host>, Error<'host>>,
-{
-    fn from(f: F) -> Self {
-        Self(f)
+pub trait ExternFnOwned {
+    fn call<'host>(&self, _argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        Err(ExternError::MissingFunctionImpl)?
     }
-}
 
-impl<F> ExternFn for FunctionWrapper<F>
-where
-    F: for<'host> Fn(Value<'host>) -> Result<Value<'host>, Error<'host>>,
-{
-    fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        self.0(argument)
-    }
-}
-
-pub struct FunctionWrapperMut<
-    F: for<'host> FnMut(Value<'host>) -> Result<Value<'host>, Error<'host>>,
->(RefCell<F>);
-
-pub fn wrap_fn_mut<F: for<'host> FnMut(Value<'host>) -> Result<Value<'host>, Error<'host>>>(
-    f: F,
-) -> FunctionWrapperMut<F> {
-    FunctionWrapperMut::from(f)
-}
-
-impl<F> From<F> for FunctionWrapperMut<F>
-where
-    F: for<'host> FnMut(Value<'host>) -> Result<Value<'host>, Error<'host>>,
-{
-    fn from(f: F) -> Self {
-        Self(RefCell::new(f))
-    }
-}
-
-impl<F> ExternFn for FunctionWrapperMut<F>
-where
-    F: for<'host> FnMut(Value<'host>) -> Result<Value<'host>, Error<'host>>,
-{
-    fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        self.0.try_borrow_mut()?(argument)
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{external function}}")
     }
 }

@@ -5,7 +5,7 @@ pub use espy_eyes as lexer;
 pub use espy_paws as interpreter;
 pub use espy_tail as compiler;
 
-pub use interpreter::{Error, Extern, ExternFn, Function, Type, Value, wrap_fn, wrap_fn_mut};
+pub use interpreter::{Error, Extern, ExternFn, ExternFnOwned, ExternOwned, Function, Type, Value};
 
 #[derive(Debug)]
 pub struct Program(interpreter::Program);
@@ -113,14 +113,17 @@ mod tests {
 
     #[test]
     fn rust_function() {
-        fn f(arg: Value) -> Result<Value, Error> {
-            Ok(Value::from(arg.into_i64()? * 4))
+        struct F;
+        impl ExternFn for F {
+            fn call<'host>(&self, arg: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+                Ok(Value::from(arg.into_i64()? * 4))
+            }
         }
 
         assert!(
             Function::try_from(Program::try_from("with f; f(3)").unwrap().eval().unwrap(),)
                 .unwrap()
-                .piped(Function::borrow(&wrap_fn(f)).into())
+                .piped(Function::borrow(&F).into())
                 .eval()
                 .unwrap()
                 .eq(12.into())
@@ -130,13 +133,19 @@ mod tests {
 
     #[test]
     fn rust_closure() {
-        let four = 4;
-        let f = wrap_fn(|arg| Ok(Value::from(arg.into_i64()? * four)));
+        struct F {
+            four: i64,
+        }
+        impl ExternFn for F {
+            fn call<'host>(&self, arg: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+                Ok(Value::from(arg.into_i64()? * self.four))
+            }
+        }
 
         assert!(
             Function::try_from(Program::try_from("with f; f(3)").unwrap().eval().unwrap(),)
                 .unwrap()
-                .piped(Function::borrow(&f).into())
+                .piped(Function::borrow(&F { four: 4 }).into())
                 .eval()
                 .unwrap()
                 .eq(12.into())
@@ -145,13 +154,56 @@ mod tests {
     }
 
     #[test]
+    fn rust_owned() {
+        struct F;
+        impl ExternFn for F {
+            fn call<'host>(&self, arg: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+                struct Owned {
+                    num: i64,
+                }
+                impl ExternFnOwned for Owned {
+                    fn call<'host>(&self, arg: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+                        Ok(Value::from(arg.into_i64()? * self.num))
+                    }
+                }
+                Ok(Function::owned(Rc::new(Owned {
+                    num: arg.into_i64()?,
+                }))
+                .into())
+            }
+        }
+
+        assert!(
+            Function::try_from(
+                Program::try_from("with f; f (f 2 3) (f 1 6)")
+                    .unwrap()
+                    .eval()
+                    .unwrap(),
+            )
+            .unwrap()
+            .piped(Function::borrow(&F).into())
+            .eval()
+            .unwrap()
+            .eq(36.into())
+            .unwrap()
+        )
+    }
+
+    #[test]
     fn hello_world() {
-        let mut message = Rc::from("");
-        let print = wrap_fn_mut(|arg| {
-            message = arg.into_str()?;
-            println!("{message}");
-            Ok(().into())
-        });
+        #[derive(Default)]
+        struct Print {
+            message: std::cell::RefCell<Rc<str>>,
+        }
+        impl ExternFn for Print {
+            fn call<'host>(&self, arg: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+                *self.message.borrow_mut() = arg.into_str()?;
+                println!("{}", self.message.borrow());
+                Ok(().into())
+            }
+        }
+
+        let print = Print::default();
 
         assert!(
             Function::try_from(
@@ -166,7 +218,7 @@ mod tests {
             .unwrap()
             .eq(().into())
             .unwrap()
-                && &*message == "Hello, world!"
+                && &**print.message.borrow() == "Hello, world!"
         )
     }
 
