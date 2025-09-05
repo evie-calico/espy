@@ -1,4 +1,4 @@
-use espy_paws::{ComplexType, Error, Extern, ExternError, ExternFn, Function, Tuple, Type, Value};
+use espy_paws::{Error, Extern, ExternError, ExternFn, Function, Type, Value};
 use std::rc::Rc;
 
 #[derive(Debug)]
@@ -20,6 +20,7 @@ impl std::error::Error for LibraryError {}
 
 #[derive(Debug, Default)]
 pub struct StdLib {
+    iter: IterLib,
     string: StringLib,
     option: OptionLib,
 }
@@ -28,6 +29,7 @@ impl Extern for StdLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         let index = index.into_str()?;
         match &*index {
+            "iter" => Ok(Value::borrow(&self.iter)),
             "string" => Ok(Value::borrow(&self.string)),
             "option" => Ok(Value::borrow(&self.option)),
             _ => Err(Error::IndexNotFound {
@@ -39,6 +41,108 @@ impl Extern for StdLib {
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std module")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct IterLib {
+    foreach: IterForeachFn,
+    reduce: IterReduceFn,
+    fold: IterFoldFn,
+}
+
+impl Extern for IterLib {
+    fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let index = index.into_str()?;
+        match &*index {
+            "foreach" => Ok(Function::borrow(&self.foreach).into()),
+            "reduce" => Ok(Function::borrow(&self.reduce).into()),
+            "fold" => Ok(Function::borrow(&self.fold).into()),
+            _ => Err(Error::IndexNotFound {
+                index: index.into(),
+                container: Value::borrow(self),
+            }),
+        }
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.iter module")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct IterForeachFn;
+
+impl ExternFn for IterForeachFn {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let mut iterator = argument.get(0)?;
+        let next = argument.get(1)?.into_function()?;
+        let foreach = argument.get(2)?.into_function()?;
+        while let Some(result) = next.clone().piped(iterator).eval()?.into_option()? {
+            iterator = result.get(0)?;
+            foreach.clone().piped(result.get(1)?).eval()?;
+        }
+        Ok(().into())
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.iter.foreach function")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct IterFoldFn;
+
+impl ExternFn for IterFoldFn {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let mut iterator = argument.get(0)?;
+        let next = argument.get(1)?.into_function()?;
+        let mut accumulator = argument.get(2)?;
+        let fold = argument.get(3)?.into_function()?;
+        while let Some(result) = next.clone().piped(iterator).eval()?.into_option()? {
+            iterator = result.get(0)?;
+            accumulator = fold
+                .clone()
+                .piped(accumulator)
+                .piped(result.get(1)?)
+                .eval()?;
+        }
+        Ok(accumulator)
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.iter.fold function")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct IterReduceFn;
+
+impl ExternFn for IterReduceFn {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let mut iterator = argument.get(0)?;
+        let next = argument.get(1)?.into_function()?;
+        let mut accumulator: Option<Value<'host>> = None;
+        let fold = argument.get(2)?.into_function()?;
+        while let Some(result) = next.clone().piped(iterator).eval()?.into_option()? {
+            iterator = result.get(0)?;
+            accumulator = Some(if let Some(accumulator) = accumulator.take() {
+                fold.clone()
+                    .piped(accumulator)
+                    .piped(result.get(1)?)
+                    .eval()?
+            } else {
+                result.get(1)?
+            });
+        }
+        Ok(Value::Option {
+            contents: accumulator.map(Rc::new),
+            ty: Rc::new(Type::Any.into()),
+        })
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.iter.reduce function")
     }
 }
 
@@ -77,7 +181,7 @@ impl ExternFn for StringConcatFn {
                     .ok_or_else(|| Error::type_error(s.clone(), Type::String))
             })
             .collect::<Result<String, _>>()
-            .map(|s| Value::from(Rc::<str>::from(s.as_str())))
+            .map(|s| Value::String(s.into()))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -114,17 +218,10 @@ pub struct OptionUnwrapFn;
 
 impl ExternFn for OptionUnwrapFn {
     fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        // TODO: Owned external values would allow for typechecking within the option library.
-        let Value::Option { contents, ty } = argument else {
-            return Err(Error::type_error(
-                argument,
-                Type::Option(Rc::new(Type::Any.into())),
-            ));
-        };
-        let Some(contents) = contents else {
+        let Some(contents) = argument.get(0)?.into_option()? else {
             Err(ExternError::Other(Box::new(LibraryError::UnwrapFailed)))?
         };
-        Ok(Rc::unwrap_or_clone(contents))
+        Ok(contents)
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -137,27 +234,13 @@ pub struct OptionExpectFn;
 
 impl ExternFn for OptionExpectFn {
     fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        let arguments = argument.into_tuple()?;
-        let Some((
-            // TODO: Owned external values would allow for typechecking within the option library.
-            Value::Option { contents, ty },
-            Value::String(msg),
-        )) = arguments.value(0).zip(arguments.value(1))
-        else {
-            return Err(Error::type_error(
-                Value::Tuple(arguments),
-                Tuple::from([
-                    ComplexType::Simple(Type::Option(Rc::new(Type::Any.into()))),
-                    ComplexType::Simple(Type::String),
-                ]),
-            ));
-        };
-        let Some(contents) = contents else {
+        let message = argument.get(1)?.into_str()?;
+        let Some(contents) = argument.get(0)?.into_option()? else {
             Err(ExternError::Other(Box::new(LibraryError::ExpectFailed(
-                msg.clone(),
+                message,
             ))))?
         };
-        Ok((**contents).clone())
+        Ok(contents)
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
