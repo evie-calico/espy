@@ -1,6 +1,4 @@
-use espy_paws::{
-    ComplexType, Error, Extern, ExternError, ExternFn, Function, Storage, Tuple, Type, Value,
-};
+use espy_paws::{ComplexType, Error, Extern, ExternError, ExternFn, Function, Tuple, Type, Value};
 use std::rc::Rc;
 
 #[derive(Debug)]
@@ -117,7 +115,7 @@ pub struct OptionUnwrapFn;
 impl ExternFn for OptionUnwrapFn {
     fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         // TODO: Owned external values would allow for typechecking within the option library.
-        let Storage::Option { contents, ty } = argument.storage else {
+        let Value::Option { contents, ty } = argument else {
             return Err(Error::type_error(
                 argument,
                 Type::Option(Rc::new(Type::Any.into())),
@@ -141,17 +139,13 @@ impl ExternFn for OptionExpectFn {
     fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         let arguments = argument.into_tuple()?;
         let Some((
-            Value {
-                // TODO: Owned external values would allow for typechecking within the option library.
-                storage: Storage::Option { contents, ty },
-            },
-            Value {
-                storage: Storage::String(msg),
-            },
+            // TODO: Owned external values would allow for typechecking within the option library.
+            Value::Option { contents, ty },
+            Value::String(msg),
         )) = arguments.value(0).zip(arguments.value(1))
         else {
             return Err(Error::type_error(
-                Storage::Tuple(arguments).into(),
+                Value::Tuple(arguments),
                 Tuple::from([
                     ComplexType::Simple(Type::Option(Rc::new(Type::Any.into()))),
                     ComplexType::Simple(Type::String),

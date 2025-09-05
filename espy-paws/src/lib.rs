@@ -27,150 +27,11 @@ fn rc_slice_from_iter<T>(len: usize, iter: impl Iterator<Item = T>) -> Rc<[T]> {
     rc_slice_try_from_iter(len, iter.map(Ok::<_, ()>)).expect("iter is always Ok")
 }
 
-#[derive(Clone, Debug)]
-pub struct Value<'host> {
-    pub storage: Storage<'host>,
-}
-
-impl<'host> Value<'host> {
-    pub fn get(&self, index: i64) -> Result<Value<'host>, Error<'host>> {
-        match self {
-            Value {
-                storage: Storage::Tuple(tuple),
-            } => tuple
-                .value(index as usize)
-                .cloned()
-                .ok_or(Error::IndexNotFound {
-                    index: index.into(),
-                    container: self.clone(),
-                }),
-            Value {
-                storage: Storage::Type(Type::Enum(ty)),
-            } => {
-                if (index as usize) < ty.variants.len() {
-                    Ok(Storage::Function(Rc::new(
-                        FunctionAction::Enum {
-                            variant: index as usize,
-                            definition: ty.clone(),
-                        }
-                        .into(),
-                    ))
-                    .into())
-                } else {
-                    Err(Error::IndexNotFound {
-                        index: index.into(),
-                        container: self.clone(),
-                    })
-                }
-            }
-            Value {
-                storage: Storage::Type(Type::Option(ty)),
-            } => match index {
-                0 => Ok(Storage::Function(Rc::new(FunctionAction::Some(ty.clone()).into())).into()),
-                1 => Ok(Storage::Function(Rc::new(FunctionAction::None(ty.clone()).into())).into()),
-                _ => Err(Error::IndexNotFound {
-                    index: index.into(),
-                    container: self.clone(),
-                }),
-            },
-            _ => Err(Error::IndexNotFound {
-                index: index.into(),
-                container: self.clone(),
-            }),
-        }
-    }
-
-    pub fn find(&self, index: Rc<str>) -> Result<Value<'host>, Error<'host>> {
-        match self {
-            Value {
-                storage: Storage::Tuple(tuple),
-            } => tuple
-                .find_value(&index)
-                .cloned()
-                .ok_or(Error::IndexNotFound {
-                    index: index.into(),
-                    container: self.clone(),
-                }),
-            Value {
-                storage: Storage::Type(Type::Enum(ty)),
-            } => {
-                if let Some(variant_id) = ty
-                    .variants
-                    .as_ref()
-                    .iter()
-                    .enumerate()
-                    .find(|(_, (variant, _))| *variant == index)
-                    .map(|(i, _)| i)
-                {
-                    Ok(Storage::Function(Rc::new(
-                        FunctionAction::Enum {
-                            variant: variant_id,
-                            definition: ty.clone(),
-                        }
-                        .into(),
-                    ))
-                    .into())
-                } else {
-                    Err(Error::IndexNotFound {
-                        index: index.into(),
-                        container: self.clone(),
-                    })
-                }
-            }
-            Value {
-                storage: Storage::Type(Type::Option(ty)),
-            } => match &*index {
-                "Some" => {
-                    Ok(Storage::Function(Rc::new(FunctionAction::Some(ty.clone()).into())).into())
-                }
-                "None" => {
-                    Ok(Storage::Function(Rc::new(FunctionAction::None(ty.clone()).into())).into())
-                }
-                _ => Err(Error::IndexNotFound {
-                    container: self.clone(),
-                    index: index.into(),
-                }),
-            },
-            _ => Err(Error::IndexNotFound {
-                index: index.into(),
-                container: self.clone(),
-            }),
-        }
-    }
-
-    pub fn index(&self, index: impl Into<Value<'host>>) -> Result<Value<'host>, Error<'host>> {
-        match (self, index.into()) {
-            (
-                Value {
-                    storage: Storage::Borrow(external),
-                },
-                index,
-            ) => external.index(index),
-            (
-                _,
-                Value {
-                    storage: Storage::I64(index),
-                },
-            ) => self.get(index),
-            (
-                _,
-                Value {
-                    storage: Storage::String(index),
-                },
-            ) => self.find(index),
-            (_, index) => Err(Error::IndexNotFound {
-                index,
-                container: self.clone(),
-            }),
-        }
-    }
-}
-
 // Cloning this type should be cheap;
 // every binding usage is a clone in espy!
 // Use Rcs over boxes and try to put allocations as far up as possible.
 #[derive(Clone)]
-pub enum Storage<'host> {
+pub enum Value<'host> {
     /// Unit is the absense of a value.
     /// It can be thought of as both an empty tuple and an empty named tuple.
     Unit,
@@ -189,6 +50,117 @@ pub enum Storage<'host> {
     Mut(Mut<'host>),
 
     Type(Type),
+}
+
+impl<'host> Value<'host> {
+    pub fn get(&self, index: i64) -> Result<Value<'host>, Error<'host>> {
+        match self {
+            Value::Tuple(tuple) => {
+                tuple
+                    .value(index as usize)
+                    .cloned()
+                    .ok_or(Error::IndexNotFound {
+                        index: index.into(),
+                        container: self.clone(),
+                    })
+            }
+            Value::Type(Type::Enum(ty)) => {
+                if (index as usize) < ty.variants.len() {
+                    Ok(Value::Function(Rc::new(
+                        FunctionAction::Enum {
+                            variant: index as usize,
+                            definition: ty.clone(),
+                        }
+                        .into(),
+                    )))
+                } else {
+                    Err(Error::IndexNotFound {
+                        index: index.into(),
+                        container: self.clone(),
+                    })
+                }
+            }
+            Value::Type(Type::Option(ty)) => match index {
+                0 => Ok(Value::Function(Rc::new(
+                    FunctionAction::Some(ty.clone()).into(),
+                ))),
+                1 => Ok(Value::Function(Rc::new(
+                    FunctionAction::None(ty.clone()).into(),
+                ))),
+                _ => Err(Error::IndexNotFound {
+                    index: index.into(),
+                    container: self.clone(),
+                }),
+            },
+            _ => Err(Error::IndexNotFound {
+                index: index.into(),
+                container: self.clone(),
+            }),
+        }
+    }
+
+    pub fn find(&self, index: Rc<str>) -> Result<Value<'host>, Error<'host>> {
+        match self {
+            Value::Tuple(tuple) => tuple
+                .find_value(&index)
+                .cloned()
+                .ok_or(Error::IndexNotFound {
+                    index: index.into(),
+                    container: self.clone(),
+                }),
+            Value::Type(Type::Enum(ty)) => {
+                if let Some(variant_id) = ty
+                    .variants
+                    .as_ref()
+                    .iter()
+                    .enumerate()
+                    .find(|(_, (variant, _))| *variant == index)
+                    .map(|(i, _)| i)
+                {
+                    Ok(Value::Function(Rc::new(
+                        FunctionAction::Enum {
+                            variant: variant_id,
+                            definition: ty.clone(),
+                        }
+                        .into(),
+                    )))
+                } else {
+                    Err(Error::IndexNotFound {
+                        index: index.into(),
+                        container: self.clone(),
+                    })
+                }
+            }
+            Value::Type(Type::Option(ty)) => match &*index {
+                "Some" => Ok(Value::Function(Rc::new(
+                    FunctionAction::Some(ty.clone()).into(),
+                ))),
+                "None" => Ok(Value::Function(Rc::new(
+                    FunctionAction::None(ty.clone()).into(),
+                ))),
+                _ => Err(Error::IndexNotFound {
+                    container: self.clone(),
+                    index: index.into(),
+                }),
+            },
+            _ => Err(Error::IndexNotFound {
+                index: index.into(),
+                container: self.clone(),
+            }),
+        }
+    }
+
+    pub fn index(&self, index: impl Into<Value<'host>>) -> Result<Value<'host>, Error<'host>> {
+        match (self, index.into()) {
+            (Value::Borrow(external), index) => external.index(index),
+            (_, Value::I64(index)) => self.get(index),
+            (_, Value::String(index)) => self.find(index),
+            (_, index) => Err(Error::IndexNotFound {
+                index,
+                container: self.clone(),
+            }),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -268,42 +240,30 @@ impl From<Tuple<ComplexType>> for ComplexType {
     }
 }
 
-impl std::fmt::Debug for Storage<'_> {
+impl std::fmt::Debug for Value<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Storage::")?;
         match self {
-            Storage::Unit => write!(f, "Unit"),
-            Storage::Tuple(tuple) => write!(f, "Tuple({tuple:?})"),
-            Storage::Borrow(external) => {
+            Value::Unit => write!(f, "Unit"),
+            Value::Tuple(tuple) => write!(f, "Tuple({tuple:?})"),
+            Value::Borrow(external) => {
                 write!(f, "Borrow(")?;
                 external.debug(f)?;
                 write!(f, ")")
             }
-            Storage::I64(i) => write!(f, "I64({i:?})"),
-            Storage::Bool(i) => write!(f, "Bool({i:?})"),
-            Storage::String(i) => write!(f, "String({i:?})"),
-            Storage::Function(function) => write!(f, "Function({function:?})"),
-            Storage::EnumVariant(enum_variant) => write!(f, "EnumVariant({enum_variant:?})"),
-            Storage::Option { contents, ty: _ } => write!(f, "{contents:?}"),
-            Storage::Mut(inner) => write!(f, "Mut({inner:?})"),
-            Storage::Type(t) => write!(f, "{t:?}"),
+            Value::I64(i) => write!(f, "I64({i:?})"),
+            Value::Bool(i) => write!(f, "Bool({i:?})"),
+            Value::String(i) => write!(f, "String({i:?})"),
+            Value::Function(function) => write!(f, "Function({function:?})"),
+            Value::EnumVariant(enum_variant) => write!(f, "EnumVariant({enum_variant:?})"),
+            Value::Option { contents, ty: _ } => write!(f, "{contents:?}"),
+            Value::Mut(inner) => write!(f, "Mut({inner:?})"),
+            Value::Type(t) => write!(f, "{t:?}"),
         }
     }
 }
 
-impl<'host> From<Storage<'host>> for Value<'host> {
-    fn from(storage: Storage<'host>) -> Self {
-        Self { storage }
-    }
-}
-
 impl<'host> From<Type> for Value<'host> {
-    fn from(t: Type) -> Self {
-        Self { storage: t.into() }
-    }
-}
-
-impl<'host> From<Type> for Storage<'host> {
     fn from(t: Type) -> Self {
         Self::Type(t)
     }
@@ -312,22 +272,8 @@ impl<'host> From<Type> for Storage<'host> {
 impl<'host> Value<'host> {
     pub fn eq(self, other: Self) -> Result<bool, Error<'host>> {
         match (self, other) {
-            (
-                Value {
-                    storage: Storage::Unit,
-                },
-                Value {
-                    storage: Storage::Unit,
-                },
-            ) => Ok(true),
-            (
-                Value {
-                    storage: Storage::Tuple(l),
-                },
-                Value {
-                    storage: Storage::Tuple(r),
-                },
-            ) if l.len() == r.len() => {
+            (Value::Unit, Value::Unit) => Ok(true),
+            (Value::Tuple(l), Value::Tuple(r)) if l.len() == r.len() => {
                 for (l, r) in l.values().zip(r.values()) {
                     if !l.clone().eq(r.clone())? {
                         return Ok(false);
@@ -335,30 +281,9 @@ impl<'host> Value<'host> {
                 }
                 Ok(true)
             }
-            (
-                Value {
-                    storage: Storage::I64(l),
-                },
-                Value {
-                    storage: Storage::I64(r),
-                },
-            ) => Ok(l == r),
-            (
-                Value {
-                    storage: Storage::Bool(l),
-                },
-                Value {
-                    storage: Storage::Bool(r),
-                },
-            ) => Ok(l == r),
-            (
-                Value {
-                    storage: Storage::EnumVariant(l),
-                },
-                Value {
-                    storage: Storage::EnumVariant(r),
-                },
-            ) => Ok(l.variant == r.variant
+            (Value::I64(l), Value::I64(r)) => Ok(l == r),
+            (Value::Bool(l), Value::Bool(r)) => Ok(l == r),
+            (Value::EnumVariant(l), Value::EnumVariant(r)) => Ok(l.variant == r.variant
                 && Rc::ptr_eq(&l.definition, &r.definition)
                 && Rc::try_unwrap(l)
                     .map(|l| l.contents)
@@ -367,19 +292,13 @@ impl<'host> Value<'host> {
                         .map(|r| r.contents)
                         .unwrap_or_else(|r| r.contents.clone()))?),
             (
-                Value {
-                    storage:
-                        Storage::Option {
-                            contents: l,
-                            ty: l_type,
-                        },
+                Value::Option {
+                    contents: l,
+                    ty: l_type,
                 },
-                Value {
-                    storage:
-                        Storage::Option {
-                            contents: r,
-                            ty: r_type,
-                        },
+                Value::Option {
+                    contents: r,
+                    ty: r_type,
                 },
             ) => {
                 if l_type == r_type {
@@ -389,27 +308,18 @@ impl<'host> Value<'host> {
                             .unwrap_or(Ok(false))?)
                 } else {
                     Err(Error::IncomparableValues(
-                        Storage::Option {
+                        Value::Option {
                             contents: l,
                             ty: l_type,
-                        }
-                        .into(),
-                        Storage::Option {
+                        },
+                        Value::Option {
                             contents: r,
                             ty: r_type,
-                        }
-                        .into(),
+                        },
                     ))
                 }
             }
-            (
-                Value {
-                    storage: Storage::Type(l),
-                },
-                Value {
-                    storage: Storage::Type(r),
-                },
-            ) => Ok(l == r),
+            (Value::Type(l), Value::Type(r)) => Ok(l == r),
             (this, other) => Err(Error::IncomparableValues(this, other)),
         }
     }
@@ -420,9 +330,9 @@ impl<'host> Value<'host> {
     ///
     /// This can be safely ignored by the host if it has not deliberately borrowed an espy value.
     fn type_of(&self) -> Result<ComplexType, Error<'host>> {
-        Ok(match &self.storage {
-            Storage::Unit => Type::Unit.into(),
-            Storage::Tuple(tuple) => {
+        Ok(match &self {
+            Value::Unit => Type::Unit.into(),
+            Value::Tuple(tuple) => {
                 let complex = match &tuple.0 {
                     TupleStorage::Numeric(items) => Tuple(TupleStorage::Numeric(
                         rc_slice_try_from_iter(items.len(), items.iter().map(Value::type_of))?,
@@ -446,11 +356,11 @@ impl<'host> Value<'host> {
                     complex.into()
                 }
             }
-            Storage::Borrow(_) => Type::Any.into(),
-            Storage::I64(_) => Type::I64.into(),
-            Storage::Bool(_) => Type::Bool.into(),
-            Storage::String(_) => Type::String.into(),
-            Storage::Function(function) => match &function.action {
+            Value::Borrow(_) => Type::Any.into(),
+            Value::I64(_) => Type::I64.into(),
+            Value::Bool(_) => Type::Bool.into(),
+            Value::String(_) => Type::String.into(),
+            Value::Function(function) => match &function.action {
                 FunctionAction::With { signature, .. } => {
                     Type::Function(Rc::new(signature.clone())).into()
                 }
@@ -460,11 +370,9 @@ impl<'host> Value<'host> {
                 }))
                 .into(),
             },
-            Storage::EnumVariant(enum_variant) => {
-                Type::Enum(enum_variant.definition.clone()).into()
-            }
-            Storage::Option { contents: _, ty } => Type::Option(ty.clone()).into(),
-            Storage::Mut(inner) => Type::Mut(
+            Value::EnumVariant(enum_variant) => Type::Enum(enum_variant.definition.clone()).into(),
+            Value::Option { contents: _, ty } => Type::Option(ty.clone()).into(),
+            Value::Mut(inner) => Type::Mut(
                 inner
                     .upgrade()
                     .ok_or(Error::UpgradeError)?
@@ -473,83 +381,41 @@ impl<'host> Value<'host> {
                     .into(),
             )
             .into(),
-            Storage::Type(_) => Type::Type.into(),
+            Value::Type(_) => Type::Type.into(),
         })
     }
 
     pub fn concat(self, r: Self) -> Self {
         match (self, r) {
             (
-                Value {
-                    storage: Storage::Tuple(Tuple(TupleStorage::Numeric(l))),
-                    ..
-                },
-                Value {
-                    storage: Storage::Tuple(Tuple(TupleStorage::Numeric(r))),
-                    ..
-                },
-            ) => Value {
-                storage: Storage::Tuple(Tuple(TupleStorage::Numeric(rc_slice_from_iter(
-                    l.len() + r.len(),
-                    l.iter().chain(r.iter()).cloned(),
-                )))),
-            },
+                Value::Tuple(Tuple(TupleStorage::Numeric(l))),
+                Value::Tuple(Tuple(TupleStorage::Numeric(r))),
+            ) => Value::Tuple(Tuple(TupleStorage::Numeric(rc_slice_from_iter(
+                l.len() + r.len(),
+                l.iter().chain(r.iter()).cloned(),
+            )))),
             (
-                Value {
-                    storage: Storage::Tuple(Tuple(TupleStorage::Named(l))),
-                    ..
-                },
-                Value {
-                    storage: Storage::Tuple(Tuple(TupleStorage::Named(r))),
-                    ..
-                },
-            ) => Value {
-                storage: Storage::Tuple(Tuple(TupleStorage::Named(rc_slice_from_iter(
-                    l.len() + r.len(),
-                    l.iter().chain(r.iter()).cloned(),
-                )))),
-            },
-            (
-                l,
-                Value {
-                    storage: Storage::Unit,
-                    ..
-                },
-            ) => Value { storage: l.storage },
-            (
-                Value {
-                    storage: Storage::Unit,
-                    ..
-                },
-                r,
-            ) => Value { storage: r.storage },
-            (
-                Value {
-                    storage: Storage::Tuple(Tuple(TupleStorage::Numeric(l))),
-                    ..
-                },
-                r,
-            ) => Value {
-                storage: Storage::Tuple(Tuple(TupleStorage::Numeric(rc_slice_from_iter(
+                Value::Tuple(Tuple(TupleStorage::Named(l))),
+                Value::Tuple(Tuple(TupleStorage::Named(r))),
+            ) => Value::Tuple(Tuple(TupleStorage::Named(rc_slice_from_iter(
+                l.len() + r.len(),
+                l.iter().chain(r.iter()).cloned(),
+            )))),
+            (l, Value::Unit) => l,
+            (Value::Unit, r) => r,
+            (Value::Tuple(Tuple(TupleStorage::Numeric(l))), r) => {
+                Value::Tuple(Tuple(TupleStorage::Numeric(rc_slice_from_iter(
                     l.len() + 1,
                     l.iter().cloned().chain([r]),
-                )))),
-            },
-            (
-                l,
-                Value {
-                    storage: Storage::Tuple(Tuple(TupleStorage::Numeric(r))),
-                    ..
-                },
-            ) => Value {
-                storage: Storage::Tuple(Tuple(TupleStorage::Numeric(rc_slice_from_iter(
+                ))))
+            }
+            (l, Value::Tuple(Tuple(TupleStorage::Numeric(r)))) => {
+                Value::Tuple(Tuple(TupleStorage::Numeric(rc_slice_from_iter(
                     1 + r.len(),
                     [l].into_iter().chain(r.iter().cloned()),
-                )))),
-            },
-            (l, r) => Value {
-                storage: Storage::Tuple(Tuple(TupleStorage::Numeric(Rc::new([l, r])))),
-            },
+                ))))
+            }
+            (l, r) => Value::Tuple(Tuple(TupleStorage::Numeric(Rc::new([l, r])))),
         }
     }
 
@@ -564,9 +430,7 @@ impl<'host> Value<'host> {
     pub fn into_tuple_or_unit(self) -> Result<Option<Tuple<Value<'host>>>, Error<'host>> {
         match self.into_tuple() {
             Ok(tuple) => Ok(Some(tuple)),
-            Err(Error::ExpectedTuple(Value {
-                storage: Storage::Unit,
-            })) => Ok(None),
+            Err(Error::ExpectedTuple(Value::Unit)) => Ok(None),
             Err(e) => Err(e),
         }
     }
@@ -580,7 +444,7 @@ impl<'host> Value<'host> {
     }
 
     pub fn as_str(&self) -> Option<&str> {
-        if let Storage::String(s) = &self.storage {
+        if let Value::String(s) = &self {
             Some(s)
         } else {
             None
@@ -588,7 +452,7 @@ impl<'host> Value<'host> {
     }
 
     pub fn borrow(external: &'host dyn Extern) -> Self {
-        Storage::Borrow(external).into()
+        Value::Borrow(external)
     }
 
     pub fn into_function(self) -> Result<Function<'host>, Error<'host>> {
@@ -600,15 +464,15 @@ impl<'host> Value<'host> {
     }
 
     pub fn into_option(self) -> Result<Option<Value<'host>>, Error<'host>> {
-        match self.storage {
-            Storage::Option { contents, ty: _ } => Ok(contents.map(|x| (*x).clone())),
+        match self {
+            Value::Option { contents, ty: _ } => Ok(contents.map(|x| (*x).clone())),
             _ => Err(Error::ExpectedOption(self)),
         }
     }
 
     pub fn into_refcell(self) -> Result<Rc<RefCell<Value<'host>>>, Error<'host>> {
-        match &self.storage {
-            Storage::Mut(inner) => Ok(inner.upgrade().ok_or(Error::UpgradeError)?),
+        match &self {
+            Value::Mut(inner) => Ok(inner.upgrade().ok_or(Error::UpgradeError)?),
             _ => Err(Error::ExpectedReference(self)),
         }
     }
@@ -624,71 +488,67 @@ impl<'host> Value<'host> {
 
 impl From<()> for Value<'_> {
     fn from(_: ()) -> Self {
-        Storage::Unit.into()
+        Value::Unit
     }
 }
 
 impl From<Option<()>> for Value<'_> {
     fn from(value: Option<()>) -> Self {
-        Storage::Option {
-            contents: value.map(|()| Rc::new(Storage::Unit.into())),
+        Value::Option {
+            contents: value.map(|()| Rc::new(Value::Unit)),
             ty: Rc::new(Type::Unit.into()),
         }
-        .into()
     }
 }
 
 impl From<bool> for Value<'_> {
     fn from(value: bool) -> Self {
-        Storage::Bool(value).into()
+        Value::Bool(value)
     }
 }
 
 impl From<Option<bool>> for Value<'_> {
     fn from(value: Option<bool>) -> Self {
-        Storage::Option {
-            contents: value.map(|value| Rc::new(Storage::Bool(value).into())),
+        Value::Option {
+            contents: value.map(|value| Rc::new(Value::Bool(value))),
             ty: Rc::new(Type::Bool.into()),
         }
-        .into()
     }
 }
 
 impl From<i64> for Value<'_> {
     fn from(i: i64) -> Self {
-        Storage::I64(i).into()
+        Value::I64(i)
     }
 }
 
 impl From<Option<i64>> for Value<'_> {
     fn from(value: Option<i64>) -> Self {
-        Storage::Option {
-            contents: value.map(|value| Rc::new(Storage::I64(value).into())),
+        Value::Option {
+            contents: value.map(|value| Rc::new(Value::I64(value))),
             ty: Rc::new(Type::I64.into()),
         }
-        .into()
     }
 }
 
 impl From<Rc<str>> for Value<'_> {
     fn from(s: Rc<str>) -> Self {
-        Storage::String(s).into()
+        Value::String(s)
     }
 }
 
 impl From<Option<Rc<str>>> for Value<'_> {
     fn from(value: Option<Rc<str>>) -> Self {
-        Storage::Option {
-            contents: value.map(|value| Rc::new(Storage::String(value).into())),
+        Value::Option {
+            contents: value.map(|value| Rc::new(Value::String(value))),
             ty: Rc::new(Type::String.into()),
         }
-        .into()
     }
 }
 
 impl<'host> From<Rc<Function<'host>>> for Value<'host> {
     fn from(f: Rc<Function<'host>>) -> Self {
-        Storage::Function(f).into()
+        Value::Function(f)
     }
 }
 
@@ -702,10 +562,10 @@ impl<'host> TryFrom<Value<'host>> for () {
     type Error = Error<'host>;
 
     fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
-        if let Storage::Unit = value.storage {
+        if let Value::Unit = value {
             Ok(())
         } else {
-            Err(Error::type_error(value, Type::I64))
+            Err(Error::type_error(value, Type::Unit))
         }
     }
 }
@@ -714,7 +574,7 @@ impl<'host> TryFrom<Value<'host>> for Tuple<Value<'host>> {
     type Error = Error<'host>;
 
     fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
-        if let Storage::Tuple(value) = value.storage {
+        if let Value::Tuple(value) = value {
             Ok(value)
         } else {
             Err(Error::ExpectedTuple(value))
@@ -726,7 +586,7 @@ impl<'host> TryFrom<Value<'host>> for i64 {
     type Error = Error<'host>;
 
     fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
-        if let Storage::I64(value) = value.storage {
+        if let Value::I64(value) = value {
             Ok(value)
         } else {
             Err(Error::type_error(value, Type::I64))
@@ -738,7 +598,7 @@ impl<'host> TryFrom<Value<'host>> for Rc<str> {
     type Error = Error<'host>;
 
     fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
-        if let Storage::String(value) = value.storage {
+        if let Value::String(value) = value {
             Ok(value)
         } else {
             Err(Error::type_error(value, Type::String))
@@ -749,10 +609,7 @@ impl<'host> TryFrom<Value<'host>> for Rc<str> {
 impl<'host> TryFrom<Value<'host>> for Rc<Function<'host>> {
     type Error = Error<'host>;
     fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
-        if let Value {
-            storage: Storage::Function(value),
-        } = value
-        {
+        if let Value::Function(value) = value {
             Ok(value)
         } else {
             Err(Error::ExpectedFunction(value))
@@ -771,10 +628,7 @@ impl<'host> TryFrom<Value<'host>> for Function<'host> {
 impl<'host> TryFrom<Value<'host>> for Rc<EnumVariant<'host>> {
     type Error = Error<'host>;
     fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
-        if let Value {
-            storage: Storage::EnumVariant(value),
-        } = value
-        {
+        if let Value::EnumVariant(value) = value {
             Ok(value)
         } else {
             Err(Error::ExpectedEnumVariant(value))
@@ -795,12 +649,8 @@ impl<'host> TryFrom<Value<'host>> for ComplexType {
 
     fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
         match value {
-            Value {
-                storage: Storage::Type(t),
-            } => Ok(t.into()),
-            Value {
-                storage: Storage::Tuple(tuple),
-            } => Ok(ComplexType::Complex(tuple.try_into()?)),
+            Value::Type(t) => Ok(t.into()),
+            Value::Tuple(tuple) => Ok(ComplexType::Complex(tuple.try_into()?)),
             _ => Err(Error::type_error(value, Type::Type)),
         }
     }
@@ -809,10 +659,7 @@ impl<'host> TryFrom<Value<'host>> for ComplexType {
 impl<'host> TryFrom<Value<'host>> for Rc<EnumType> {
     type Error = Error<'host>;
     fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
-        if let Value {
-            storage: Storage::Type(Type::Enum(value)),
-        } = value
-        {
+        if let Value::Type(Type::Enum(value)) = value {
             Ok(value)
         } else {
             Err(Error::ExpectedEnumType(value))
@@ -983,18 +830,17 @@ impl<'host> Function<'host> {
                 if *ty != Type::Any.into() && self.argument.type_of()? != *ty {
                     return Err(Error::type_error(self.argument, ty.clone()));
                 }
-                Storage::EnumVariant(Rc::new(EnumVariant {
+                Value::EnumVariant(Rc::new(EnumVariant {
                     contents: self.argument,
                     variant,
                     definition,
                 }))
-                .into()
             }
             FunctionAction::Mut => {
                 if let Ok(ty) = ComplexType::try_from(self.argument.clone()) {
                     Type::Mut(Rc::new(ty)).into()
                 } else {
-                    Storage::Mut(Mut::new(Rc::new(RefCell::new(self.argument)))).into()
+                    Value::Mut(Mut::new(Rc::new(RefCell::new(self.argument))))
                 }
             }
             FunctionAction::Option => {
@@ -1004,15 +850,14 @@ impl<'host> Function<'host> {
                 if self.argument.type_of()? != *ty {
                     return Err(Error::type_error(self.argument, (*ty).clone()));
                 }
-                Storage::Option {
+                Value::Option {
                     contents: Some(Rc::new(self.argument)),
                     ty,
                 }
-                .into()
             }
             FunctionAction::None(ty) => {
                 self.argument.into_unit()?;
-                Storage::Option { contents: None, ty }.into()
+                Value::Option { contents: None, ty }
             }
             FunctionAction::Borrow(external) => external.call(self.argument)?,
         };
@@ -1416,10 +1261,10 @@ impl Program {
                 (let $l:ident, $r:ident: $type:ident => $expr_type:ident: $expr:expr) => {{
                     let $r = program.pop(stack)?;
                     let $l = program.pop(stack)?;
-                    match (&$l.storage, &$r.storage) {
-                        (Storage::$type($l), Storage::$type($r)) => stack.push(Value {
-                            storage: Storage::$expr_type($expr),
-                        }),
+                    match (&$l, &$r) {
+                        (Value::$type($l), Value::$type($r)) => {
+                            stack.push(Value::$expr_type($expr))
+                        }
                         _ => return Err(Error::ExpectedNumbers($l, $r)),
                     }
                 }};
@@ -1455,14 +1300,10 @@ impl Program {
                             stack.push(Type::I64.into());
                         }
                         builtins::OPTION => {
-                            stack.push(
-                                Storage::Function(Rc::new(FunctionAction::Option.into())).into(),
-                            );
+                            stack.push(Value::Function(Rc::new(FunctionAction::Option.into())));
                         }
                         builtins::MUT => {
-                            stack.push(
-                                Storage::Function(Rc::new(FunctionAction::Mut.into())).into(),
-                            );
+                            stack.push(Value::Function(Rc::new(FunctionAction::Mut.into())));
                         }
                         _ => Err(InvalidBytecode::InvalidBuiltin)?,
                     }
@@ -1482,10 +1323,7 @@ impl Program {
                 }
                 instruction::IF => {
                     let target = program.next4()?;
-                    if let Value {
-                        storage: Storage::Bool(false),
-                    } = program.pop(stack)?
-                    {
+                    if let Value::Bool(false) = program.pop(stack)? {
                         program.pc = target;
                     }
                 }
@@ -1517,28 +1355,22 @@ impl Program {
                     let output = program.pop(stack)?;
                     let input = program.pop(stack)?;
                     let new_stack = stack.split_off(stack.len() - captures);
-                    stack.push(
-                        Storage::Function(Rc::new(
-                            FunctionAction::With {
-                                program: self.clone(),
-                                signature: FunctionType {
-                                    input: input.try_into()?,
-                                    output: output.try_into()?,
-                                },
-                                block_id: function,
-                                captures: new_stack,
-                            }
-                            .into(),
-                        ))
+                    stack.push(Value::Function(Rc::new(
+                        FunctionAction::With {
+                            program: self.clone(),
+                            signature: FunctionType {
+                                input: input.try_into()?,
+                                output: output.try_into()?,
+                            },
+                            block_id: function,
+                            captures: new_stack,
+                        }
                         .into(),
-                    );
+                    )));
                 }
                 instruction::PUSH_ENUM => {
                     let variants = program.pop(stack)?;
-                    let Value {
-                        storage: Storage::Tuple(Tuple(TupleStorage::Named(variants))),
-                    } = variants
-                    else {
+                    let Value::Tuple(Tuple(TupleStorage::Named(variants))) = variants else {
                         Err(Error::ExpectedNamedTuple(variants))?
                     };
                     let variants = rc_slice_try_from_iter(
@@ -1574,28 +1406,21 @@ impl Program {
                 instruction::LOGICAL_AND => bi_op!(let l, r: Bool => Bool: *l && *r),
                 instruction::LOGICAL_OR => bi_op!(let l, r: Bool => Bool: *l || *r),
                 instruction::PIPE => {
-                    let function = program.pop(stack)?;
+                    let mut function = Rc::<Function>::try_from(program.pop(stack)?)?;
                     let argument = program.pop(stack)?;
-                    match function.storage {
-                        Storage::Function(mut function) => {
-                            let function_mut = Rc::make_mut(&mut function);
-                            let mut arguments = ().into();
-                            mem::swap(&mut arguments, &mut function_mut.argument);
-                            arguments = Value::concat(arguments, argument);
-                            mem::swap(&mut arguments, &mut function_mut.argument);
-                            stack.push(Storage::Function(function).into());
-                        }
-                        _ => return Err(Error::ExpectedFunction(function)),
-                    }
+                    let function_mut = Rc::make_mut(&mut function);
+                    let mut arguments = ().into();
+                    mem::swap(&mut arguments, &mut function_mut.argument);
+                    arguments = Value::concat(arguments, argument);
+                    mem::swap(&mut arguments, &mut function_mut.argument);
+                    stack.push(Value::Function(function));
                 }
 
                 instruction::CALL => {
                     let argument = program.pop(stack)?;
                     let function = program.pop(stack)?;
                     let result = match function {
-                        Value {
-                            storage: Storage::Function(function),
-                        } => Rc::<Function>::try_unwrap(function)
+                        Value::Function(function) => Rc::<Function>::try_unwrap(function)
                             .unwrap_or_else(|function| (*function).clone())
                             .piped(argument)
                             .eval()?,
@@ -1621,11 +1446,11 @@ impl Program {
                         .ok_or(InvalidBytecode::UnexpectedStringId)?
                         .clone();
                     let value = program.pop(stack)?;
-                    stack.push(Storage::Tuple(Tuple::from([(name, value)])).into())
+                    stack.push(Value::Tuple(Tuple::from([(name, value)])))
                 }
                 instruction::NEST => {
                     let value = program.pop(stack)?;
-                    stack.push(Storage::Tuple(Tuple::from([value])).into())
+                    stack.push(Value::Tuple(Tuple::from([value])))
                 }
                 instruction::NEGATIVE => {
                     let value = program.pop(stack)?.into_i64()?;

@@ -22,7 +22,7 @@ impl espy::Extern for EspygartenLibContainer {
             "espygarten" => Ok(espy::Value::borrow(&self.espygarten)),
             _ => Err(espy::Error::IndexNotFound {
                 index: index.into(),
-                container: espy::Storage::Borrow(self).into(),
+                container: espy::Value::Borrow(self),
             }),
         }
     }
@@ -47,7 +47,7 @@ impl espy::Extern for EspygartenLib {
             "print" => Ok(espy::Function::borrow(&self.print).into()),
             _ => Err(espy::Error::IndexNotFound {
                 index: index.into(),
-                container: espy::Storage::Borrow(self).into(),
+                container: espy::Value::Borrow(self),
             }),
         }
     }

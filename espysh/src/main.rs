@@ -26,9 +26,6 @@ fn main() {
             .command
             .expect("either field of input must be Some")
     };
-    let result = espy::Program::try_from(&*source)
-        .unwrap()
-        .eval()
-        .unwrap();
+    let result = espy::Program::try_from(&*source).unwrap().eval().unwrap();
     println!("{result:?}");
 }
