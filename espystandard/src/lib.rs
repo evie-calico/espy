@@ -1,6 +1,4 @@
-use espy_paws::{
-    Error, Extern, ExternError, ExternFn, ExternFnOwned, Function, Tuple, Type, Value,
-};
+use espy_paws::{Error, Extern, ExternFn, ExternFnOwned, Function, Tuple, Type, Value};
 use std::rc::Rc;
 
 #[derive(Debug)]
@@ -451,10 +449,7 @@ pub struct OptionUnwrapFn;
 
 impl ExternFn for OptionUnwrapFn {
     fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        let Some(contents) = argument.into_option()? else {
-            Err(ExternError::Other(Box::new(LibraryError::UnwrapFailed)))?
-        };
-        Ok(contents)
+        Ok(argument.into_option()?.ok_or(LibraryError::UnwrapFailed)?)
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -467,13 +462,10 @@ pub struct OptionExpectFn;
 
 impl ExternFn for OptionExpectFn {
     fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        let message = argument.get(1)?.into_str()?;
-        let Some(contents) = argument.get(0)?.into_option()? else {
-            Err(ExternError::Other(Box::new(LibraryError::ExpectFailed(
-                message,
-            ))))?
-        };
-        Ok(contents)
+        Ok(argument
+            .get(0)?
+            .into_option()?
+            .ok_or(LibraryError::ExpectFailed(argument.get(1)?.into_str()?))?)
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

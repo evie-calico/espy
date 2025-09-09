@@ -1103,18 +1103,13 @@ pub enum Error<'host> {
         container: Value<'host>,
     },
     UpgradeError,
-    BorrowError(std::cell::BorrowError),
-    BorrowMutError(std::cell::BorrowMutError),
-    /// Errors that occur during host interop.
-    ///
-    /// These may carry less information than a typical espy error,
-    /// or wrap the error type of another crate.
-    ExternError(ExternError),
     /// Errors that occur due to invalid bytecode.
     ///
     /// If this is emitted due to bytecode from the espy compiler,
     /// it should be considered a bug in either program.
     InvalidBytecode(InvalidBytecode),
+
+    Other(Box<dyn std::error::Error>),
 }
 
 impl<'host> Error<'host> {
@@ -1126,28 +1121,9 @@ impl<'host> Error<'host> {
     }
 }
 
-#[derive(Debug)]
-pub enum ExternError {
-    MissingFunctionImpl,
-    MissingIndexImpl,
-    Other(Box<dyn std::error::Error>),
-}
-
-impl<'host> From<ExternError> for Error<'host> {
-    fn from(e: ExternError) -> Error<'host> {
-        Error::ExternError(e)
-    }
-}
-
-impl<'host> From<std::cell::BorrowError> for Error<'host> {
-    fn from(e: std::cell::BorrowError) -> Error<'host> {
-        Error::BorrowError(e)
-    }
-}
-
-impl<'host> From<std::cell::BorrowMutError> for Error<'host> {
-    fn from(e: std::cell::BorrowMutError) -> Error<'host> {
-        Error::BorrowMutError(e)
+impl<'host, E: std::error::Error + 'static> From<E> for Error<'host> {
+    fn from(e: E) -> Error<'host> {
+        Error::Other(Box::new(e))
     }
 }
 
@@ -1526,9 +1502,7 @@ impl Program {
 }
 
 pub trait Extern {
-    fn index<'host>(&'host self, _index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        Err(ExternError::MissingIndexImpl)?
-    }
+    fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>>;
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{external value}}")
@@ -1536,9 +1510,7 @@ pub trait Extern {
 }
 
 pub trait ExternOwned {
-    fn index<'host>(&self, _index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        Err(ExternError::MissingIndexImpl)?
-    }
+    fn index<'host>(&self, index: Value<'host>) -> Result<Value<'host>, Error<'host>>;
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{external value}}")
@@ -1546,9 +1518,7 @@ pub trait ExternOwned {
 }
 
 pub trait ExternFn {
-    fn call<'host>(&'host self, _argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        Err(ExternError::MissingFunctionImpl)?
-    }
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>>;
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{external function}}")
@@ -1556,9 +1526,7 @@ pub trait ExternFn {
 }
 
 pub trait ExternFnOwned {
-    fn call<'host>(&self, _argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        Err(ExternError::MissingFunctionImpl)?
-    }
+    fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>>;
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{external function}}")
