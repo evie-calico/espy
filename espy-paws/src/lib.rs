@@ -442,6 +442,10 @@ impl<'host> Value<'host> {
         }
     }
 
+    pub fn into_bool(self) -> Result<bool, Error<'host>> {
+        self.try_into()
+    }
+
     pub fn into_i64(self) -> Result<i64, Error<'host>> {
         self.try_into()
     }
@@ -589,6 +593,18 @@ impl<'host> TryFrom<Value<'host>> for Tuple<Value<'host>> {
             Ok(value)
         } else {
             Err(Error::ExpectedTuple(value))
+        }
+    }
+}
+
+impl<'host> TryFrom<Value<'host>> for bool {
+    type Error = Error<'host>;
+
+    fn try_from(value: Value<'host>) -> Result<Self, Self::Error> {
+        if let Value::Bool(bool) = value {
+            Ok(bool)
+        } else {
+            Err(Error::type_error(value, Type::Unit))
         }
     }
 }

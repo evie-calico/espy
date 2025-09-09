@@ -1,4 +1,6 @@
-use espy_paws::{Error, Extern, ExternError, ExternFn, Function, Type, Value};
+use espy_paws::{
+    Error, Extern, ExternError, ExternFn, ExternFnOwned, Function, Tuple, Type, Value,
+};
 use std::rc::Rc;
 
 #[derive(Debug)]
@@ -46,18 +48,28 @@ impl Extern for StdLib {
 
 #[derive(Debug, Default)]
 pub struct IterLib {
-    foreach: IterForeachFn,
-    reduce: IterReduceFn,
+    filter: IterFilterFn,
     fold: IterFoldFn,
+    foreach: IterForeachFn,
+    map: IterMapFn,
+    range: IterRangeFn,
+    reduce: IterReduceFn,
+    repeat: IterRepeatFn,
+    take: IterTakeFn,
 }
 
 impl Extern for IterLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         let index = index.into_str()?;
         match &*index {
-            "foreach" => Ok(Function::borrow(&self.foreach).into()),
-            "reduce" => Ok(Function::borrow(&self.reduce).into()),
+            "filter" => Ok(Function::borrow(&self.filter).into()),
             "fold" => Ok(Function::borrow(&self.fold).into()),
+            "foreach" => Ok(Function::borrow(&self.foreach).into()),
+            "map" => Ok(Function::borrow(&self.map).into()),
+            "range" => Ok(Function::borrow(&self.range).into()),
+            "reduce" => Ok(Function::borrow(&self.reduce).into()),
+            "repeat" => Ok(Function::borrow(&self.repeat).into()),
+            "take" => Ok(Function::borrow(&self.take).into()),
             _ => Err(Error::IndexNotFound {
                 index: index.into(),
                 container: Value::borrow(self),
@@ -143,6 +155,246 @@ impl ExternFn for IterReduceFn {
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std.iter.reduce function")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct IterRangeFn;
+
+impl ExternFn for IterRangeFn {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let current = argument.get(0)?;
+        let limit = argument.get(1)?.into_i64()?;
+
+        Ok(Value::Tuple(Tuple::from([
+            current,
+            Function::owned(Rc::new(RangeIter { limit })).into(),
+        ])))
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.iter.range function")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct RangeIter {
+    limit: i64,
+}
+
+impl ExternFnOwned for RangeIter {
+    fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let current = argument.into_i64()?;
+        Ok(Value::Option {
+            contents: if current < self.limit {
+                Some(Rc::new(Value::Tuple(Tuple::from([
+                    Value::from(current + 1),
+                    current.into(),
+                ]))))
+            } else {
+                None
+            },
+            ty: Rc::new(Type::Any.into()),
+        })
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.iter.range iterator")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct IterRepeatFn {
+    iter: RepeatIter,
+}
+
+impl ExternFn for IterRepeatFn {
+    fn call<'host>(&'host self, value: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        Ok(Value::Tuple(Tuple::from([
+            value,
+            Function::borrow(&self.iter).into(),
+        ])))
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.iter.repeat function")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct RepeatIter;
+
+impl ExternFn for RepeatIter {
+    fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        Ok(Value::Option {
+            contents: Some(Rc::new(Value::Tuple(Tuple::from([
+                argument.clone(),
+                argument,
+            ])))),
+            ty: Rc::new(Type::Any.into()),
+        })
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.iter.repeat iterator")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct IterTakeFn {
+    iter: TakeIter,
+}
+
+impl ExternFn for IterTakeFn {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let iterator = argument.get(0)?;
+        let next = argument.get(1)?;
+        let count = argument.get(2)?;
+
+        Ok(Value::Tuple(Tuple::from([
+            Value::Tuple(Tuple::from([iterator, count])),
+            Function::borrow(&self.iter).piped(next).into(),
+        ])))
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.iter.take function")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct TakeIter;
+
+impl ExternFn for TakeIter {
+    fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let next = argument.get(0)?.into_function()?;
+        let iterator = argument.get(1)?;
+        let count = argument.get(2)?.into_i64()?;
+
+        Ok(Value::Option {
+            contents: if count > 0
+                && let Some(result) = next.piped(iterator).eval()?.into_option()?
+            {
+                let iterator = result.get(0)?;
+                let item = result.get(1)?;
+                Some(Rc::new(Value::Tuple(Tuple::from([
+                    Value::Tuple(Tuple::from([iterator, Value::from(count - 1)])),
+                    item,
+                ]))))
+            } else {
+                None
+            },
+            ty: Rc::new(Type::Any.into()),
+        })
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.iter.take iterator")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct IterMapFn {
+    iter: MapIter,
+}
+
+impl ExternFn for IterMapFn {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let iterator = argument.get(0)?;
+        let next = argument.get(1)?;
+        let map = argument.get(2)?;
+
+        Ok(Value::Tuple(Tuple::from([
+            iterator,
+            Function::borrow(&self.iter).piped(next).piped(map).into(),
+        ])))
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.iter.map function")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct MapIter;
+
+impl ExternFn for MapIter {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let next = argument.get(0)?.into_function()?;
+        let map = argument.get(1)?.into_function()?;
+        let iterator = argument.get(2)?;
+        Ok(Value::Option {
+            contents: next
+                .piped(iterator)
+                .eval()?
+                .into_option()?
+                .map(|x| {
+                    let iterator = x.get(0)?;
+                    let item = x.get(1)?;
+                    Ok::<_, Error>(Value::Tuple(Tuple::from([
+                        iterator,
+                        map.clone().piped(item).eval()?,
+                    ])))
+                })
+                .transpose()?
+                .map(Rc::new),
+            ty: Rc::new(Type::Any.into()),
+        })
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.iter.map iterator")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct IterFilterFn {
+    iter: FilterIter,
+}
+
+impl ExternFn for IterFilterFn {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let iterator = argument.get(0)?;
+        let next = argument.get(1)?;
+        let map = argument.get(2)?;
+
+        Ok(Value::Tuple(Tuple::from([
+            iterator,
+            Function::borrow(&self.iter).piped(next).piped(map).into(),
+        ])))
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.iter.filter function")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct FilterIter;
+
+impl ExternFn for FilterIter {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let next = argument.get(0)?.into_function()?;
+        let filter = argument.get(1)?.into_function()?;
+        let mut iterator = argument.get(2)?;
+        while let Some(result) = next.clone().piped(iterator).eval()?.into_option()? {
+            iterator = result.get(0)?;
+            let item = result.get(1)?;
+            if filter.clone().piped(item.clone()).eval()?.into_bool()? {
+                return Ok(Value::Option {
+                    contents: Some(Rc::new(item)),
+                    ty: Rc::new(Type::Any.into()),
+                });
+            }
+        }
+        Ok(Value::Option {
+            contents: None,
+            ty: Rc::new(Type::Any.into()),
+        })
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.iter.filter iterator")
     }
 }
 
