@@ -147,10 +147,7 @@ impl ExternFn for IterReduceFn {
                 result.get(1)?
             });
         }
-        Ok(Value::Option {
-            contents: accumulator.map(Rc::new),
-            ty: Rc::new(Type::Any.into()),
-        })
+        Ok(accumulator.into())
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -185,17 +182,14 @@ pub struct RangeIter {
 impl ExternFnOwned for RangeIter {
     fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         let current = argument.into_i64()?;
-        Ok(Value::Option {
-            contents: if current < self.limit {
-                Some(Rc::new(Value::Tuple(Tuple::from([
-                    Value::from(current + 1),
-                    current.into(),
-                ]))))
-            } else {
-                None
-            },
-            ty: Rc::new(Type::Any.into()),
-        })
+        Ok(Value::from(if current < self.limit {
+            Some(Value::Tuple(Tuple::from([
+                Value::from(current + 1),
+                current.into(),
+            ])))
+        } else {
+            None
+        }))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -226,13 +220,10 @@ pub struct RepeatIter;
 
 impl ExternFn for RepeatIter {
     fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        Ok(Value::Option {
-            contents: Some(Rc::new(Value::Tuple(Tuple::from([
-                argument.clone(),
-                argument,
-            ])))),
-            ty: Rc::new(Type::Any.into()),
-        })
+        Ok(Value::from(Some(Value::Tuple(Tuple::from([
+            argument.clone(),
+            argument,
+        ])))))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -271,8 +262,8 @@ impl ExternFn for TakeIter {
         let iterator = argument.get(1)?;
         let count = argument.get(2)?.into_i64()?;
 
-        Ok(Value::Option {
-            contents: if count > 0
+        Ok(Value::from(
+            if count > 0
                 && let Some(result) = next.piped(iterator).eval()?.into_option()?
             {
                 let iterator = result.get(0)?;
@@ -284,8 +275,7 @@ impl ExternFn for TakeIter {
             } else {
                 None
             },
-            ty: Rc::new(Type::Any.into()),
-        })
+        ))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -323,23 +313,20 @@ impl ExternFn for MapIter {
         let next = argument.get(0)?.into_function()?;
         let map = argument.get(1)?.into_function()?;
         let iterator = argument.get(2)?;
-        Ok(Value::Option {
-            contents: next
-                .piped(iterator)
-                .eval()?
-                .into_option()?
-                .map(|x| {
-                    let iterator = x.get(0)?;
-                    let item = x.get(1)?;
-                    Ok::<_, Error>(Value::Tuple(Tuple::from([
-                        iterator,
-                        map.clone().piped(item).eval()?,
-                    ])))
-                })
-                .transpose()?
-                .map(Rc::new),
-            ty: Rc::new(Type::Any.into()),
-        })
+        Ok(next
+            .piped(iterator)
+            .eval()?
+            .into_option()?
+            .map(|x| {
+                let iterator = x.get(0)?;
+                let item = x.get(1)?;
+                Ok::<_, Error>(Value::Tuple(Tuple::from([
+                    iterator,
+                    map.clone().piped(item).eval()?,
+                ])))
+            })
+            .transpose()?
+            .into())
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -381,16 +368,10 @@ impl ExternFn for FilterIter {
             iterator = result.get(0)?;
             let item = result.get(1)?;
             if filter.clone().piped(item.clone()).eval()?.into_bool()? {
-                return Ok(Value::Option {
-                    contents: Some(Rc::new(item)),
-                    ty: Rc::new(Type::Any.into()),
-                });
+                return Ok(Some(item).into());
             }
         }
-        Ok(Value::Option {
-            contents: None,
-            ty: Rc::new(Type::Any.into()),
-        })
+        Ok(None::<Value>.into())
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -470,7 +451,7 @@ pub struct OptionUnwrapFn;
 
 impl ExternFn for OptionUnwrapFn {
     fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        let Some(contents) = argument.get(0)?.into_option()? else {
+        let Some(contents) = argument.into_option()? else {
             Err(ExternError::Other(Box::new(LibraryError::UnwrapFailed)))?
         };
         Ok(contents)

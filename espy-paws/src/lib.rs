@@ -46,7 +46,7 @@ pub enum Value<'host> {
     EnumVariant(Rc<EnumVariant<'host>>),
     Option {
         contents: Option<Rc<Value<'host>>>,
-        ty: Rc<ComplexType>,
+        ty: ComplexType,
     },
     Mut(Mut<'host>),
 
@@ -83,10 +83,10 @@ impl<'host> Value<'host> {
             }
             Value::Type(Type::Option(ty)) => match index {
                 0 => Ok(Value::Function(Rc::new(
-                    FunctionAction::Some(ty.clone()).into(),
+                    FunctionAction::Some((**ty).clone()).into(),
                 ))),
                 1 => Ok(Value::Function(Rc::new(
-                    FunctionAction::None(ty.clone()).into(),
+                    FunctionAction::None((**ty).clone()).into(),
                 ))),
                 _ => Err(Error::IndexNotFound {
                     index: index.into(),
@@ -134,10 +134,10 @@ impl<'host> Value<'host> {
             }
             Value::Type(Type::Option(ty)) => match &*index {
                 "Some" => Ok(Value::Function(Rc::new(
-                    FunctionAction::Some(ty.clone()).into(),
+                    FunctionAction::Some((**ty).clone()).into(),
                 ))),
                 "None" => Ok(Value::Function(Rc::new(
-                    FunctionAction::None(ty.clone()).into(),
+                    FunctionAction::None((**ty).clone()).into(),
                 ))),
                 _ => Err(Error::IndexNotFound {
                     container: self.clone(),
@@ -378,7 +378,7 @@ impl<'host> Value<'host> {
                 .into(),
             },
             Value::EnumVariant(enum_variant) => Type::Enum(enum_variant.definition.clone()).into(),
-            Value::Option { contents: _, ty } => Type::Option(ty.clone()).into(),
+            Value::Option { contents: _, ty } => Type::Option(Rc::new(ty.clone())).into(),
             Value::Mut(inner) => Type::Mut(
                 inner
                     .upgrade()
@@ -511,7 +511,7 @@ impl From<Option<()>> for Value<'_> {
     fn from(value: Option<()>) -> Self {
         Value::Option {
             contents: value.map(|()| Rc::new(Value::Unit)),
-            ty: Rc::new(Type::Unit.into()),
+            ty: Type::Unit.into(),
         }
     }
 }
@@ -526,7 +526,7 @@ impl From<Option<bool>> for Value<'_> {
     fn from(value: Option<bool>) -> Self {
         Value::Option {
             contents: value.map(|value| Rc::new(Value::Bool(value))),
-            ty: Rc::new(Type::Bool.into()),
+            ty: Type::Bool.into(),
         }
     }
 }
@@ -541,7 +541,7 @@ impl From<Option<i64>> for Value<'_> {
     fn from(value: Option<i64>) -> Self {
         Value::Option {
             contents: value.map(|value| Rc::new(Value::I64(value))),
-            ty: Rc::new(Type::I64.into()),
+            ty: Type::I64.into(),
         }
     }
 }
@@ -556,7 +556,22 @@ impl From<Option<Rc<str>>> for Value<'_> {
     fn from(value: Option<Rc<str>>) -> Self {
         Value::Option {
             contents: value.map(|value| Rc::new(Value::String(value))),
-            ty: Rc::new(Type::String.into()),
+            ty: Type::String.into(),
+        }
+    }
+}
+
+impl<'host> From<Option<Value<'host>>> for Value<'host> {
+    fn from(value: Option<Self>) -> Self {
+        value.map(Rc::new).into()
+    }
+}
+
+impl<'host> From<Option<Rc<Value<'host>>>> for Value<'host> {
+    fn from(value: Option<Rc<Self>>) -> Self {
+        Value::Option {
+            contents: value,
+            ty: Type::String.into(),
         }
     }
 }
@@ -881,8 +896,8 @@ impl<'host> Function<'host> {
                 Type::Option(Rc::new(self.argument.into_complex_type()?)).into()
             }
             FunctionAction::Some(ty) => {
-                if self.argument.type_of()? != *ty {
-                    return Err(Error::type_error(self.argument, (*ty).clone()));
+                if self.argument.type_of()? != ty {
+                    return Err(Error::type_error(self.argument, ty));
                 }
                 Value::Option {
                     contents: Some(Rc::new(self.argument)),
@@ -927,8 +942,8 @@ enum FunctionAction<'host> {
     },
     Mut,
     Option,
-    Some(Rc<ComplexType>),
-    None(Rc<ComplexType>),
+    Some(ComplexType),
+    None(ComplexType),
     Borrow(&'host dyn ExternFn),
     Owned(Rc<dyn ExternFnOwned>),
 }
