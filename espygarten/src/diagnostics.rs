@@ -1,5 +1,5 @@
 use espy::lexer;
-use espy::parser::{Block, BlockResult, Error, Expression, Statement};
+use espy::parser::{Block, BlockResult, Error, Expression, FunctionBody, Statement};
 use std::fmt::Write;
 
 // While this is comprehensive, lexigrams unused by `expect` have less thought put into them.
@@ -217,7 +217,9 @@ fn diagnose_block(source: &str, block: &Block, for_each: &mut impl FnMut(Diagnos
             for error in &function.diagnostics.errors {
                 for_each(Diagnostic::from_error(error, source));
             }
-            diagnose_block(source, &function.block, &mut *for_each);
+            if let FunctionBody::Block(block) = &function.body {
+                diagnose_block(source, block, &mut *for_each);
+            }
         }
     }
 }

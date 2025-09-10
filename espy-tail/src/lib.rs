@@ -12,8 +12,8 @@
 //! ```
 
 use espy_ears::{
-    Binding, BindingMethod, Block, BlockResult, Diagnostics, Evaluation, Expression, Node, Set,
-    Statement,
+    Binding, BindingMethod, Block, BlockResult, Diagnostics, Evaluation, Expression, FunctionBody,
+    Node, Set, Statement,
 };
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;
@@ -78,6 +78,8 @@ pub enum Instruction {
     ///
     /// Pop the following `captures` values off the stack and onto a new stack,
     /// and then push a function containing the new stack and the proceeding block id to the current stack.
+    /// If the block id is zero (referring to the program entrypoint),
+    /// the function should panic when called (have a body of never).
     PushFunction {
         captures: StackPointer,
         function: BlockId,
@@ -318,17 +320,20 @@ impl<'source> Program<'source> {
                 scope.stack_pointer -= 2;
                 let mut scope = scope.promote();
                 let captures = scope.stack_pointer;
-                let function_id = self.create_block()?;
-                // to be filled in by the argument (which is about to be bound)
-                scope.stack_pointer += 1;
-                if let Some(argument) = function.argument {
-                    self.add_binding(function_id, argument, &mut scope)?;
-                }
-                self.add_block(function_id, function.block, scope)?;
-                self.blocks[block_id as usize].extend(Instruction::PushFunction {
-                    captures,
-                    function: function_id,
-                })
+                let function = if let FunctionBody::Block(block) = function.body {
+                    let function_id = self.create_block()?;
+                    // to be filled in by the argument (which is about to be bound)
+                    scope.stack_pointer += 1;
+                    if let Some(argument) = function.argument {
+                        self.add_binding(function_id, argument, &mut scope)?;
+                    }
+                    self.add_block(function_id, block, scope)?;
+                    function_id
+                } else {
+                    0
+                };
+                self.blocks[block_id as usize]
+                    .extend(Instruction::PushFunction { captures, function })
             }
         }
         if let Some(collapse_point) = collapse_point {

@@ -1068,6 +1068,15 @@ impl<'source> Binding<'source> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
+pub enum FunctionBody<'source> {
+    Block(Box<Block<'source>>),
+    /// Occurs when with's semicolon is absent.
+    ///
+    /// Used to name only the type of a function.
+    Never,
+}
+
+#[derive(Debug, Eq, PartialEq)]
 pub struct Function<'source> {
     pub with_token: Token<'source>,
     pub argument: Option<Binding<'source>>,
@@ -1076,7 +1085,7 @@ pub struct Function<'source> {
     pub single_arrow_token: Option<Token<'source>>,
     pub output: Option<Box<Expression<'source>>>,
     pub semicolon_token: Option<Token<'source>>,
-    pub block: Box<Block<'source>>,
+    pub body: FunctionBody<'source>,
     pub diagnostics: Diagnostics<'source>,
 }
 
@@ -1189,10 +1198,21 @@ impl<'source> Block<'source> {
                     } else {
                         (None, None)
                     };
-                    let semicolon_token =
-                        st_diagnostics.next_if(&mut *lexer, &[Lexigram::Semicolon]);
-                    // Pass on the root state, since with reuses the current block.
-                    let block = Block::parse(&mut *lexer, root);
+                    let (semicolon_token, body) = if let Some(
+                        t @ Token {
+                            lexigram: Lexigram::Semicolon,
+                            ..
+                        },
+                    ) = st_diagnostics.wrap(lexer.peek().copied())
+                    {
+                        lexer.next();
+                        (
+                            Some(t),
+                            FunctionBody::Block(Block::parse(&mut *lexer, root)),
+                        )
+                    } else {
+                        (None, FunctionBody::Never)
+                    };
 
                     return Self::build(
                         Function {
@@ -1203,7 +1223,7 @@ impl<'source> Block<'source> {
                             single_arrow_token,
                             output,
                             semicolon_token,
-                            block,
+                            body,
                             diagnostics: st_diagnostics,
                         }
                         .into(),

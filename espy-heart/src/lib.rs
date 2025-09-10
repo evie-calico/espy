@@ -2,6 +2,8 @@
 //!
 //! Shared between the compiler and interpreter.
 
+use std::num::NonZeroU32;
+
 pub mod prelude {
     pub use super::*;
 }
@@ -9,6 +11,7 @@ pub mod prelude {
 pub type ProgramCounter = u32;
 pub type StackPointer = i32;
 pub type BlockId = u32;
+pub type FunctionId = Option<NonZeroU32>;
 pub type StringId = u32;
 pub type StringSet = u32;
 

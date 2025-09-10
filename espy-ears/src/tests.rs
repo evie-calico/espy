@@ -413,11 +413,11 @@ fn function() {
             single_arrow_token: None,
             output: None,
             semicolon_token: Some(SEMICOLON),
-            block: result(expression(
+            body: FunctionBody::Block(result(expression(
                 ident("x"),
                 ident("captured"),
                 [variable("x"), variable("captured"), MUL].into_iter(),
-            )),
+            ))),
             diagnostics: Diagnostics::default(),
         }
         .into(),

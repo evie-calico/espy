@@ -871,6 +871,7 @@ impl<'host> Function<'host> {
                 }
                 result
             }
+            FunctionAction::Never { signature: _ } => return Err(Error::CalledNeverFunction),
             FunctionAction::Enum {
                 variant,
                 definition,
@@ -936,6 +937,9 @@ enum FunctionAction<'host> {
         signature: FunctionType,
         captures: Vec<Value<'host>>,
     },
+    Never {
+        signature: FunctionType,
+    },
     Enum {
         variant: usize,
         definition: Rc<EnumType>,
@@ -971,6 +975,10 @@ impl std::fmt::Debug for FunctionAction<'_> {
                 .field("block_id", block_id)
                 .field("signature", signature)
                 .field("captures", captures)
+                .finish(),
+            Self::Never { signature } => f
+                .debug_struct("Never")
+                .field("signature", signature)
                 .finish(),
             Self::Enum {
                 variant,
@@ -1098,6 +1106,7 @@ pub enum Error<'host> {
         value: Value<'host>,
         ty: ComplexType,
     },
+    CalledNeverFunction,
     IndexNotFound {
         index: Value<'host>,
         container: Value<'host>,
@@ -1382,19 +1391,35 @@ impl Program {
                     let function = program.next4()?;
                     let output = program.pop(stack)?;
                     let input = program.pop(stack)?;
-                    let new_stack = stack.split_off(stack.len() - captures);
-                    stack.push(Value::Function(Rc::new(
-                        FunctionAction::With {
-                            program: self.clone(),
-                            signature: FunctionType {
-                                input: input.try_into()?,
-                                output: output.try_into()?,
-                            },
-                            block_id: function,
-                            captures: new_stack,
+                    if function == 0 {
+                        // ignore captures if the function will never be called.
+                        for _ in 0..captures {
+                            stack.pop();
                         }
-                        .into(),
-                    )));
+                        stack.push(Value::Function(Rc::new(
+                            FunctionAction::Never {
+                                signature: FunctionType {
+                                    input: input.try_into()?,
+                                    output: output.try_into()?,
+                                },
+                            }
+                            .into(),
+                        )));
+                    } else {
+                        let new_stack = stack.split_off(stack.len() - captures);
+                        stack.push(Value::Function(Rc::new(
+                            FunctionAction::With {
+                                program: self.clone(),
+                                signature: FunctionType {
+                                    input: input.try_into()?,
+                                    output: output.try_into()?,
+                                },
+                                block_id: function,
+                                captures: new_stack,
+                            }
+                            .into(),
+                        )));
+                    }
                 }
                 instruction::PUSH_ENUM => {
                     let variants = program.pop(stack)?;
