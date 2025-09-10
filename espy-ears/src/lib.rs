@@ -14,6 +14,8 @@ pub enum Error<'source> {
         actual: Option<Token<'source>>,
     },
     ExpectedExpression,
+    /// Occurs when a "root" `Block` encounters something which is not a statement or expression.
+    ExpectedStatementOrExpression(Token<'source>),
     UnexpectedCloseParen(Token<'source>),
     IncompleteExpression,
 }
@@ -432,7 +434,7 @@ impl<'source> Expression<'source> {
                         push_with_precedence(&mut contents, &mut stack, Operation::Call(t));
                     }
                     lexer.next();
-                    contents.push(Node::Block(Block::new(&mut *lexer)));
+                    contents.push(Node::Block(Block::child(&mut *lexer)));
                     diagnostics.expect(lexer.peek().copied(), &[Lexigram::CloseBrace]);
                 }
 
@@ -546,7 +548,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for If<'source> {
         let mut diagnostics = Diagnostics::default();
         let condition = diagnostics.expect_expression(lexer);
         let then_token = diagnostics.next_if(lexer, &[Lexigram::Then]);
-        let first = Block::new(&mut *lexer);
+        let first = Block::child(&mut *lexer);
         let (second, else_token, else_kind) = if let else_token @ Some(Token {
             lexigram: Lexigram::Else,
             ..
@@ -559,7 +561,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for If<'source> {
                     ..
                 }) => {
                     lexer.next();
-                    (Block::new(&mut *lexer), else_kind)
+                    (Block::child(&mut *lexer), else_kind)
                 }
                 else_kind @ Some(Token {
                     lexigram: Lexigram::If,
@@ -1131,6 +1133,14 @@ impl Default for Box<Block<'_>> {
 
 impl<'source> Block<'source> {
     pub fn new(lexer: &mut Peekable<Lexer<'source>>) -> Box<Self> {
+        Self::parse(lexer, true)
+    }
+
+    fn child(lexer: &mut Peekable<Lexer<'source>>) -> Box<Self> {
+        Self::parse(lexer, false)
+    }
+
+    fn parse(lexer: &mut Peekable<Lexer<'source>>, root: bool) -> Box<Self> {
         let mut diagnostics = Diagnostics::default();
         let mut statements = Vec::new();
         loop {
@@ -1181,7 +1191,8 @@ impl<'source> Block<'source> {
                     };
                     let semicolon_token =
                         st_diagnostics.next_if(&mut *lexer, &[Lexigram::Semicolon]);
-                    let block = Block::new(&mut *lexer);
+                    // Pass on the root state, since with reuses the current block.
+                    let block = Block::parse(&mut *lexer, root);
 
                     return Self::build(
                         Function {
@@ -1203,6 +1214,11 @@ impl<'source> Block<'source> {
                 _ => match Evaluation::try_expression(&mut *lexer) {
                     Ok(evaluation) => Statement::Evaluation(evaluation),
                     Err(expression) => {
+                        if root && let Some(t) = lexer.peek().copied().transpose().ok().flatten() {
+                            diagnostics
+                                .errors
+                                .push(Error::ExpectedStatementOrExpression(t))
+                        }
                         return Self::build(
                             BlockResult::Expression(expression),
                             diagnostics,

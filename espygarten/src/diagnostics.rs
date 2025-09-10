@@ -163,6 +163,13 @@ impl Diagnostic {
                 },
                 secondary: Vec::new(),
             },
+            Error::ExpectedStatementOrExpression(token) => Self {
+                primary: Comment {
+                    message: "expected statement or expression".to_string(),
+                    range: Some(origin_range(token.origin, source)),
+                },
+                secondary: Vec::new(),
+            },
         }
     }
 }
