@@ -17,6 +17,31 @@ struct Input {
     program: Option<Box<Path>>,
 }
 
+#[derive(Default, Debug)]
+struct EspyshLibContainer {
+    std: espystandard::StdLib,
+}
+
+impl espy::Extern for EspyshLibContainer {
+    fn index<'host>(
+        &'host self,
+        index: espy::Value<'host>,
+    ) -> Result<espy::Value<'host>, espy::interpreter::Error<'host>> {
+        let index = index.into_str()?;
+        match &*index {
+            "std" => Ok(espy::Value::borrow(&self.std)),
+            _ => Err(espy::Error::IndexNotFound {
+                index: index.into(),
+                container: espy::Value::Borrow(self),
+            }),
+        }
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "espysh libraries")
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
     let source = if let Some(program) = cli.input.program {
@@ -27,5 +52,14 @@ fn main() {
             .expect("either field of input must be Some")
     };
     let result = espy::Program::try_from(&*source).unwrap().eval().unwrap();
-    println!("{result:?}");
+    if let espy::Value::Function(function) = result {
+        let lib = EspyshLibContainer::default();
+        let result = std::rc::Rc::unwrap_or_clone(function)
+            .piped(espy::Value::borrow(&lib))
+            .eval()
+            .unwrap();
+        println!("{result:#?}");
+    } else {
+        println!("{result:#?}");
+    }
 }

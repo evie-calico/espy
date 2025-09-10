@@ -242,6 +242,15 @@ impl From<Tuple<ComplexType>> for ComplexType {
     }
 }
 
+impl<'host> From<ComplexType> for Value<'host> {
+    fn from(value: ComplexType) -> Self {
+        match value {
+            ComplexType::Simple(ty) => ty.into(),
+            ComplexType::Complex(tuple) => Value::Tuple(tuple.into()),
+        }
+    }
+}
+
 impl std::fmt::Debug for Value<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Storage::")?;
@@ -336,7 +345,7 @@ impl<'host> Value<'host> {
     /// Returns an error if a mutable reference is being mutably borrowed.
     ///
     /// This can be safely ignored by the host if it has not deliberately borrowed an espy value.
-    fn type_of(&self) -> Result<ComplexType, Error<'host>> {
+    pub fn type_of(&self) -> Result<ComplexType, Error<'host>> {
         Ok(match &self {
             Value::Unit => Type::Unit.into(),
             Value::Tuple(tuple) => {
@@ -781,6 +790,23 @@ impl<'host> TryFrom<Tuple<Value<'host>>> for Tuple<ComplexType> {
             )
             .map(TupleStorage::Named)
             .map(Tuple),
+        }
+    }
+}
+
+impl<'host> From<Tuple<ComplexType>> for Tuple<Value<'host>> {
+    fn from(tuple: Tuple<ComplexType>) -> Self {
+        match &tuple.0 {
+            TupleStorage::Numeric(items) => Tuple(TupleStorage::Numeric(rc_slice_from_iter(
+                items.len(),
+                items.iter().map(|value| value.clone().into()),
+            ))),
+            TupleStorage::Named(items) => Tuple(TupleStorage::Named(rc_slice_from_iter(
+                items.len(),
+                items
+                    .iter()
+                    .map(|(name, value)| (name.clone(), value.clone().into())),
+            ))),
         }
     }
 }

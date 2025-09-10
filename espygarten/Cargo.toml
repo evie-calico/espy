@@ -8,5 +8,5 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 espy.path = "../espy"
-espystandard = { version = "0.1.0", path = "../espystandard" }
+espystandard.path = "../espystandard"
 wasm-bindgen = "0.2.100"

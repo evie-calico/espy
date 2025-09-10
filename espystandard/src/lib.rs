@@ -23,6 +23,7 @@ pub struct StdLib {
     iter: IterLib,
     string: StringLib,
     option: OptionLib,
+    type_of: TypeofFn,
 }
 
 impl Extern for StdLib {
@@ -32,6 +33,7 @@ impl Extern for StdLib {
             "iter" => Ok(Value::borrow(&self.iter)),
             "string" => Ok(Value::borrow(&self.string)),
             "option" => Ok(Value::borrow(&self.option)),
+            "typeof" => Ok(Function::borrow(&self.type_of).into()),
             _ => Err(Error::IndexNotFound {
                 index: index.into(),
                 container: Value::borrow(self),
@@ -41,6 +43,19 @@ impl Extern for StdLib {
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std module")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct TypeofFn;
+
+impl ExternFn for TypeofFn {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        Ok(argument.type_of()?.into())
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.typeof function")
     }
 }
 
