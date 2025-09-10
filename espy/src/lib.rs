@@ -333,10 +333,10 @@ mod tests {
                 let sum = {
                     let accumulator = accumulator;
                     with i;
-                    set accumulator = *accumulator + i;
+                    set accumulator = accumulator.* + i;
                 };
                 10, countdown |> foreach sum;
-                *accumulator",
+                accumulator.*",
                 )
                 .unwrap()
                 .eval()

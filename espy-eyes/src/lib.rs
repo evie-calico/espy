@@ -48,6 +48,7 @@ pub enum Lexigram {
     Dot,
     DotDot,
     DotDotEqual,
+    DotStar,
     DoubleArrow,
     DoubleEqual,
     Ellipses,
@@ -347,19 +348,17 @@ impl<'source> Iterator for Lexer<'source> {
             '-' => Lexigram::Minus,
             '*' => Lexigram::Star,
             '/' => Lexigram::Slash,
-            '.' => {
-                if self.next_if(|c| c == '.').is_some() {
-                    if self.next_if(|c| c == '=').is_some() {
-                        Lexigram::DotDotEqual
-                    } else if self.next_if(|c| c == '.').is_some() {
-                        Lexigram::Ellipses
-                    } else {
-                        Lexigram::DotDot
-                    }
+            '.' if self.next_if(|c| c == '*').is_some() => Lexigram::DotStar,
+            '.' if self.next_if(|c| c == '.').is_some() => {
+                if self.next_if(|c| c == '=').is_some() {
+                    Lexigram::DotDotEqual
+                } else if self.next_if(|c| c == '.').is_some() {
+                    Lexigram::Ellipses
                 } else {
-                    Lexigram::Dot
+                    Lexigram::DotDot
                 }
             }
+            '.' => Lexigram::Dot,
             ',' => Lexigram::Comma,
             '&' => Lexigram::Ampersand,
             '|' if self.next_if(|c| c == '>').is_some() => Lexigram::Triangle,

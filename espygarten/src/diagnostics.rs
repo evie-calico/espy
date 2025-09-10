@@ -20,6 +20,7 @@ fn format_lexigram(mut f: impl Write, lexigram: lexer::Lexigram) {
         lexer::Lexigram::DotDotEqual => write!(f, "..="), // symbol only
         lexer::Lexigram::DotDot => write!(f, ".."),       // symbol only
         lexer::Lexigram::Dot => write!(f, ". (dot)"),
+        lexer::Lexigram::DotStar => write!(f, ".*"), // symbol only
         lexer::Lexigram::DoubleArrow => write!(f, "=> (double arrow)"),
         lexer::Lexigram::DoubleEqual => write!(f, "=="), // symbol only
         lexer::Lexigram::Ellipses => write!(f, "..."),   // symbol only

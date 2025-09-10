@@ -436,13 +436,14 @@ impl<'source> Expression<'source> {
                     diagnostics.expect(lexer.peek().copied(), &[Lexigram::CloseBrace]);
                 }
 
-                // # Operators
+                // prefix operators
                 lexi!(t @ Plus) if unary_position => op!(Positive(t)),
-                lexi!(t @ Plus) if !unary_position => op!(Add(t)),
                 lexi!(t @ Minus) if unary_position => op!(Negative(t)),
+                // postfix
+                lexi!(t @ DotStar) if !unary_position => op!(Deref(t)),
+                // infix operators
+                lexi!(t @ Plus) if !unary_position => op!(Add(t)),
                 lexi!(t @ Minus) if !unary_position => op!(Sub(t)),
-                // TODO: I'd rather use zig's `.*` for deref, but this causes unary position because the * looks like multiplication. What if ".*" was a token?
-                lexi!(t @ Star) if unary_position => op!(Deref(t)),
                 lexi!(t @ Star) if !unary_position => op!(Mul(t)),
                 lexi!(t @ Slash) if !unary_position => op!(Div(t)),
                 lexi!(t @ Ampersand) if !unary_position => op!(BitwiseAnd(t)),
