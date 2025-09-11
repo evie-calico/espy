@@ -13,7 +13,7 @@
 
 use espy_ears::{
     Binding, BindingMethod, Block, BlockResult, Diagnostics, Evaluation, Expression, FunctionBody,
-    Node, Set, Statement,
+    Match, Node, Set, Statement,
 };
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;
@@ -50,6 +50,12 @@ fn try_validate(diagnostics: Diagnostics) -> Result<(), Error> {
     } else {
         Ok(())
     }
+}
+
+/// For retroactively filling in jump instructions.
+fn resolve_jump(block: &mut [u8], at: usize) {
+    let pc = block.len() as ProgramCounter;
+    block[at..(at + size_of::<ProgramCounter>())].copy_from_slice(&pc.to_le_bytes());
 }
 
 // These are practically used as functions which return iterators over bytes at this point.
@@ -582,13 +588,6 @@ impl<'source> Program<'source> {
                     })
                 }
                 Node::If(if_block) => {
-                    // For retroactively filling in the jump instructions.
-                    fn fill(block: &mut [u8], at: usize) {
-                        let pc = block.len() as ProgramCounter;
-                        block[at..(at + size_of::<ProgramCounter>())]
-                            .copy_from_slice(&pc.to_le_bytes());
-                    }
-
                     try_validate(if_block.diagnostics)?;
                     self.add_expression(block_id, if_block.condition, scope)?;
                     block!().extend(Instruction::If(0));
@@ -606,10 +605,10 @@ impl<'source> Program<'source> {
 
                     // Now that the first block is complete,
                     // we can fill in the conditional jump's destination.
-                    fill(&mut block!(), if_destination);
+                    resolve_jump(&mut block!(), if_destination);
                     self.add_block(block_id, if_block.second, scope.child())?;
 
-                    fill(&mut block!(), jump_destination);
+                    resolve_jump(&mut block!(), jump_destination);
                 }
                 Node::Field {
                     dot_token: _,
@@ -654,7 +653,35 @@ impl<'source> Program<'source> {
                     scope.stack_pointer += 0;
                     self.blocks[block_id as usize].extend(Instruction::PushEnum);
                 }
-                Node::Match(_) => todo!(),
+                Node::Match(match_expression) => {
+                    let (_match_token, expression, _then_token, _end_token, diagnostics, cases) =
+                        Match::destroy(match_expression);
+                    try_validate(diagnostics)?;
+                    let subject = scope.stack_pointer;
+                    self.add_expression(block_id, expression, scope)?;
+                    let jump_locations = cases
+                        .map(|case| {
+                            self.blocks[block_id as usize].extend(Instruction::Clone(subject));
+                            self.add_expression(block_id, case.case, scope)?;
+                            self.blocks[block_id as usize].extend(Instruction::EqualTo);
+                            self.blocks[block_id as usize].extend(Instruction::If(0));
+                            let if_location =
+                                self.blocks[block_id as usize].len() - size_of::<ProgramCounter>();
+
+                            assert_eq!(scope.stack_pointer, subject);
+                            if let Some(binding) = case.binding {
+                                self.add_binding(block_id, binding, scope)?;
+                            }
+                            self.add_expression(block_id, case.expression, scope)?;
+                            self.blocks[block_id as usize].extend(Instruction::Jump(0));
+                            resolve_jump(&mut self.blocks[block_id as usize], if_location);
+                            Ok(self.blocks[block_id as usize].len() - size_of::<ProgramCounter>())
+                        })
+                        .collect::<Result<Box<[usize]>, Error>>()?;
+                    for jump_location in jump_locations {
+                        resolve_jump(&mut self.blocks[block_id as usize], jump_location);
+                    }
+                }
             };
         }
         Ok(())

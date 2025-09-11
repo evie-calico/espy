@@ -607,7 +607,7 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for If<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct MatchCase<'source> {
     pub let_token: Option<Token<'source>>,
-    pub binding: Option<Token<'source>>,
+    pub binding: Option<Binding<'source>>,
     pub equals_token: Option<Token<'source>>,
     pub case: Option<Box<Expression<'source>>>,
     pub arrow_token: Option<Token<'source>>,
@@ -655,7 +655,9 @@ impl<'source> Match<'source> {
                 diagnostics.wrap(lexer.peek().copied())
             {
                 lexer.next();
-                let binding = diagnostics.next_if(lexer, &[Lexigram::Ident, Lexigram::Discard]);
+                let binding = Binding::new(lexer)
+                    .map_err(|e| diagnostics.errors.push(e))
+                    .ok();
                 let (equal_token, case) = if let equal_token @ Some(Token {
                     lexigram: Lexigram::SingleEqual,
                     ..

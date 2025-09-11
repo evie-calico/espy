@@ -450,7 +450,10 @@ fn match_expression() {
             [
                 MatchCase {
                     let_token: Some(LET),
-                    binding: Some(ident("x")),
+                    binding: Some(Binding {
+                        method: BindingMethod::Single(ident("x")),
+                        diagnostics: Diagnostics::default(),
+                    }),
                     equals_token: Some(SINGLE_EQUAL),
                     case: expression(number("1"), number("1"), [number_node("1")].into_iter())
                         .into(),
