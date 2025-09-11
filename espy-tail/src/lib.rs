@@ -292,7 +292,7 @@ impl<'source> Program<'source> {
         block: Box<Block<'source>>,
         scope: &mut Scope<'_, 'source>,
     ) -> Result<(), Error<'source>> {
-        let (result, diagnostics, statements) = Block::destroy(block);
+        let (result, diagnostics, statements) = Block::destructure(block);
         try_validate(diagnostics)?;
         for statement in statements {
             self.add_statement(block_id, statement, scope)?;
@@ -490,7 +490,7 @@ impl<'source> Program<'source> {
             block!().extend(Instruction::PushUnit);
             return Ok(());
         };
-        let (_first_token, _last_token, diagnostics, nodes) = Expression::destroy(expression);
+        let (_first_token, _last_token, diagnostics, nodes) = Expression::destructure(expression);
         try_validate(diagnostics)?;
         for node in nodes {
             match node {
@@ -657,7 +657,7 @@ impl<'source> Program<'source> {
                 }
                 Node::Match(match_expression) => {
                     let (_match_token, expression, _then_token, _end_token, diagnostics, cases) =
-                        Match::destroy(match_expression);
+                        Match::destructure(match_expression);
                     try_validate(diagnostics)?;
                     let subject = scope.stack_pointer;
                     self.add_expression(block_id, expression, scope)?;

@@ -156,10 +156,10 @@ impl Diagnostic {
                 },
                 secondary: Vec::new(),
             },
-            Error::ExpectedExpression => Self {
+            Error::ExpectedExpression(token) => Self {
                 primary: Comment {
                     message: "expected expression".to_string(),
-                    range: None,
+                    range: token.map(|token| origin_range(token.origin, source)),
                 },
                 secondary: Vec::new(),
             },
