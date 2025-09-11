@@ -43,6 +43,9 @@ impl espy::Extern for EspyshLibContainer {
 }
 
 fn main() {
+    static LIB: EspyshLibContainer = EspyshLibContainer {
+        std: espystandard::StdLib::new(),
+    };
     let cli = Cli::parse();
     let source = if let Some(program) = cli.input.program {
         fs::read_to_string(program).unwrap().into_boxed_str()
@@ -53,9 +56,9 @@ fn main() {
     };
     let result = espy::Program::try_from(&*source).unwrap().eval().unwrap();
     if let espy::Value::Function(function) = result {
-        let lib = EspyshLibContainer::default();
         let result = std::rc::Rc::unwrap_or_clone(function)
-            .piped(espy::Value::borrow(&lib))
+            .piped(espy::Value::borrow(&LIB))
+            .piped(espy::Value::<'static>::Unit)
             .eval()
             .unwrap();
         println!("{result:#?}");

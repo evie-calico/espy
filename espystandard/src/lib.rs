@@ -26,6 +26,17 @@ pub struct StdLib {
     type_of: TypeofFn,
 }
 
+impl StdLib {
+    pub const fn new() -> Self {
+        Self {
+            iter: IterLib::new(),
+            string: StringLib::new(),
+            option: OptionLib::new(),
+            type_of: TypeofFn,
+        }
+    }
+}
+
 impl Extern for StdLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         let index = index.into_str()?;
@@ -69,6 +80,21 @@ pub struct IterLib {
     reduce: IterReduceFn,
     repeat: IterRepeatFn,
     take: IterTakeFn,
+}
+
+impl IterLib {
+    pub const fn new() -> Self {
+        Self {
+            filter: IterFilterFn::new(),
+            fold: IterFoldFn,
+            foreach: IterForeachFn,
+            map: IterMapFn::new(),
+            range: IterRangeFn,
+            reduce: IterReduceFn,
+            repeat: IterRepeatFn::new(),
+            take: IterTakeFn::new(),
+        }
+    }
 }
 
 impl Extern for IterLib {
@@ -215,6 +241,12 @@ pub struct IterRepeatFn {
     iter: RepeatIter,
 }
 
+impl IterRepeatFn {
+    pub const fn new() -> Self {
+        Self { iter: RepeatIter }
+    }
+}
+
 impl ExternFn for IterRepeatFn {
     fn call<'host>(&'host self, value: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         Ok(Value::Tuple(Tuple::from([
@@ -247,6 +279,12 @@ impl ExternFn for RepeatIter {
 #[derive(Debug, Default)]
 pub struct IterTakeFn {
     iter: TakeIter,
+}
+
+impl IterTakeFn {
+    pub const fn new() -> Self {
+        Self { iter: TakeIter }
+    }
 }
 
 impl ExternFn for IterTakeFn {
@@ -301,6 +339,12 @@ pub struct IterMapFn {
     iter: MapIter,
 }
 
+impl IterMapFn {
+    pub const fn new() -> Self {
+        Self { iter: MapIter }
+    }
+}
+
 impl ExternFn for IterMapFn {
     fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         let iterator = argument.get(0)?;
@@ -352,6 +396,12 @@ pub struct IterFilterFn {
     iter: FilterIter,
 }
 
+impl IterFilterFn {
+    pub const fn new() -> Self {
+        Self { iter: FilterIter }
+    }
+}
+
 impl ExternFn for IterFilterFn {
     fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         let iterator = argument.get(0)?;
@@ -397,6 +447,14 @@ pub struct StringLib {
     concat: StringConcatFn,
 }
 
+impl StringLib {
+    pub const fn new() -> Self {
+        Self {
+            concat: StringConcatFn,
+        }
+    }
+}
+
 impl Extern for StringLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         let index = index.into_str()?;
@@ -439,6 +497,15 @@ impl ExternFn for StringConcatFn {
 pub struct OptionLib {
     unwrap: OptionUnwrapFn,
     expect: OptionExpectFn,
+}
+
+impl OptionLib {
+    pub const fn new() -> Self {
+        Self {
+            unwrap: OptionUnwrapFn,
+            expect: OptionExpectFn,
+        }
+    }
 }
 
 impl Extern for OptionLib {
