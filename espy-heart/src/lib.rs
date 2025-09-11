@@ -59,6 +59,7 @@ pub mod instruction {
     pub const NEGATIVE: u8 = 0x45;
     pub const DEREF: u8 = 0x46;
     pub const SET: u8 = 0x47;
+    pub const MATCHES: u8 = 0x48;
 }
 
 // TODO: Reorder these before release.

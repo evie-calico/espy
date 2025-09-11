@@ -1472,6 +1472,22 @@ impl Program {
                 instruction::GREATER_EQUAL => bi_cmp!(let l, r => l >= r),
                 instruction::LESSER => bi_cmp!(let l, r => l < r),
                 instruction::LESSER_EQUAL => bi_cmp!(let l, r => l <= r),
+                instruction::MATCHES => {
+                    let candidate = program.pop(stack)?;
+                    let subject = program.pop(stack)?;
+                    if let Value::EnumVariant(subject) = &subject
+                        && let Value::Function(function) = &candidate
+                        && let FunctionAction::Enum {
+                            variant,
+                            definition,
+                        } = &function.action
+                        && subject.definition == *definition
+                    {
+                        stack.push((subject.variant == *variant).into());
+                    } else {
+                        stack.push(subject.eq(candidate)?.into());
+                    }
+                }
                 instruction::EQUAL_TO => {
                     let r = program.pop(stack)?;
                     let l = program.pop(stack)?;

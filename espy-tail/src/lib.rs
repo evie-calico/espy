@@ -136,6 +136,7 @@ pub enum Instruction {
     LogicalOr,
     Deref,
     Set,
+    Matches,
 }
 
 pub struct InstructionIter {
@@ -199,6 +200,7 @@ impl Iterator for InstructionIter {
             Instruction::LogicalOr => decompose!(instruction::LOGICAL_OR,),
             Instruction::Deref => decompose!(instruction::DEREF,),
             Instruction::Set => decompose!(instruction::SET,),
+            Instruction::Matches => decompose!(instruction::MATCHES,),
         };
         self.index += 1;
         Some(byte)
@@ -662,18 +664,22 @@ impl<'source> Program<'source> {
                     let jump_locations = cases
                         .map(|case| {
                             self.blocks[block_id as usize].extend(Instruction::Clone(subject));
+                            scope.stack_pointer += 1;
                             self.add_expression(block_id, case.case, scope)?;
-                            self.blocks[block_id as usize].extend(Instruction::EqualTo);
+                            self.blocks[block_id as usize].extend(Instruction::Matches);
+                            scope.stack_pointer -= 1;
                             self.blocks[block_id as usize].extend(Instruction::If(0));
+                            scope.stack_pointer -= 1;
                             let if_location =
                                 self.blocks[block_id as usize].len() - size_of::<ProgramCounter>();
 
-                            assert_eq!(scope.stack_pointer, subject);
+                            assert_eq!(scope.stack_pointer - 1, subject);
                             if let Some(binding) = case.binding {
                                 self.add_binding(block_id, binding, scope)?;
                             }
                             self.add_expression(block_id, case.expression, scope)?;
                             self.blocks[block_id as usize].extend(Instruction::Jump(0));
+                            scope.stack_pointer -= 1;
                             resolve_jump(&mut self.blocks[block_id as usize], if_location);
                             Ok(self.blocks[block_id as usize].len() - size_of::<ProgramCounter>())
                         })
@@ -681,6 +687,7 @@ impl<'source> Program<'source> {
                     for jump_location in jump_locations {
                         resolve_jump(&mut self.blocks[block_id as usize], jump_location);
                     }
+                    scope.stack_pointer += 1;
                 }
             };
         }
