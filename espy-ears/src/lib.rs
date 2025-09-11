@@ -1,5 +1,7 @@
+#![doc = include_str!("../README.md")]
+
 use dst_factory::make_dst_factory;
-use espy_eyes::{self as lexer, Lexer, Lexigram, Token};
+use espy_eyes::{Lexer, Lexigram, Token};
 use std::iter::Peekable;
 
 #[cfg(test)]
@@ -7,24 +9,34 @@ mod tests;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Error<'source> {
-    Lexer(lexer::Error<'source>),
+    /// An invalid token was encountered.
+    ///
+    /// The ast interprets an erroneous token as `None`,
+    /// which may lead to further error diagnostics.
+    ///
+    /// See: [`espy_eyes::Error`]
+    Lexer(espy_eyes::Error<'source>),
     MissingToken {
         /// Must contain at least one element.
         expected: &'static [Lexigram],
+        /// A `None` token may have been caused by a Lexer error.
         actual: Option<Token<'source>>,
     },
-    ExpectedExpression,
-    /// Occurs when a "root" `Block` encounters something which is not a statement or expression.
+    /// Occurs when an expression is required,
+    /// but a token that ends expression context was immediately encountered.
+    ExpectedExpression(Option<Token<'source>>),
+    /// Occurs when a "root" [`Block`] encounters something which is not a statement or expression.
     ExpectedStatementOrExpression(Token<'source>),
+    /// Occurs when parenthesis in an expression are unbalanced.
+    ///
+    /// [`Error::IncompleteExpression`] serves as the opening-parenthesis equivalent.
     UnexpectedCloseParen(Token<'source>),
+    /// This error should only ever occur on [`Expression`]s,
+    /// so positioning can be derived from surrounding context.
     IncompleteExpression,
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub enum Diagnostic<'source> {
-    Error(Error<'source>),
-}
-
+/// Contains a list of the errors encountered by an ast node.
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Diagnostics<'source> {
     pub errors: Vec<Error<'source>>,
@@ -33,7 +45,7 @@ pub struct Diagnostics<'source> {
 impl<'source> Diagnostics<'source> {
     fn expect(
         &mut self,
-        t: Option<lexer::Result<'source>>,
+        t: Option<espy_eyes::Result<'source>>,
         expected: &'static [Lexigram],
     ) -> Option<Token<'source>> {
         let actual = self.wrap(t);
@@ -51,7 +63,9 @@ impl<'source> Diagnostics<'source> {
     ) -> Option<Box<Expression<'source>>> {
         let expression = Expression::new(lexer);
         if expression.is_none() {
-            self.errors.push(Error::ExpectedExpression);
+            self.errors.push(Error::ExpectedExpression(
+                lexer.peek().copied().transpose().ok().flatten(),
+            ));
         }
         expression
     }
@@ -66,13 +80,13 @@ impl<'source> Diagnostics<'source> {
         })
     }
 
-    fn wrap(&mut self, t: Option<lexer::Result<'source>>) -> Option<Token<'source>> {
+    fn wrap(&mut self, t: Option<espy_eyes::Result<'source>>) -> Option<Token<'source>> {
         match t? {
             Ok(t) => Some(t),
             Err(e) => {
-                let t = if let lexer::Error {
+                let t = if let espy_eyes::Error {
                     origin,
-                    kind: lexer::ErrorKind::ReservedSymbol,
+                    kind: espy_eyes::ErrorKind::ReservedSymbol,
                 } = e
                 {
                     Some(Token {
@@ -89,6 +103,9 @@ impl<'source> Diagnostics<'source> {
     }
 }
 
+/// Components of an expression.
+///
+/// Expression evalutation is stack-based rather than using a syntax tree.
 #[derive(Debug, Eq, PartialEq)]
 pub enum Node<'source> {
     Unit(Token<'source>, Token<'source>),
@@ -132,7 +149,7 @@ pub enum Node<'source> {
     Tuple(Token<'source>),
 }
 
-/// This type must not contain any incomplete expressions.
+/// This type should not contain an incomplete expression so long as there are no error diagnostics.
 #[derive(Debug, Eq, PartialEq)]
 #[make_dst_factory(pub)]
 pub struct Expression<'source> {
@@ -633,7 +650,7 @@ impl<'source> From<Box<Match<'source>>> for Node<'source> {
 }
 
 impl<'source> Match<'source> {
-    fn new(lexer: &mut Peekable<Lexer<'source>>) -> Box<Self> {
+    pub fn new(lexer: &mut Peekable<Lexer<'source>>) -> Box<Self> {
         let match_token = lexer
             .next()
             .transpose()
@@ -756,7 +773,7 @@ pub struct Evaluation<'source> {
 }
 
 impl<'source> Evaluation<'source> {
-    fn binding(lexer: &mut Peekable<Lexer<'source>>) -> Self {
+    pub fn binding(lexer: &mut Peekable<Lexer<'source>>) -> Self {
         let mut diagnostics = Diagnostics::default();
         let let_token = lexer
             .next()
@@ -783,7 +800,7 @@ impl<'source> Evaluation<'source> {
         }
     }
 
-    fn try_expression(
+    pub fn try_expression(
         lexer: &mut Peekable<Lexer<'source>>,
     ) -> Result<Self, Option<Box<Expression<'source>>>> {
         let expression = Expression::new(&mut *lexer);
@@ -825,7 +842,7 @@ pub struct Set<'source> {
 }
 
 impl<'source> Set<'source> {
-    fn new(lexer: &mut Peekable<Lexer<'source>>) -> Self {
+    pub fn new(lexer: &mut Peekable<Lexer<'source>>) -> Self {
         let mut diagnostics = Diagnostics::default();
         let set_token = lexer
             .next()
@@ -890,7 +907,7 @@ pub struct Binding<'source> {
 }
 
 impl<'source> Binding<'source> {
-    fn new(lexer: &mut Peekable<Lexer<'source>>) -> Result<Self, Error<'source>> {
+    pub fn new(lexer: &mut Peekable<Lexer<'source>>) -> Result<Self, Error<'source>> {
         match lexer.peek().copied().transpose().map_err(Error::Lexer)? {
             Some(
                 t @ Token {
