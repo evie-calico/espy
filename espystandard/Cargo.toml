@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-espy-paws = { version = "0.1.0", path = "../espy-paws" }
+espy-paws.path = "../espy-paws"

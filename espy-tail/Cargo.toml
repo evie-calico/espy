@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-espy-ears = { version = "0.1.0", path = "../espy-ears" }
-espy-eyes = { version = "0.1.0", path = "../espy-eyes" }
-espy-heart = { version = "0.1.0", path = "../espy-heart" }
+espy-ears.path = "../espy-ears"
+espy-eyes.path = "../espy-eyes"
+espy-heart.path = "../espy-heart"
