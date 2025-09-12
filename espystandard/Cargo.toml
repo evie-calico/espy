@@ -5,3 +5,6 @@ edition = "2024"
 
 [dependencies]
 espy-paws.path = "../espy-paws"
+
+[lints]
+workspace = true

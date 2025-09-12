@@ -28,14 +28,14 @@ token!(DOUBLE_ARROW: DoubleArrow = "=>");
 token!(SEMICOLON: Semicolon = ";");
 token!(SINGLE_EQUAL: SingleEqual = "=");
 
-fn ident<'source>(origin: &'source str) -> Token<'source> {
+fn ident(origin: &str) -> Token<'_> {
     Token {
         origin,
         lexigram: Lexigram::Ident,
     }
 }
 
-fn number<'source>(origin: &'source str) -> Token<'source> {
+fn number(origin: &str) -> Token<'_> {
     Token {
         origin,
         lexigram: Lexigram::Number,
@@ -51,11 +51,11 @@ macro_rules! node {
     };
 }
 
-fn number_node<'source>(origin: &'source str) -> Node<'source> {
+fn number_node(origin: &str) -> Node<'_> {
     Node::Number(number(origin))
 }
 
-fn variable<'source>(origin: &'source str) -> Node<'source> {
+fn variable(origin: &str) -> Node<'_> {
     Node::Variable(ident(origin))
 }
 
@@ -108,7 +108,7 @@ fn statements<'source>(
     )
 }
 
-fn result<'source>(expression: Box<Expression<'source>>) -> Box<Block<'source>> {
+fn result(expression: Box<Expression<'_>>) -> Box<Block<'_>> {
     Block::build(expression.into(), Diagnostics::default(), [])
 }
 

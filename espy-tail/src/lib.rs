@@ -17,10 +17,26 @@ use espy_ears::{
 };
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;
-use std::{borrow::Cow, iter, mem, num::ParseIntError};
+use std::{
+    borrow::Cow,
+    iter, mem,
+    num::{ParseIntError, TryFromIntError},
+    rc::Rc,
+};
 
 #[cfg(test)]
 mod tests;
+
+/// Compiles a block directly into interpreter-ready bytecode.
+///
+/// # Errors
+///
+/// Returns an error if the block contained error diagnostics or failed to compile.
+pub fn compile(block: Box<espy_ears::Block>) -> Result<Rc<[u8]>, Error> {
+    Program::try_from(block)
+        .and_then(Program::compile)
+        .map(Rc::from)
+}
 
 #[derive(Debug)]
 pub enum Error<'source> {
@@ -44,6 +60,12 @@ pub enum Error<'source> {
     InvalidAst(espy_ears::Error<'source>),
 }
 
+impl From<TryFromIntError> for Error<'_> {
+    fn from(_: TryFromIntError) -> Self {
+        Self::ProgramLimitExceeded
+    }
+}
+
 fn try_validate(diagnostics: Diagnostics) -> Result<(), Error> {
     if let Some(error) = diagnostics.errors.into_iter().next() {
         Err(Error::InvalidAst(error))
@@ -54,8 +76,12 @@ fn try_validate(diagnostics: Diagnostics) -> Result<(), Error> {
 
 /// For retroactively filling in jump instructions.
 fn resolve_jump(block: &mut [u8], at: usize) {
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "this will produce incorrect code, but compile will return an error later anyways so it's fine"
+    )]
     let pc = block.len() as ProgramCounter;
-    block[at..(at + size_of::<ProgramCounter>())].copy_from_slice(&pc.to_le_bytes());
+    block[at..(at + size_of_val(&pc))].copy_from_slice(&pc.to_le_bytes());
 }
 
 // These are practically used as functions which return iterators over bytes at this point.
@@ -225,10 +251,14 @@ pub struct Program<'source> {
 }
 
 impl<'source> Program<'source> {
-    pub fn compile(self) -> Vec<u8> {
+    /// # Errors
+    ///
+    /// Returns an error if the program results in bytecode over 4GiB.
+    pub fn compile(self) -> Result<Vec<u8>, Error<'source>> {
         let mut output = Vec::new();
-        output.extend((self.blocks.len() as u32).to_le_bytes());
-        output.extend((self.strings.len() as u32).to_le_bytes());
+
+        output.extend(u32::try_from(self.blocks.len())?.to_le_bytes());
+        output.extend(u32::try_from(self.strings.len())?.to_le_bytes());
         // Reserve space for vector offsets.
         // Blocks, strings, and string sets are only referred to by index,
         // so this is the only program-wide retroactive filling required.
@@ -240,18 +270,18 @@ impl<'source> Program<'source> {
 
         // Fill in offsets.
         for (block_id, block) in self.blocks.into_iter().enumerate() {
-            let src = output.len() as u32;
-            let dest = block_offsets + block_id * size_of::<u32>();
-            output[dest..(dest + size_of::<u32>())].copy_from_slice(&src.to_le_bytes());
+            let src = BlockId::try_from(output.len())?;
+            let dest = block_offsets + block_id * size_of_val(&src);
+            output[dest..(dest + size_of_val(&src))].copy_from_slice(&src.to_le_bytes());
             output.extend(block);
         }
         for (string_id, string) in self.strings.into_iter().enumerate() {
-            let src = output.len() as u32;
-            let dest = string_offsets + string_id * size_of::<u32>();
-            output[dest..(dest + size_of::<u32>())].copy_from_slice(&src.to_le_bytes());
+            let src = StringId::try_from(output.len())?;
+            let dest = string_offsets + string_id * size_of_val(&src);
+            output[dest..(dest + size_of_val(&src))].copy_from_slice(&src.to_le_bytes());
             output.extend(string.bytes());
         }
-        output
+        Ok(output)
     }
 
     fn create_block(&mut self) -> Result<BlockId, Error<'source>> {
@@ -341,7 +371,7 @@ impl<'source> Program<'source> {
                     0
                 };
                 self.blocks[block_id as usize]
-                    .extend(Instruction::PushFunction { captures, function })
+                    .extend(Instruction::PushFunction { captures, function });
             }
         }
         if let Some(collapse_point) = collapse_point {
@@ -376,7 +406,9 @@ impl<'source> Program<'source> {
             BindingMethod::Numeric { bindings, .. } => {
                 for (i, binding) in bindings.into_iter().enumerate() {
                     block!().extend(Instruction::Clone(root));
-                    block!().extend(Instruction::PushI64(i as i64));
+                    block!().extend(Instruction::PushI64(
+                        i64::try_from(i).expect("stack should never reach isize::MAX"),
+                    ));
                     block!().extend(Instruction::Index);
                     scope.stack_pointer += 1;
                     self.add_binding(block_id, binding.binding, scope)?;
@@ -438,7 +470,7 @@ impl<'source> Program<'source> {
                 } else {
                     // If the binding exists but not an expression, we need to generate a unit value.
                     scope.stack_pointer += 1;
-                    block!().extend(Instruction::PushUnit)
+                    block!().extend(Instruction::PushUnit);
                 }
                 if let Some(binding) = binding {
                     let binding = binding
@@ -496,7 +528,7 @@ impl<'source> Program<'source> {
             match node {
                 Node::Unit(_, _) => {
                     scope.stack_pointer += 1;
-                    block!().extend(Instruction::PushUnit)
+                    block!().extend(Instruction::PushUnit);
                 }
                 Node::Number(token) => {
                     let integer = token
@@ -504,7 +536,7 @@ impl<'source> Program<'source> {
                         .parse()
                         .map_err(|e| Error::InvalidInteger(token, e))?;
                     scope.stack_pointer += 1;
-                    block!().extend(Instruction::PushI64(integer))
+                    block!().extend(Instruction::PushI64(integer));
                 }
                 Node::String(string) => {
                     // trim starting and ending quotes.
@@ -515,7 +547,7 @@ impl<'source> Program<'source> {
                             .map_err(|e| Error::InvalidString(string, e))?,
                     )?;
                     scope.stack_pointer += 1;
-                    block!().extend(Instruction::PushString(string))
+                    block!().extend(Instruction::PushString(string));
                 }
                 Node::Variable(token) => {
                     let value = scope
@@ -526,7 +558,7 @@ impl<'source> Program<'source> {
                         )
                         .ok_or(Error::UndefinedSymbol(token))?;
                     scope.stack_pointer += 1;
-                    block!().extend(Instruction::Clone(value.index))
+                    block!().extend(Instruction::Clone(value.index));
                 }
                 Node::Add(_) => binop!(Instruction::Add),
                 Node::Sub(_) => binop!(Instruction::Sub),
@@ -587,7 +619,7 @@ impl<'source> Program<'source> {
                         Instruction::PushTrue
                     } else {
                         Instruction::PushFalse
-                    })
+                    });
                 }
                 Node::If(if_block) => {
                     try_validate(if_block.diagnostics)?;
@@ -644,7 +676,7 @@ impl<'source> Program<'source> {
                     // the stack pointer does not move by the end,
                     // because while Index pops twice, we performed one of the pushes ourselves.
                     scope.stack_pointer += 0;
-                    block!().extend(Instruction::Index)
+                    block!().extend(Instruction::Index);
                 }
                 Node::Enum(enumeration) => {
                     try_validate(enumeration.diagnostics)?;
@@ -689,7 +721,7 @@ impl<'source> Program<'source> {
                     }
                     scope.stack_pointer += 1;
                 }
-            };
+            }
         }
         Ok(())
     }

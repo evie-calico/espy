@@ -10,3 +10,6 @@ crate-type = ["cdylib", "rlib"]
 espy.path = "../espy"
 espystandard.path = "../espystandard"
 wasm-bindgen = "0.2"
+
+[lints]
+workspace = true

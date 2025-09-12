@@ -54,33 +54,42 @@ pub enum Value<'host> {
 }
 
 impl<'host> Value<'host> {
+    /// Convenience methods for indexing values of various types by an integer.
+    ///
+    /// Usually this is most useful for reading function arguments by index,
+    /// which are passed as a tuple by convention.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::IndexNotFound`] if `self` cannot be indexed or the index is out of range for the container.
+    ///
+    /// [`Value::Borrow`] and [`Value::Extern`] implementations may return arbitary errors.
     pub fn get(&self, index: i64) -> Result<Value<'host>, Error<'host>> {
         match self {
-            Value::Tuple(tuple) => {
-                tuple
-                    .value(index as usize)
-                    .cloned()
-                    .ok_or(Error::IndexNotFound {
-                        index: index.into(),
-                        container: self.clone(),
-                    })
-            }
-            Value::Type(Type::Enum(ty)) => {
-                if (index as usize) < ty.variants.len() {
-                    Ok(Value::Function(Rc::new(
+            Value::Tuple(tuple) => usize::try_from(index)
+                .ok()
+                .and_then(|index| tuple.value(index))
+                .cloned()
+                .ok_or(Error::IndexNotFound {
+                    index: index.into(),
+                    container: self.clone(),
+                }),
+            Value::Type(Type::Enum(ty)) => usize::try_from(index)
+                .ok()
+                .filter(|index| *index < ty.variants.len())
+                .map(|index| {
+                    Value::Function(Rc::new(
                         FunctionAction::Enum {
-                            variant: index as usize,
+                            variant: index,
                             definition: ty.clone(),
                         }
                         .into(),
-                    )))
-                } else {
-                    Err(Error::IndexNotFound {
-                        index: index.into(),
-                        container: self.clone(),
-                    })
-                }
-            }
+                    ))
+                })
+                .ok_or_else(|| Error::IndexNotFound {
+                    index: index.into(),
+                    container: self.clone(),
+                }),
             Value::Type(Type::Option(ty)) => match index {
                 0 => Ok(Value::Function(Rc::new(
                     FunctionAction::Some((**ty).clone()).into(),
@@ -100,6 +109,13 @@ impl<'host> Value<'host> {
         }
     }
 
+    /// Convenience methods for indexing values of various types by a string.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::IndexNotFound`] if `self` cannot be indexed or the index is not found in the container.
+    ///
+    /// [`Value::Borrow`] and [`Value::Extern`] implementations may return arbitary errors.
     pub fn find(&self, index: Rc<str>) -> Result<Value<'host>, Error<'host>> {
         match self {
             Value::Tuple(tuple) => tuple
@@ -151,6 +167,13 @@ impl<'host> Value<'host> {
         }
     }
 
+    /// Convenience methods for indexing values of various types.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::IndexNotFound`] if `self` cannot be indexed or the index is not found in the container.
+    ///
+    /// [`Value::Borrow`] and [`Value::Extern`] implementations may return arbitary errors.
     pub fn index(&self, index: impl Into<Value<'host>>) -> Result<Value<'host>, Error<'host>> {
         match (self, index.into()) {
             (Value::Borrow(external), index) => external.index(index),
@@ -189,6 +212,7 @@ pub enum Type {
 }
 
 impl Type {
+    #[must_use]
     pub fn compare(&self, r: &Self) -> bool {
         match (self, r) {
             (Self::Any, _) | (_, Self::Any) => true,
@@ -209,7 +233,7 @@ impl PartialEq for Type {
 
 impl Eq for Type {}
 
-/// ComplexType is usually the only form of [`Type`] that the espy interpreter is concerned with,
+/// [`ComplexType`] is usually the only form of [`Type`] that the espy interpreter is concerned with,
 /// but it cannot be represented within espy itself (tuples of types represent Complex, instead).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ComplexType {
@@ -218,6 +242,7 @@ pub enum ComplexType {
 }
 
 impl ComplexType {
+    #[must_use]
     pub fn compare(&self, r: &Self) -> bool {
         match (self, r) {
             (ComplexType::Simple(Type::Any), _) | (_, ComplexType::Simple(Type::Any)) => true,
@@ -242,7 +267,7 @@ impl From<Tuple<ComplexType>> for ComplexType {
     }
 }
 
-impl<'host> From<ComplexType> for Value<'host> {
+impl From<ComplexType> for Value<'_> {
     fn from(value: ComplexType) -> Self {
         match value {
             ComplexType::Simple(ty) => ty.into(),
@@ -279,13 +304,16 @@ impl std::fmt::Debug for Value<'_> {
     }
 }
 
-impl<'host> From<Type> for Value<'host> {
+impl From<Type> for Value<'_> {
     fn from(t: Type) -> Self {
         Self::Type(t)
     }
 }
 
 impl<'host> Value<'host> {
+    /// # Errors
+    ///
+    /// Returns an error if `self` and `other` are incomparable.
     pub fn eq(self, other: Self) -> Result<bool, Error<'host>> {
         match (self, other) {
             (Value::Unit, Value::Unit) => Ok(true),
@@ -302,11 +330,8 @@ impl<'host> Value<'host> {
             (Value::EnumVariant(l), Value::EnumVariant(r)) => Ok(l.variant == r.variant
                 && Rc::ptr_eq(&l.definition, &r.definition)
                 && Rc::try_unwrap(l)
-                    .map(|l| l.contents)
-                    .unwrap_or_else(|l| l.contents.clone())
-                    .eq(Rc::try_unwrap(r)
-                        .map(|r| r.contents)
-                        .unwrap_or_else(|r| r.contents.clone()))?),
+                    .map_or_else(|l| l.contents.clone(), |l| l.contents)
+                    .eq(Rc::try_unwrap(r).map_or_else(|r| r.contents.clone(), |r| r.contents))?),
             (
                 Value::Option {
                     contents: l,
@@ -316,25 +341,10 @@ impl<'host> Value<'host> {
                     contents: r,
                     ty: r_type,
                 },
-            ) => {
-                if l_type == r_type {
-                    Ok(l.is_none() && r.is_none()
-                        || l.zip(r)
-                            .map(|(l, r)| Rc::unwrap_or_clone(l).eq(Rc::unwrap_or_clone(r)))
-                            .unwrap_or(Ok(false))?)
-                } else {
-                    Err(Error::IncomparableValues(
-                        Value::Option {
-                            contents: l,
-                            ty: l_type,
-                        },
-                        Value::Option {
-                            contents: r,
-                            ty: r_type,
-                        },
-                    ))
-                }
-            }
+            ) if l_type == r_type => Ok(l.is_none() && r.is_none()
+                || l.zip(r).map_or(Ok(false), |(l, r)| {
+                    Rc::unwrap_or_clone(l).eq(Rc::unwrap_or_clone(r))
+                })?),
             (Value::Type(l), Value::Type(r)) => Ok(l == r),
             (this, other) => Err(Error::IncomparableValues(this, other)),
         }
@@ -401,6 +411,7 @@ impl<'host> Value<'host> {
         })
     }
 
+    #[must_use]
     pub fn concat(self, r: Self) -> Self {
         match (self, r) {
             (
@@ -435,14 +446,23 @@ impl<'host> Value<'host> {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `self` is not a [`Value::Unit`]
     pub fn into_unit(self) -> Result<(), Error<'host>> {
         self.try_into()
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `self` is not a [`Value::Tuple`]
     pub fn into_tuple(self) -> Result<Tuple<Value<'host>>, Error<'host>> {
         self.try_into()
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `self` is not a [`Value::Unit`] or [`Value::Tuple`]
     pub fn into_tuple_or_unit(self) -> Result<Option<Tuple<Value<'host>>>, Error<'host>> {
         match self.into_tuple() {
             Ok(tuple) => Ok(Some(tuple)),
@@ -451,18 +471,28 @@ impl<'host> Value<'host> {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `self` is not a [`Value::Bool`]
     pub fn into_bool(self) -> Result<bool, Error<'host>> {
         self.try_into()
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `self` is not a [`Value::I64`]
     pub fn into_i64(self) -> Result<i64, Error<'host>> {
         self.try_into()
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `self` is not a [`Value::String`]
     pub fn into_str(self) -> Result<Rc<str>, Error<'host>> {
         self.try_into()
     }
 
+    #[must_use]
     pub fn as_str(&self) -> Option<&str> {
         if let Value::String(s) = &self {
             Some(s)
@@ -479,14 +509,23 @@ impl<'host> Value<'host> {
         Value::Owned(external)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `self` is not a [`Value::Function`]
     pub fn into_function(self) -> Result<Function<'host>, Error<'host>> {
         self.try_into()
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `self` is not a [`Value::EnumVariant`]
     pub fn into_enum_variant(self) -> Result<Rc<EnumVariant<'host>>, Error<'host>> {
         self.try_into()
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `self` is not a [`Value::Option`]
     pub fn into_option(self) -> Result<Option<Value<'host>>, Error<'host>> {
         match self {
             Value::Option { contents, ty: _ } => Ok(contents.map(|x| (*x).clone())),
@@ -494,6 +533,9 @@ impl<'host> Value<'host> {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `self` is not a [`Value::Mut`]
     pub fn into_refcell(self) -> Result<Rc<RefCell<Value<'host>>>, Error<'host>> {
         match &self {
             Value::Mut(inner) => Ok(inner.upgrade().ok_or(Error::UpgradeError)?),
@@ -501,17 +543,23 @@ impl<'host> Value<'host> {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `self` is not a [`Value::Type`] or [`Value::Tuple`] or types.
     pub fn into_complex_type(self) -> Result<ComplexType, Error<'host>> {
         self.try_into()
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if `self` is not a [`Value::Type`] containing a [`Type::Enum`]
     pub fn into_enum_type(self) -> Result<Rc<EnumType>, Error<'host>> {
         self.try_into()
     }
 }
 
 impl From<()> for Value<'_> {
-    fn from(_: ()) -> Self {
+    fn from((): ()) -> Self {
         Value::Unit
     }
 }
@@ -736,6 +784,7 @@ enum TupleStorage<T> {
 pub struct Tuple<T>(TupleStorage<T>);
 
 impl<T> Tuple<T> {
+    #[must_use]
     pub fn len(&self) -> usize {
         match &self.0 {
             TupleStorage::Numeric(items) => items.len(),
@@ -743,10 +792,12 @@ impl<T> Tuple<T> {
         }
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    #[must_use]
     pub fn value(&self, index: usize) -> Option<&T> {
         match &self.0 {
             TupleStorage::Numeric(items) => items.get(index),
@@ -754,6 +805,7 @@ impl<T> Tuple<T> {
         }
     }
 
+    #[must_use]
     pub fn find_value(&self, name: &str) -> Option<&T> {
         let TupleStorage::Named(items) = &self.0 else {
             return None;
@@ -794,7 +846,7 @@ impl<'host> TryFrom<Tuple<Value<'host>>> for Tuple<ComplexType> {
     }
 }
 
-impl<'host> From<Tuple<ComplexType>> for Tuple<Value<'host>> {
+impl From<Tuple<ComplexType>> for Tuple<Value<'_>> {
     fn from(tuple: Tuple<ComplexType>) -> Self {
         match &tuple.0 {
             TupleStorage::Numeric(items) => Tuple(TupleStorage::Numeric(rc_slice_from_iter(
@@ -879,6 +931,9 @@ impl<'host> Function<'host> {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if evaluating the function results in an error
     pub fn eval(self) -> Result<Value<'host>, Error<'host>> {
         let result = match self.action {
             FunctionAction::With {
@@ -891,7 +946,7 @@ impl<'host> Function<'host> {
                     return Err(Error::type_error(self.argument, input));
                 }
                 captures.push(self.argument);
-                let result = program.eval(block_id, &mut captures)?;
+                let result = program.eval_block(block_id, &mut captures)?;
                 if !result.type_of()?.compare(&output) {
                     return Err(Error::type_error(result, output));
                 }
@@ -949,6 +1004,7 @@ impl<'host> Function<'host> {
         mem::swap(&mut arguments, &mut self.argument);
     }
 
+    #[must_use]
     pub fn piped(mut self, argument: Value<'host>) -> Self {
         self.pipe(argument);
         self
@@ -1045,6 +1101,7 @@ impl<'host> Mut<'host> {
     ///
     /// This can be used to create reference cycles and leak memory,
     /// so it should only be exposed to trusted espy programs.
+    #[must_use]
     pub fn upgrade(&self) -> Option<Rc<RefCell<Value<'host>>>> {
         match &self.source {
             MutRefSource::Origin(rc) => Some(rc.clone()),
@@ -1053,7 +1110,7 @@ impl<'host> Mut<'host> {
     }
 }
 
-impl<'host> Clone for Mut<'host> {
+impl Clone for Mut<'_> {
     fn clone(&self) -> Self {
         Self {
             source: MutRefSource::Child(match &self.source {
@@ -1078,18 +1135,22 @@ pub struct EnumVariant<'host> {
 }
 
 impl<'host> EnumVariant<'host> {
+    #[must_use]
     pub fn contents(&self) -> &Value<'host> {
         &self.contents
     }
 
+    #[must_use]
     pub fn definition(&self) -> &Rc<EnumType> {
         &self.definition
     }
 
+    #[must_use]
     pub fn variant(&self) -> usize {
         self.variant
     }
 
+    #[must_use]
     pub fn unwrap(self) -> (Rc<str>, Value<'host>) {
         (
             self.definition.variants[self.variant].0.clone(),
@@ -1263,7 +1324,14 @@ impl TryFrom<Rc<[u8]>> for Program {
 }
 
 impl Program {
-    pub fn eval<'host>(
+    /// # Errors
+    ///
+    /// Returns an error if the evaluating the program results in an error
+    pub fn eval<'host>(&self) -> Result<Value<'host>, Error<'host>> {
+        self.eval_block(0, &mut Vec::new())
+    }
+
+    fn eval_block<'host>(
         &self,
         block_id: usize,
         stack: &mut Vec<Value<'host>>,
@@ -1303,8 +1371,11 @@ impl Program {
                 ]))
             }
 
+            #[expect(
+                clippy::unused_self,
+                reason = "This doesn't use self yet, but i want to include pc in errors eventually."
+            )]
             fn pop<'host>(
-                // This doesn't use self yet, but i want to include pc in errors eventually.
                 &'_ self,
                 stack: &mut Vec<Value<'host>>,
             ) -> Result<Value<'host>, Error<'host>> {
@@ -1345,12 +1416,16 @@ impl Program {
             let instruction = program.next()?;
             match instruction {
                 instruction::CLONE => {
-                    let index = program.next4()? as i32;
-                    match index {
+                    let index = program.next4()?;
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_possible_wrap,
+                        reason = "next4 only returns 32 bits"
+                    )]
+                    match index as i32 {
                         0.. => {
-                            let value = stack
-                                .get(index as usize)
-                                .ok_or(InvalidBytecode::StackOutOfBounds)?;
+                            let value =
+                                stack.get(index).ok_or(InvalidBytecode::StackOutOfBounds)?;
                             stack.push(value.clone());
                         }
                         builtins::ANY => {
@@ -1541,11 +1616,11 @@ impl Program {
                         .ok_or(InvalidBytecode::UnexpectedStringId)?
                         .clone();
                     let value = program.pop(stack)?;
-                    stack.push(Value::Tuple(Tuple::from([(name, value)])))
+                    stack.push(Value::Tuple(Tuple::from([(name, value)])));
                 }
                 instruction::NEST => {
                     let value = program.pop(stack)?;
-                    stack.push(Value::Tuple(Tuple::from([value])))
+                    stack.push(Value::Tuple(Tuple::from([value])));
                 }
                 instruction::NEGATIVE => {
                     let value = program.pop(stack)?.into_i64()?;
@@ -1568,6 +1643,7 @@ impl Program {
     }
 }
 
+#[allow(clippy::missing_errors_doc)]
 pub trait Extern {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>>;
 
@@ -1576,6 +1652,7 @@ pub trait Extern {
     }
 }
 
+#[allow(clippy::missing_errors_doc)]
 pub trait ExternOwned {
     fn index<'host>(&self, index: Value<'host>) -> Result<Value<'host>, Error<'host>>;
 
@@ -1584,6 +1661,7 @@ pub trait ExternOwned {
     }
 }
 
+#[allow(clippy::missing_errors_doc)]
 pub trait ExternFn {
     fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>>;
 
@@ -1592,6 +1670,7 @@ pub trait ExternFn {
     }
 }
 
+#[allow(clippy::missing_errors_doc)]
 pub trait ExternFnOwned {
     fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>>;
 

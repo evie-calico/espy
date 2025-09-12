@@ -149,6 +149,128 @@ pub enum Node<'source> {
     Tuple(Token<'source>),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Operation<'source> {
+    Call(Token<'source>),
+    Pipe(Token<'source>),
+    Positive(Token<'source>),
+    Negative(Token<'source>),
+    Deref(Token<'source>),
+    Mul(Token<'source>),
+    Div(Token<'source>),
+    Add(Token<'source>),
+    Sub(Token<'source>),
+    BitwiseAnd(Token<'source>),
+    BitwiseXor(Token<'source>),
+    BitwiseOr(Token<'source>),
+    EqualTo(Token<'source>),
+    NotEqualTo(Token<'source>),
+    Greater(Token<'source>),
+    GreaterEqual(Token<'source>),
+    Lesser(Token<'source>),
+    LesserEqual(Token<'source>),
+    LogicalAnd(Token<'source>),
+    LogicalOr(Token<'source>),
+    Name {
+        name: Token<'source>,
+        colon_token: Token<'source>,
+    },
+    Field {
+        dot_token: Token<'source>,
+        index: Token<'source>,
+    },
+    Tuple(Token<'source>),
+    SubExpression(Token<'source>),
+}
+
+impl Operation<'_> {
+    fn precedence(self) -> usize {
+        match self {
+            Operation::Field { .. } => 13,
+            Operation::Positive(_) | Operation::Negative(_) | Operation::Deref(_) => 12,
+            Operation::Mul(_) | Operation::Div(_) => 11,
+            Operation::Add(_) | Operation::Sub(_) => 10,
+            Operation::BitwiseAnd(_) => 9,
+            Operation::BitwiseXor(_) => 8,
+            Operation::BitwiseOr(_) => 7,
+            Operation::EqualTo(_)
+            | Operation::NotEqualTo(_)
+            | Operation::Greater(_)
+            | Operation::GreaterEqual(_)
+            | Operation::Lesser(_)
+            | Operation::LesserEqual(_) => 6,
+            Operation::LogicalAnd(_) => 5,
+            Operation::LogicalOr(_) => 4,
+            Operation::Name { .. } => 3,
+            Operation::Tuple(_) => 2,
+            Operation::Pipe(_) | Operation::Call(_) => 1,
+            Operation::SubExpression(_) => 0,
+        }
+    }
+
+    fn left_associative(self) -> bool {
+        match self {
+            Operation::Field { .. }
+            | Operation::Positive(_)
+            | Operation::Negative(_)
+            | Operation::Deref(_)
+            | Operation::Mul(_)
+            | Operation::Div(_)
+            | Operation::Name { .. }
+            | Operation::Add(_)
+            | Operation::Sub(_)
+            | Operation::BitwiseAnd(_)
+            | Operation::BitwiseXor(_)
+            | Operation::BitwiseOr(_)
+            | Operation::EqualTo(_)
+            | Operation::NotEqualTo(_)
+            | Operation::Greater(_)
+            | Operation::GreaterEqual(_)
+            | Operation::Lesser(_)
+            | Operation::LesserEqual(_)
+            | Operation::LogicalAnd(_)
+            | Operation::LogicalOr(_)
+            | Operation::Tuple(_)
+            | Operation::SubExpression(_)
+            | Operation::Call(_)
+            | Operation::Pipe(_) => true,
+        }
+    }
+}
+
+impl<'source> From<Operation<'source>> for Node<'source> {
+    fn from(op: Operation<'source>) -> Self {
+        match op {
+            Operation::Field { dot_token, index } => Node::Field { dot_token, index },
+            Operation::Pipe(t) => Node::Pipe(t),
+            Operation::Call(t) => Node::Call(t),
+            Operation::Positive(t) => Node::Positive(t),
+            Operation::Negative(t) => Node::Negative(t),
+            Operation::Deref(t) => Node::Deref(t),
+            Operation::Mul(t) => Node::Mul(t),
+            Operation::Div(t) => Node::Div(t),
+            Operation::Add(t) => Node::Add(t),
+            Operation::Sub(t) => Node::Sub(t),
+            Operation::BitwiseAnd(t) => Node::BitwiseAnd(t),
+            Operation::BitwiseXor(t) => Node::BitwiseXor(t),
+            Operation::BitwiseOr(t) => Node::BitwiseOr(t),
+            Operation::EqualTo(t) => Node::EqualTo(t),
+            Operation::NotEqualTo(t) => Node::NotEqualTo(t),
+            Operation::Greater(t) => Node::Greater(t),
+            Operation::GreaterEqual(t) => Node::GreaterEqual(t),
+            Operation::Lesser(t) => Node::Lesser(t),
+            Operation::LesserEqual(t) => Node::LesserEqual(t),
+            Operation::LogicalAnd(t) => Node::LogicalAnd(t),
+            Operation::LogicalOr(t) => Node::LogicalOr(t),
+            Operation::Name { name, colon_token } => Node::Name { name, colon_token },
+            Operation::Tuple(t) => Node::Tuple(t),
+            Operation::SubExpression(_) => {
+                panic!("sub expressions may not enter the output stack")
+            }
+        }
+    }
+}
+
 /// This type should not contain an incomplete expression so long as there are no error diagnostics.
 #[derive(Debug, Eq, PartialEq)]
 #[make_dst_factory(pub)]
@@ -162,128 +284,6 @@ pub struct Expression<'source> {
 impl<'source> Expression<'source> {
     /// Parse an expression until an unexpected token is upcoming (via peek).
     pub fn new(lexer: &mut Peekable<Lexer<'source>>) -> Option<Box<Self>> {
-        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-        enum Operation<'source> {
-            Call(Token<'source>),
-            Pipe(Token<'source>),
-            Positive(Token<'source>),
-            Negative(Token<'source>),
-            Deref(Token<'source>),
-            Mul(Token<'source>),
-            Div(Token<'source>),
-            Add(Token<'source>),
-            Sub(Token<'source>),
-            BitwiseAnd(Token<'source>),
-            BitwiseXor(Token<'source>),
-            BitwiseOr(Token<'source>),
-            EqualTo(Token<'source>),
-            NotEqualTo(Token<'source>),
-            Greater(Token<'source>),
-            GreaterEqual(Token<'source>),
-            Lesser(Token<'source>),
-            LesserEqual(Token<'source>),
-            LogicalAnd(Token<'source>),
-            LogicalOr(Token<'source>),
-            Name {
-                name: Token<'source>,
-                colon_token: Token<'source>,
-            },
-            Field {
-                dot_token: Token<'source>,
-                index: Token<'source>,
-            },
-            Tuple(Token<'source>),
-            SubExpression(Token<'source>),
-        }
-
-        impl<'source> Operation<'source> {
-            fn precedence(self) -> usize {
-                match self {
-                    Operation::Field { .. } => 13,
-                    Operation::Positive(_) | Operation::Negative(_) | Operation::Deref(_) => 12,
-                    Operation::Mul(_) | Operation::Div(_) => 11,
-                    Operation::Add(_) | Operation::Sub(_) => 10,
-                    Operation::BitwiseAnd(_) => 9,
-                    Operation::BitwiseXor(_) => 8,
-                    Operation::BitwiseOr(_) => 7,
-                    Operation::EqualTo(_)
-                    | Operation::NotEqualTo(_)
-                    | Operation::Greater(_)
-                    | Operation::GreaterEqual(_)
-                    | Operation::Lesser(_)
-                    | Operation::LesserEqual(_) => 6,
-                    Operation::LogicalAnd(_) => 5,
-                    Operation::LogicalOr(_) => 4,
-                    Operation::Name { .. } => 3,
-                    Operation::Tuple(_) => 2,
-                    Operation::Pipe(_) | Operation::Call(_) => 1,
-                    Operation::SubExpression(_) => 0,
-                }
-            }
-
-            fn left_associative(self) -> bool {
-                match self {
-                    Operation::Field { .. }
-                    | Operation::Positive(_)
-                    | Operation::Negative(_)
-                    | Operation::Deref(_)
-                    | Operation::Mul(_)
-                    | Operation::Div(_)
-                    | Operation::Name { .. }
-                    | Operation::Add(_)
-                    | Operation::Sub(_)
-                    | Operation::BitwiseAnd(_)
-                    | Operation::BitwiseXor(_)
-                    | Operation::BitwiseOr(_)
-                    | Operation::EqualTo(_)
-                    | Operation::NotEqualTo(_)
-                    | Operation::Greater(_)
-                    | Operation::GreaterEqual(_)
-                    | Operation::Lesser(_)
-                    | Operation::LesserEqual(_)
-                    | Operation::LogicalAnd(_)
-                    | Operation::LogicalOr(_)
-                    | Operation::Tuple(_)
-                    | Operation::SubExpression(_)
-                    | Operation::Call(_)
-                    | Operation::Pipe(_) => true,
-                }
-            }
-        }
-
-        impl<'source> From<Operation<'source>> for Node<'source> {
-            fn from(op: Operation<'source>) -> Self {
-                match op {
-                    Operation::Field { dot_token, index } => Node::Field { dot_token, index },
-                    Operation::Pipe(t) => Node::Pipe(t),
-                    Operation::Call(t) => Node::Call(t),
-                    Operation::Positive(t) => Node::Positive(t),
-                    Operation::Negative(t) => Node::Negative(t),
-                    Operation::Deref(t) => Node::Deref(t),
-                    Operation::Mul(t) => Node::Mul(t),
-                    Operation::Div(t) => Node::Div(t),
-                    Operation::Add(t) => Node::Add(t),
-                    Operation::Sub(t) => Node::Sub(t),
-                    Operation::BitwiseAnd(t) => Node::BitwiseAnd(t),
-                    Operation::BitwiseXor(t) => Node::BitwiseXor(t),
-                    Operation::BitwiseOr(t) => Node::BitwiseOr(t),
-                    Operation::EqualTo(t) => Node::EqualTo(t),
-                    Operation::NotEqualTo(t) => Node::NotEqualTo(t),
-                    Operation::Greater(t) => Node::Greater(t),
-                    Operation::GreaterEqual(t) => Node::GreaterEqual(t),
-                    Operation::Lesser(t) => Node::Lesser(t),
-                    Operation::LesserEqual(t) => Node::LesserEqual(t),
-                    Operation::LogicalAnd(t) => Node::LogicalAnd(t),
-                    Operation::LogicalOr(t) => Node::LogicalOr(t),
-                    Operation::Name { name, colon_token } => Node::Name { name, colon_token },
-                    Operation::Tuple(t) => Node::Tuple(t),
-                    Operation::SubExpression(_) => {
-                        panic!("sub expressions may not enter the output stack")
-                    }
-                }
-            }
-        }
-
         let first_token = lexer.peek().copied().transpose().ok().flatten();
         let mut last_token = None;
         let mut diagnostics = Diagnostics::default();
@@ -494,7 +494,7 @@ impl<'source> Expression<'source> {
                         diagnostics.errors.push(Error::IncompleteExpression);
                     }
                     if !matches!(stack.pop(), Some(Operation::SubExpression(_))) {
-                        diagnostics.errors.push(Error::UnexpectedCloseParen(t))
+                        diagnostics.errors.push(Error::UnexpectedCloseParen(t));
                     }
                 }
                 lexi!(t @ CloseParen) if !unary_position => {
@@ -503,7 +503,7 @@ impl<'source> Expression<'source> {
                         contents.push(op.into());
                     }
                     if !matches!(stack.pop(), Some(Operation::SubExpression(_))) {
-                        diagnostics.errors.push(Error::UnexpectedCloseParen(t))
+                        diagnostics.errors.push(Error::UnexpectedCloseParen(t));
                     }
                 }
                 _ => {
@@ -519,14 +519,13 @@ impl<'source> Expression<'source> {
                     }
                     if contents.is_empty() && diagnostics.errors.is_empty() {
                         return None;
-                    } else {
-                        return Some(Expression::build(
-                            first_token,
-                            last_token,
-                            diagnostics,
-                            contents,
-                        ));
                     }
+                    return Some(Expression::build(
+                        first_token,
+                        last_token,
+                        diagnostics,
+                        contents,
+                    ));
                 }
             }
             // This is sometimes skipped with a continue!
@@ -599,12 +598,12 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for If<'source> {
                 ),
                 _ => {
                     diagnostics.expect(lexer.peek().copied(), &[Lexigram::Then, Lexigram::If]);
-                    (Default::default(), None)
+                    (Box::default(), None)
                 }
             };
             (second, else_token, else_kind)
         } else {
-            (Default::default(), None, None)
+            (Box::default(), None, None)
         };
         let end_token = diagnostics.expect(lexer.peek().copied(), &[Lexigram::End]);
         Self {
@@ -650,6 +649,11 @@ impl<'source> From<Box<Match<'source>>> for Node<'source> {
 }
 
 impl<'source> Match<'source> {
+    /// # Panics
+    ///
+    /// Panics if the lexer returns `None`.
+    ///
+    /// This function should only be called after successfully peeking a [`Lexigram::Match`].
     pub fn new(lexer: &mut Peekable<Lexer<'source>>) -> Box<Self> {
         let match_token = lexer
             .next()
@@ -773,6 +777,11 @@ pub struct Evaluation<'source> {
 }
 
 impl<'source> Evaluation<'source> {
+    /// # Panics
+    ///
+    /// Panics if the lexer returns `None`.
+    ///
+    /// This function should only be called after successfully peeking a [`Lexigram::Let`].
     pub fn binding(lexer: &mut Peekable<Lexer<'source>>) -> Self {
         let mut diagnostics = Diagnostics::default();
         let let_token = lexer
@@ -800,6 +809,9 @@ impl<'source> Evaluation<'source> {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns a lone [`Expression`] if no semicolon token was encountered.
     pub fn try_expression(
         lexer: &mut Peekable<Lexer<'source>>,
     ) -> Result<Self, Option<Box<Expression<'source>>>> {
@@ -842,6 +854,11 @@ pub struct Set<'source> {
 }
 
 impl<'source> Set<'source> {
+    /// # Panics
+    ///
+    /// Panics if the lexer returns `None`.
+    ///
+    /// This function should only be called after successfully peeking a [`Lexigram::Set`].
     pub fn new(lexer: &mut Peekable<Lexer<'source>>) -> Self {
         let mut diagnostics = Diagnostics::default();
         let set_token = lexer
@@ -907,6 +924,9 @@ pub struct Binding<'source> {
 }
 
 impl<'source> Binding<'source> {
+    /// # Errors
+    ///
+    /// Returns an error if no valid binding token was encountered.
     pub fn new(lexer: &mut Peekable<Lexer<'source>>) -> Result<Self, Error<'source>> {
         match lexer.peek().copied().transpose().map_err(Error::Lexer)? {
             Some(
@@ -939,34 +959,31 @@ impl<'source> Binding<'source> {
                     {
                         break;
                     }
-                    match Binding::new(lexer) {
-                        Ok(binding) => {
-                            let comma_token = diagnostics
-                                .wrap(lexer.peek().copied())
-                                .filter(|t| t.lexigram == Lexigram::Comma);
-                            bindings.push(NumericBinding {
-                                binding,
-                                comma_token,
-                            });
-                            if comma_token.is_some() {
-                                lexer.next();
-                            } else {
-                                break;
-                            }
-                        }
-                        Err(_) => {
-                            diagnostics.errors.push(Error::MissingToken {
-                                expected: &[
-                                    Lexigram::Ident,
-                                    Lexigram::Discard,
-                                    Lexigram::OpenParen,
-                                    Lexigram::OpenBrace,
-                                    Lexigram::CloseParen,
-                                ],
-                                actual: t,
-                            });
+                    if let Ok(binding) = Binding::new(lexer) {
+                        let comma_token = diagnostics
+                            .wrap(lexer.peek().copied())
+                            .filter(|t| t.lexigram == Lexigram::Comma);
+                        bindings.push(NumericBinding {
+                            binding,
+                            comma_token,
+                        });
+                        if comma_token.is_some() {
+                            lexer.next();
+                        } else {
                             break;
                         }
+                    } else {
+                        diagnostics.errors.push(Error::MissingToken {
+                            expected: &[
+                                Lexigram::Ident,
+                                Lexigram::Discard,
+                                Lexigram::OpenParen,
+                                Lexigram::OpenBrace,
+                                Lexigram::CloseParen,
+                            ],
+                            actual: t,
+                        });
+                        break;
                     }
                 }
                 let close_paren = diagnostics.next_if(lexer, &[Lexigram::CloseParen]);
@@ -1119,6 +1136,7 @@ pub enum BlockResult<'source> {
 }
 
 impl BlockResult<'_> {
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         match self {
             BlockResult::Expression(expression) => expression.is_none(),
@@ -1256,7 +1274,7 @@ impl<'source> Block<'source> {
                         if root && let Some(t) = lexer.peek().copied().transpose().ok().flatten() {
                             diagnostics
                                 .errors
-                                .push(Error::ExpectedStatementOrExpression(t))
+                                .push(Error::ExpectedStatementOrExpression(t));
                         }
                         return Self::build(
                             BlockResult::Expression(expression),

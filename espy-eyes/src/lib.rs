@@ -92,6 +92,9 @@ pub struct Token<'source> {
 }
 
 impl Token<'_> {
+    /// # Errors
+    ///
+    /// Returns an error if a [`Lexigram::String`] or [`Lexigram::Ident`] token contains invalid escape codes.
     pub fn resolve(&self) -> Result<'static, String, EscapeError> {
         fn resolve_escape(chars: &mut std::str::Chars) -> Result<'static, char, EscapeError> {
             let escaped = match chars
@@ -215,7 +218,7 @@ impl<'source> From<&'source str> for Lexer<'source> {
 // These methods combine the `Chars` iterator and the `Peekable` trait without making the cursor innaccessible.
 // `Peekable<Chars>` renders `Chars`'s `as_str` inaccessible,
 // and since `peek` relies on buffering the result of `next` the resulting slice would be useless anyways.
-impl<'source> Lexer<'source> {
+impl Lexer<'_> {
     fn next(&mut self) -> Option<char> {
         let mut chars = self.cursor.char_indices();
         let (_, c) = chars.next()?;
@@ -237,6 +240,7 @@ impl<'source> Lexer<'source> {
     }
 }
 
+#[allow(clippy::copy_iterator)]
 impl<'source> Iterator for Lexer<'source> {
     type Item = Result<'source>;
     fn next(&mut self) -> Option<Self::Item> {

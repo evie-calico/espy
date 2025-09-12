@@ -175,12 +175,14 @@ impl Diagnostic {
 }
 
 pub fn origin_range(origin: &str, source: &str) -> (usize, usize) {
-    let start = origin.as_ptr() as isize - source.as_ptr() as isize;
-    let end = start + origin.len() as isize;
-    if start < 0 || end - start > source.len() as isize {
-        panic!("source string does not contain token origin");
-    }
-    (start as usize, end as usize)
+    let start = usize::try_from(origin.as_ptr() as isize - source.as_ptr() as isize)
+        .expect("origin must start after source string");
+    let end = start + origin.len();
+    assert!(
+        origin.len() < source.len(),
+        "origin must be a subset of source string"
+    );
+    (start, end)
 }
 
 fn expression_origin(expression: &Expression<'_>, source: &str) -> Option<(usize, usize)> {
@@ -188,12 +190,12 @@ fn expression_origin(expression: &Expression<'_>, source: &str) -> Option<(usize
         let first_range = origin_range(first_token.origin, source);
         (
             first_range.0,
-            expression
-                .last_token
-                .map(|last_token| origin_range(last_token.origin, source).1)
-                // I think this can only ever be reached by an incomplete
+            expression.last_token.map_or(
+                // I think this "or" can only ever be reached by an incomplete
                 // expression consisting of only one token.
-                .unwrap_or(first_range.1),
+                first_range.1,
+                |last_token| origin_range(last_token.origin, source).1,
+            ),
         )
     })
 }
@@ -207,11 +209,11 @@ fn diagnose_block(source: &str, block: &Block, for_each: &mut impl FnMut(Diagnos
         for_each(Diagnostic::from_error(error, source));
     }
     for statement in &block.statements {
-        diagnose_statement(source, statement, &mut *for_each)
+        diagnose_statement(source, statement, &mut *for_each);
     }
     match &block.result {
         BlockResult::Expression(expression) => {
-            diagnose_expression(source, expression, &mut *for_each)
+            diagnose_expression(source, expression.as_deref(), &mut *for_each);
         }
         BlockResult::Function(function) => {
             for error in &function.diagnostics.errors {
@@ -256,23 +258,21 @@ fn diagnose_statement(source: &str, statement: &Statement, for_each: &mut impl F
                         }
                         .to_string(),
                         range: Some(anchored_range),
-                    })
+                    });
                 }
                 for_each(diagnostic);
             }
-            diagnose_expression(source, &evaluation.expression, &mut *for_each);
+            diagnose_expression(source, evaluation.expression.as_deref(), &mut *for_each);
         }
         Statement::Set(set) => {
             let set_range = origin_range(set.set_token.origin, source);
-            let anchored_range = set
-                .expression
-                .as_ref()
-                .and_then(|x| x.first_token)
-                .map(|first_token| {
+            let anchored_range = set.expression.as_ref().and_then(|x| x.first_token).map_or(
+                set_range,
+                |first_token| {
                     let (_, last) = origin_range(first_token.origin, source);
                     (set_range.0, last)
-                })
-                .unwrap_or(set_range);
+                },
+            );
             for error in &set.diagnostics.errors {
                 let mut diagnostic = Diagnostic::from_error(error, source);
                 if diagnostic
@@ -283,19 +283,19 @@ fn diagnose_statement(source: &str, statement: &Statement, for_each: &mut impl F
                     diagnostic.secondary.push(Comment {
                         message: "for this assignment".to_string(),
                         range: Some(anchored_range),
-                    })
+                    });
                 }
                 for_each(diagnostic);
             }
-            diagnose_expression(source, &set.target, &mut *for_each);
-            diagnose_expression(source, &set.expression, &mut *for_each);
+            diagnose_expression(source, set.target.as_deref(), &mut *for_each);
+            diagnose_expression(source, set.expression.as_deref(), &mut *for_each);
         }
     }
 }
 
 fn diagnose_expression(
     source: &str,
-    expression: &Option<Box<Expression>>,
+    expression: Option<&Expression>,
     for_each: &mut impl FnMut(Diagnostic),
 ) {
     let Some(expression) = expression else {
@@ -308,7 +308,7 @@ fn diagnose_expression(
             diagnostic.secondary.push(Comment {
                 message: "in this expression".to_string(),
                 range: Some(range),
-            })
+            });
         }
         for_each(diagnostic);
     }
@@ -332,7 +332,7 @@ fn diagnose_expression(
                     });
                     for_each(diagnostic);
                 }
-                diagnose_expression(source, &if_node.condition, for_each);
+                diagnose_expression(source, if_node.condition.as_deref(), for_each);
                 diagnose_block(source, &if_node.first, for_each);
                 diagnose_block(source, &if_node.second, for_each);
             }
@@ -349,10 +349,10 @@ fn diagnose_expression(
                     });
                     for_each(diagnostic);
                 }
-                diagnose_expression(source, &match_node.expression, for_each);
+                diagnose_expression(source, match_node.expression.as_deref(), for_each);
                 for case in &match_node.cases {
-                    diagnose_expression(source, &case.case, for_each);
-                    diagnose_expression(source, &case.expression, for_each);
+                    diagnose_expression(source, case.case.as_deref(), for_each);
+                    diagnose_expression(source, case.expression.as_deref(), for_each);
                 }
             }
             espy::parser::Node::Enum(enum_node) => {
@@ -368,7 +368,7 @@ fn diagnose_expression(
                     });
                     for_each(diagnostic);
                 }
-                diagnose_expression(source, &enum_node.variants, for_each);
+                diagnose_expression(source, enum_node.variants.as_deref(), for_each);
             }
             _ => {}
         }

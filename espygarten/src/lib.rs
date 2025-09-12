@@ -1,8 +1,8 @@
 mod diagnostics;
 
 use crate::diagnostics::origin_range;
+use std::cell::RefCell;
 use std::fmt::Write;
-use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen::prelude::*;
 
 #[derive(Debug, Default)]
@@ -80,6 +80,7 @@ impl espy::ExternFn for PrintFn {
 }
 
 /// Returns a tuple of two tuples containing the line and column number for the start and end positions, respectively.
+#[must_use]
 pub fn find_location(start: usize, end: usize, source: &str) -> ((usize, usize), (usize, usize)) {
     // Count all newlines that occur before the starting position...
     let start_line = 1 + source[..start].chars().filter(|c| *c == '\n').count();
@@ -102,19 +103,18 @@ pub fn find_location(start: usize, end: usize, source: &str) -> ((usize, usize),
 }
 
 /// Returns the lines containing the provided range.
+#[must_use]
 pub fn expand_to_snippet(start: usize, end: usize, source: &str) -> &str {
     let snippet_start = source[..start]
         .char_indices()
         .rev()
         .find(|(_, c)| *c == '\n')
-        .map(|(at, _)| at + "\n".len())
-        .unwrap_or(0);
+        .map_or(0, |(at, _)| at + "\n".len());
     let snippet_end = source[end..]
         .char_indices()
         .find(|(_, c)| *c == '\n')
         // char_indices is treating `end` as the 0th position
-        .map(|(at, _)| at + end)
-        .unwrap_or(source.len());
+        .map_or(source.len(), |(at, _)| at + end);
     &source[snippet_start..snippet_end]
 }
 
@@ -172,6 +172,11 @@ impl std::fmt::Display for MaybeSnippetFmt<'_> {
 }
 
 #[wasm_bindgen]
+#[must_use]
+#[allow(
+    clippy::missing_panics_doc,
+    reason = "textual programs may not produce invalid bytecode"
+)]
 pub fn espy_eval(source: &str) -> String {
     let ast = espy::parser::Block::new(&mut espy::lexer::Lexer::from(source).peekable());
     let mut parser_diagnostics = None;
@@ -197,8 +202,8 @@ pub fn espy_eval(source: &str) -> String {
         return parser_diagnostics;
     }
 
-    match espy::compiler::Program::try_from(ast) {
-        Ok(program) => match espy::interpreter::Program::try_from(Rc::from(program.compile())).expect("textual programs may not produce invalid bytecode").eval(0, &mut Vec::new()) {
+    match espy::compiler::compile(ast) {
+        Ok(program) => match espy::interpreter::Program::try_from(program).expect("textual programs may not produce invalid bytecode").eval() {
             Ok(result) => match espy::Function::try_from(result) {
                 Ok(function) => {
                     let libs = EspygartenLibContainer::default();

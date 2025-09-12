@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 pub use espy_ears as parser;
 pub use espy_eyes as lexer;
 pub use espy_paws as interpreter;
@@ -11,8 +9,11 @@ pub use interpreter::{Error, Extern, ExternFn, ExternFnOwned, ExternOwned, Funct
 pub struct Program(interpreter::Program);
 
 impl Program {
+    /// # Errors
+    ///
+    /// Returns an error if the evaluating the program's root block results in an error
     pub fn eval<'host>(&self) -> Result<Value<'host>, Error<'host>> {
-        self.0.eval(0, &mut Vec::new())
+        self.0.eval()
     }
 }
 
@@ -20,10 +21,10 @@ impl<'source> TryFrom<&'source str> for Program {
     type Error = compiler::Error<'source>;
 
     fn try_from(s: &'source str) -> Result<Self, Self::Error> {
-        compiler::Program::try_from(parser::Block::new(&mut lexer::Lexer::from(s).peekable())).map(
+        compiler::compile(parser::Block::new(&mut lexer::Lexer::from(s).peekable())).map(
             |program| {
                 Program(
-                    interpreter::Program::try_from(Rc::from(program.compile()))
+                    interpreter::Program::try_from(program)
                         .expect("textual programs may not produce invalid bytecode"),
                 )
             },
@@ -33,13 +34,15 @@ impl<'source> TryFrom<&'source str> for Program {
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Rc;
+
     use super::*;
 
     #[test]
     fn arithmetic() {
         let actual = Program::try_from("(1 + 2) * 4").unwrap();
         println!("{actual:?}");
-        assert!(actual.eval().unwrap().eq(12.into()).unwrap())
+        assert!(actual.eval().unwrap().eq(12.into()).unwrap());
     }
 
     #[test]
@@ -48,7 +51,7 @@ mod tests {
             Program::try_from("let (one, two) = 1, 2; let y = 3, _: (4, 5); two * (y.1).0")
                 .unwrap();
         println!("{actual:?}");
-        assert!(actual.eval().unwrap().eq(8.into()).unwrap())
+        assert!(actual.eval().unwrap().eq(8.into()).unwrap());
     }
 
     #[test]
@@ -58,28 +61,28 @@ mod tests {
         )
         .unwrap();
         println!("{actual:?}");
-        assert!(actual.eval().unwrap().eq(6.into()).unwrap())
+        assert!(actual.eval().unwrap().eq(6.into()).unwrap());
     }
 
     #[test]
     fn functions() {
         let actual = Program::try_from("let f = {with x; x * x}; f 4").unwrap();
         println!("{actual:?}");
-        assert!(actual.eval().unwrap().eq(16.into()).unwrap())
+        assert!(actual.eval().unwrap().eq(16.into()).unwrap());
     }
 
     #[test]
     fn closures() {
         let actual = Program::try_from("let f = {let y = 10; with x; x * y}; f 4").unwrap();
         println!("{actual:?}");
-        assert!(actual.eval().unwrap().eq(40.into()).unwrap())
+        assert!(actual.eval().unwrap().eq(40.into()).unwrap());
     }
 
     #[test]
     fn pipes() {
         let actual = Program::try_from("let f = {with args; args.0 * args.1}; 2 |> f 128").unwrap();
         println!("{actual:?}");
-        assert!(actual.eval().unwrap().eq(256.into()).unwrap())
+        assert!(actual.eval().unwrap().eq(256.into()).unwrap());
     }
 
     #[test]
@@ -108,7 +111,7 @@ mod tests {
                 .unwrap()
                 .eq(Value::concat(Some(1).into(), None::<i64>.into()))
                 .unwrap()
-        )
+        );
     }
 
     #[test]
@@ -128,7 +131,7 @@ mod tests {
                 .unwrap()
                 .eq(12.into())
                 .unwrap()
-        )
+        );
     }
 
     #[test]
@@ -150,7 +153,7 @@ mod tests {
                 .unwrap()
                 .eq(12.into())
                 .unwrap()
-        )
+        );
     }
 
     #[test]
@@ -186,7 +189,7 @@ mod tests {
             .unwrap()
             .eq(36.into())
             .unwrap()
-        )
+        );
     }
 
     #[test]
@@ -219,7 +222,7 @@ mod tests {
             .eq(().into())
             .unwrap()
                 && &**print.message.borrow() == "Hello, world!"
-        )
+        );
     }
 
     #[test]
@@ -293,7 +296,7 @@ mod tests {
                     .iter()
                     .map(|s| &**s)
                     .eq(["Hello, world!"])
-        )
+        );
     }
 
     #[test]

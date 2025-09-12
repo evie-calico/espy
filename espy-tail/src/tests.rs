@@ -38,6 +38,7 @@ macro_rules! program {
 
             let mut i = 0;
             $(
+                #[allow(clippy::cast_possible_truncation)]
                 let offset = program.len() as u32;
                 $(program.extend($i);)*
                 program[(block_count + i * size_of::<u32>())..(block_count + (i + 1) * size_of::<u32>())]
@@ -48,6 +49,7 @@ macro_rules! program {
             #[allow(unused)]
             let mut i = 0;
             $(
+                #[allow(clippy::cast_possible_truncation)]
                 let offset = program.len() as u32;
                 program.extend($slit.bytes());
                 program[(string_count + i * size_of::<u32>())..(string_count + (i + 1) * size_of::<u32>())]
@@ -65,7 +67,7 @@ fn variables_and_arithmetic() {
     let mut lexer = Lexer::from("let x = 1 + 2; let y = x * 3; x - y").peekable();
     let block = Block::new(&mut lexer);
     let program = Program::try_from(block).unwrap();
-    let actual = program.compile();
+    let actual = program.compile().unwrap();
     let expected = program![
         fn _main {
             PushI64(1),
@@ -87,7 +89,7 @@ fn simple_blocks() {
     let mut lexer = Lexer::from("let x = 2; 1 + { let y = 3; x * y }").peekable();
     let block = Block::new(&mut lexer);
     let program = Program::try_from(block).unwrap();
-    let actual = program.compile();
+    let actual = program.compile().unwrap();
     let expected = program![
         fn _main {
             PushI64(2i64),
@@ -108,7 +110,7 @@ fn function_creation() {
     let mut lexer = Lexer::from("let x = 2; with y; x * y").peekable();
     let block = Block::new(&mut lexer);
     let program = Program::try_from(block).unwrap();
-    let actual = program.compile();
+    let actual = program.compile().unwrap();
     let expected = program![
         fn _main {
             PushI64(2i64),
@@ -133,7 +135,7 @@ fn function_usage() {
     let mut lexer = Lexer::from("let f = {with x; x * x}; f 2").peekable();
     let block = Block::new(&mut lexer);
     let program = Program::try_from(block).unwrap();
-    let actual = program.compile();
+    let actual = program.compile().unwrap();
     let expected = program![
         fn _main {
             Clone(builtins::ANY),
@@ -160,7 +162,7 @@ fn if_expression() {
     let mut lexer = Lexer::from("if true then 1 else then 2 end").peekable();
     let block = Block::new(&mut lexer);
     let program = Program::try_from(block).unwrap();
-    let actual = program.compile();
+    let actual = program.compile().unwrap();
     let expected = program![
         fn _main {
             PushTrue,
@@ -178,7 +180,7 @@ fn option_enum() {
     let mut lexer = Lexer::from("let Option = enum Some: any, None: () end;").peekable();
     let block = Block::new(&mut lexer);
     let program = Program::try_from(block).unwrap();
-    let actual = program.compile();
+    let actual = program.compile().unwrap();
     let expected = program![
         let some = "Some";
         let none = "None";
@@ -200,7 +202,7 @@ fn tuple_indexing() {
     let mut lexer = Lexer::from("let x = 1, 2; x.1").peekable();
     let block = Block::new(&mut lexer);
     let program = Program::try_from(block).unwrap();
-    let actual = program.compile();
+    let actual = program.compile().unwrap();
     let expected = program![
         fn _main {
             PushI64(1i64),
@@ -219,7 +221,7 @@ fn named_tuple_indexing() {
     let mut lexer = Lexer::from("let x = first: 1, second: 2; x.second").peekable();
     let block = Block::new(&mut lexer);
     let program = Program::try_from(block).unwrap();
-    let actual = program.compile();
+    let actual = program.compile().unwrap();
     let expected = program![
         let first = "first";
         let second = "second";
@@ -242,7 +244,7 @@ fn builtins() {
     let mut lexer = Lexer::from("let OptionI64 = option i64; OptionI64.Some 1").peekable();
     let block = Block::new(&mut lexer);
     let program = Program::try_from(block).unwrap();
-    let actual = program.compile();
+    let actual = program.compile().unwrap();
     let expected = program! {
         let some = "Some";
         fn _main {
@@ -264,7 +266,7 @@ fn string() {
     let mut lexer = Lexer::from("\"string\"").peekable();
     let block = Block::new(&mut lexer);
     let program = Program::try_from(block).unwrap();
-    let actual = program.compile();
+    let actual = program.compile().unwrap();
     let expected = program! {
         let string = "string";
         fn _main {

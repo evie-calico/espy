@@ -8,3 +8,6 @@ espy-eyes.path = "../espy-eyes"
 espy-ears.path = "../espy-ears"
 espy-tail.path = "../espy-tail"
 espy-paws.path = "../espy-paws"
+
+[lints]
+workspace = true

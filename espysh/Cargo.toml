@@ -7,3 +7,6 @@ edition = "2024"
 clap = { version = "4", features = ["derive"] }
 espy.path = "../espy"
 espystandard.path = "../espystandard"
+
+[lints]
+workspace = true

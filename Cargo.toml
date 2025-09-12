@@ -2,3 +2,9 @@
 members = ["espy-ears", "espy-eyes", "espy-heart", "espy-paws", "espy-tail", "espygarten", "espy", "espysh", "espystandard"]
 
 resolver = "3"
+
+[workspace.lints.clippy]
+semicolon_if_nothing_returned = "warn"
+missing_errors_doc = "warn"
+map_unwrap_or = "warn"
+must_use_candidate = "warn"

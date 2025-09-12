@@ -10,7 +10,6 @@ pub type ProgramCounter = u32;
 pub type StackPointer = i32;
 pub type BlockId = u32;
 pub type StringId = u32;
-pub type StringSet = u32;
 
 pub mod instruction {
     pub const CLONE: u8 = 0;
@@ -61,6 +60,7 @@ pub mod builtins {
     pub const OPTION: StackPointer = -4;
     pub const MUT: StackPointer = -5;
 
+    #[must_use]
     pub fn from_str(s: &str) -> Option<StackPointer> {
         match s {
             "any" => Some(ANY),

@@ -27,6 +27,7 @@ pub struct StdLib {
 }
 
 impl StdLib {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             iter: IterLib::new(),
@@ -83,6 +84,7 @@ pub struct IterLib {
 }
 
 impl IterLib {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             filter: IterFilterFn::new(),
@@ -242,6 +244,7 @@ pub struct IterRepeatFn {
 }
 
 impl IterRepeatFn {
+    #[must_use]
     pub const fn new() -> Self {
         Self { iter: RepeatIter }
     }
@@ -282,6 +285,7 @@ pub struct IterTakeFn {
 }
 
 impl IterTakeFn {
+    #[must_use]
     pub const fn new() -> Self {
         Self { iter: TakeIter }
     }
@@ -340,6 +344,7 @@ pub struct IterMapFn {
 }
 
 impl IterMapFn {
+    #[must_use]
     pub const fn new() -> Self {
         Self { iter: MapIter }
     }
@@ -397,6 +402,7 @@ pub struct IterFilterFn {
 }
 
 impl IterFilterFn {
+    #[must_use]
     pub const fn new() -> Self {
         Self { iter: FilterIter }
     }
@@ -448,6 +454,7 @@ pub struct StringLib {
 }
 
 impl StringLib {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             concat: StringConcatFn,
@@ -500,6 +507,7 @@ pub struct OptionLib {
 }
 
 impl OptionLib {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             unwrap: OptionUnwrapFn,
