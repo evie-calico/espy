@@ -218,7 +218,7 @@ pub struct RangeIter {
 }
 
 impl ExternFnOwned for RangeIter {
-    fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+    fn call<'host>(self: Rc<Self>, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         let current = argument.into_i64()?;
         Ok(Value::from(if current < self.limit {
             Some(Value::Tuple(Tuple::from([
@@ -538,7 +538,7 @@ pub struct SplitIter {
 }
 
 impl ExternFnOwned for SplitIter {
-    fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+    fn call<'host>(self: Rc<Self>, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         let cursor = argument.into_i64()? as usize;
         Ok(Value::from(self.string.get(cursor..).map(|remaining| {
             let (result, cursor) = remaining
@@ -582,7 +582,7 @@ pub struct SplitWhitespaceIter {
 }
 
 impl ExternFnOwned for SplitWhitespaceIter {
-    fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+    fn call<'host>(self: Rc<Self>, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         let cursor = argument.into_i64()? as usize;
         Ok(Value::from(self.string.get(cursor..).map(|remaining| {
             let (result, cursor) = remaining.split_whitespace().next().map_or(

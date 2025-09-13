@@ -1,4 +1,5 @@
 use espy_heart::prelude::*;
+use std::any::Any;
 use std::cell::RefCell;
 use std::mem;
 use std::rc::{Rc, Weak};
@@ -177,13 +178,27 @@ impl<'host> Value<'host> {
     pub fn index(&self, index: impl Into<Value<'host>>) -> Result<Value<'host>, Error<'host>> {
         match (self, index.into()) {
             (Value::Borrow(external), index) => external.index(index),
-            (Value::Owned(external), index) => external.index(index),
+            (Value::Owned(external), index) => external.clone().index(index),
             (_, Value::I64(index)) => self.get(index),
             (_, Value::String(index)) => self.find(index),
             (_, index) => Err(Error::IndexNotFound {
                 index,
                 container: self.clone(),
             }),
+        }
+    }
+
+    /// Attempts to downcast instances of [`Value::Borrow`] and [`Value::Owned`] into `&T`.
+    ///
+    /// Note that [`Extern`] and [`ExternOwned`] implementations have to opt into this behavior
+    /// by implementing their `any` functions.
+    /// The default `any` implementation will result in this function returning `None`.
+    #[must_use]
+    pub fn downcast_extern<T: Any>(&self) -> Option<&T> {
+        match self {
+            Value::Borrow(borrow) => (*borrow).any()?.downcast_ref(),
+            Value::Owned(owned) => (*owned).any()?.downcast_ref(),
+            _ => None,
         }
     }
 }
@@ -1644,8 +1659,16 @@ impl Program {
 }
 
 #[allow(clippy::missing_errors_doc)]
-pub trait Extern {
+pub trait Extern: Any {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>>;
+
+    /// Allows the [`Extern`] trait object to be downcasted back into its original type.
+    ///
+    /// Implementing this method is optional.
+    /// The default implementation will always return `None` and reject all downcasting attempts via [`Value::downcast_extern`].
+    fn any(&self) -> Option<&dyn Any> {
+        None
+    }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{external value}}")
@@ -1653,8 +1676,21 @@ pub trait Extern {
 }
 
 #[allow(clippy::missing_errors_doc)]
-pub trait ExternOwned {
-    fn index<'host>(&self, index: Value<'host>) -> Result<Value<'host>, Error<'host>>;
+pub trait ExternOwned: Any {
+    /// Note that self's reference count will always be greater than one,
+    /// so [`Rc::unwrap_or_clone`], [`Rc::get_mut`], etc. are useless.
+    fn index<'host>(self: Rc<Self>, index: Value<'host>) -> Result<Value<'host>, Error<'host>>;
+
+    /// Allows the [`ExternOwned`] trait object to be downcasted back into its original type.
+    ///
+    /// Implementing this method is optional.
+    /// The default implementation will always return `None` and reject all downcasting attempts via [`Value::downcast_extern`].
+    ///
+    /// There is no way to downcast from an [`Rc<dyn Any>`],
+    /// so this functin has the same signature as [`Extern`]'s equivalent.
+    fn any(&self) -> Option<&dyn Any> {
+        None
+    }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{external value}}")
@@ -1672,7 +1708,9 @@ pub trait ExternFn {
 
 #[allow(clippy::missing_errors_doc)]
 pub trait ExternFnOwned {
-    fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>>;
+    /// Note that self's reference count will always be greater than one when a function is called from espy,
+    /// so [`Rc::unwrap_or_clone`], [`Rc::get_mut`], etc. are useless.
+    fn call<'host>(self: Rc<Self>, argument: Value<'host>) -> Result<Value<'host>, Error<'host>>;
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{external function}}")

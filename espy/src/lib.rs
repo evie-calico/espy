@@ -165,7 +165,10 @@ mod tests {
                     num: i64,
                 }
                 impl ExternFnOwned for Owned {
-                    fn call<'host>(&self, arg: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+                    fn call<'host>(
+                        self: Rc<Self>,
+                        arg: Value<'host>,
+                    ) -> Result<Value<'host>, Error<'host>> {
                         Ok(Value::from(arg.into_i64()? * self.num))
                     }
                 }
@@ -352,6 +355,60 @@ mod tests {
             .into_i64()
             .unwrap(),
             55
+        );
+    }
+
+    #[test]
+    fn downcast() {
+        #[derive(Debug, PartialEq)]
+        struct Secret {
+            number: i64,
+        }
+
+        impl Extern for Secret {
+            fn index<'host>(
+                &'host self,
+                index: Value<'host>,
+            ) -> Result<Value<'host>, Error<'host>> {
+                Err(Error::IndexNotFound {
+                    index,
+                    container: Value::borrow(self),
+                })
+            }
+
+            fn any(&self) -> Option<&dyn std::any::Any> {
+                Some(self)
+            }
+
+            fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "secret value")
+            }
+        }
+
+        let one = Secret { number: 1 };
+        let two = Secret { number: 2 };
+        let five = Secret { number: 5 };
+
+        assert_eq!(
+            Some(&five),
+            Function::try_from(
+                Program::try_from("with (one, two, five); five")
+                    .unwrap()
+                    .eval()
+                    .unwrap(),
+            )
+            .unwrap()
+            .piped(Value::Tuple(
+                [
+                    Value::borrow(&one),
+                    Value::borrow(&two),
+                    Value::borrow(&five)
+                ]
+                .into()
+            ))
+            .eval()
+            .unwrap()
+            .downcast_extern::<Secret>()
         );
     }
 }
