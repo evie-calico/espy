@@ -19,33 +19,21 @@ impl std::fmt::Display for LibraryError {
 impl std::error::Error for LibraryError {}
 
 #[derive(Debug, Default)]
-pub struct StdLib {
-    iter: IterLib,
-    string: StringLib,
-    option: OptionLib,
-    type_of: TypeofFn,
-}
-
-impl StdLib {
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            iter: IterLib::new(),
-            string: StringLib::new(),
-            option: OptionLib::new(),
-            type_of: TypeofFn,
-        }
-    }
-}
+pub struct StdLib;
 
 impl Extern for StdLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        static ITER: IterLib = IterLib::new();
+        static STRING: StringLib = StringLib;
+        static OPTION: OptionLib = OptionLib::new();
+        static TYPE_OF: TypeofFn = TypeofFn;
+
         let index = index.into_str()?;
         match &*index {
-            "iter" => Ok(Value::borrow(&self.iter)),
-            "string" => Ok(Value::borrow(&self.string)),
-            "option" => Ok(Value::borrow(&self.option)),
-            "typeof" => Ok(Function::borrow(&self.type_of).into()),
+            "iter" => Ok(Value::borrow(&ITER)),
+            "string" => Ok(Value::borrow(&STRING)),
+            "option" => Ok(Value::borrow(&OPTION)),
+            "typeof" => Ok(Function::borrow(&TYPE_OF).into()),
             _ => Err(Error::IndexNotFound {
                 index: index.into(),
                 container: Value::borrow(self),
@@ -449,24 +437,19 @@ impl ExternFn for FilterIter {
 }
 
 #[derive(Debug, Default)]
-pub struct StringLib {
-    concat: StringConcatFn,
-}
-
-impl StringLib {
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            concat: StringConcatFn,
-        }
-    }
-}
+pub struct StringLib;
 
 impl Extern for StringLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        static CONCAT: StringConcatFn = StringConcatFn;
+        static SPLIT: StringSplitFn = StringSplitFn;
+        static SPLIT_WHITESPACE: StringSplitWhitespaceFn = StringSplitWhitespaceFn;
+
         let index = index.into_str()?;
         match &*index {
-            "concat" => Ok(Function::borrow(&self.concat).into()),
+            "concat" => Ok(Function::borrow(&CONCAT).into()),
+            "split" => Ok(Function::borrow(&SPLIT).into()),
+            "split_whitespace" => Ok(Function::borrow(&SPLIT_WHITESPACE).into()),
             _ => Err(Error::IndexNotFound {
                 index: index.into(),
                 container: Value::borrow(self),
@@ -497,6 +480,113 @@ impl ExternFn for StringConcatFn {
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std.string.concat function")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct StringSplitFn;
+
+impl ExternFn for StringSplitFn {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let string = argument.get(0)?.into_str()?;
+        let pattern = argument.get(1)?.into_str()?;
+
+        Ok(Value::Tuple(
+            [
+                Value::from(0),
+                Function::owned(Rc::new(SplitIter { pattern, string })).into(),
+            ]
+            .into(),
+        ))
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.string.split function")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct SplitIter {
+    pattern: Rc<str>,
+    string: Rc<str>,
+}
+
+impl ExternFnOwned for SplitIter {
+    fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let cursor = argument.into_i64()? as usize;
+        Ok(Value::from(self.string.get(cursor..).map(|remaining| {
+            let (result, cursor) = remaining
+                .split_once(&*self.pattern)
+                .map_or((remaining, self.string.len() + 1), |(result, _)| {
+                    (result, cursor + result.len() + self.pattern.len())
+                });
+            Value::Tuple([(cursor as i64).into(), Value::String(Rc::from(result))].into())
+        })))
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.string.split iterator")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct StringSplitWhitespaceFn;
+
+impl ExternFn for StringSplitWhitespaceFn {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let string = argument.into_str()?;
+
+        Ok(Value::Tuple(
+            [
+                Value::from(0),
+                Function::owned(Rc::new(SplitWhitespaceIter { string })).into(),
+            ]
+            .into(),
+        ))
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.string.split_whitespace function")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct SplitWhitespaceIter {
+    string: Rc<str>,
+}
+
+impl ExternFnOwned for SplitWhitespaceIter {
+    fn call<'host>(&self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let cursor = argument.into_i64()? as usize;
+        Ok(Value::from(self.string.get(cursor..).map(|remaining| {
+            let (result, cursor) = remaining.split_whitespace().next().map_or(
+                (remaining, self.string.len()),
+                |result| {
+                    (
+                        result,
+                        cursor
+                            + result.len()
+                            + (result.as_ptr() as usize - remaining.as_ptr() as usize),
+                    )
+                },
+            );
+            Value::Tuple(
+                [
+                    (if cursor == self.string.len() {
+                        i64::MAX
+                    } else {
+                        cursor as i64
+                    })
+                    .into(),
+                    Value::String(Rc::from(result)),
+                ]
+                .into(),
+            )
+        })))
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.string.split_whitespace iterator")
     }
 }
 

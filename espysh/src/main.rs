@@ -44,7 +44,7 @@ impl espy::Extern for EspyshLibContainer {
 
 fn main() {
     static LIB: EspyshLibContainer = EspyshLibContainer {
-        std: espystandard::StdLib::new(),
+        std: espystandard::StdLib,
     };
     let cli = Cli::parse();
     let source = if let Some(program) = cli.input.program {
