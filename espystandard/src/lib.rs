@@ -23,7 +23,7 @@ pub struct StdLib;
 
 impl Extern for StdLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        static ITER: IterLib = IterLib::new();
+        static ITER: IterLib = IterLib;
         static STRING: StringLib = StringLib;
         static OPTION: OptionLib = OptionLib::new();
         static TYPE_OF: TypeofFn = TypeofFn;
@@ -60,45 +60,33 @@ impl ExternFn for TypeofFn {
 }
 
 #[derive(Debug, Default)]
-pub struct IterLib {
-    filter: IterFilterFn,
-    fold: IterFoldFn,
-    foreach: IterForeachFn,
-    map: IterMapFn,
-    range: IterRangeFn,
-    reduce: IterReduceFn,
-    repeat: IterRepeatFn,
-    take: IterTakeFn,
-}
-
-impl IterLib {
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            filter: IterFilterFn::new(),
-            fold: IterFoldFn,
-            foreach: IterForeachFn,
-            map: IterMapFn::new(),
-            range: IterRangeFn,
-            reduce: IterReduceFn,
-            repeat: IterRepeatFn::new(),
-            take: IterTakeFn::new(),
-        }
-    }
-}
+pub struct IterLib;
 
 impl Extern for IterLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        static FILTER: IterFilterFn = IterFilterFn::new();
+        static FOLD: IterFoldFn = IterFoldFn;
+        static FOREACH: IterForeachFn = IterForeachFn;
+        static MAP: IterMapFn = IterMapFn::new();
+        static RANGE: IterRangeFn = IterRangeFn;
+        static REDUCE: IterReduceFn = IterReduceFn;
+        static REDUCE_ONCE: IterReduceOnceFn = IterReduceOnceFn;
+        static REPEAT: IterRepeatFn = IterRepeatFn::new();
+        static SKIP: IterSkipFn = IterSkipFn;
+        static TAKE: IterTakeFn = IterTakeFn;
+
         let index = index.into_str()?;
         match &*index {
-            "filter" => Ok(Function::borrow(&self.filter).into()),
-            "fold" => Ok(Function::borrow(&self.fold).into()),
-            "foreach" => Ok(Function::borrow(&self.foreach).into()),
-            "map" => Ok(Function::borrow(&self.map).into()),
-            "range" => Ok(Function::borrow(&self.range).into()),
-            "reduce" => Ok(Function::borrow(&self.reduce).into()),
-            "repeat" => Ok(Function::borrow(&self.repeat).into()),
-            "take" => Ok(Function::borrow(&self.take).into()),
+            "filter" => Ok(Function::borrow(&FILTER).into()),
+            "fold" => Ok(Function::borrow(&FOLD).into()),
+            "foreach" => Ok(Function::borrow(&FOREACH).into()),
+            "map" => Ok(Function::borrow(&MAP).into()),
+            "range" => Ok(Function::borrow(&RANGE).into()),
+            "reduce" => Ok(Function::borrow(&REDUCE).into()),
+            "reduce_once" => Ok(Function::borrow(&REDUCE_ONCE).into()),
+            "repeat" => Ok(Function::borrow(&REPEAT).into()),
+            "skip" => Ok(Function::borrow(&SKIP).into()),
+            "take" => Ok(Function::borrow(&TAKE).into()),
             _ => Err(Error::IndexNotFound {
                 index: index.into(),
                 container: Value::borrow(self),
@@ -181,6 +169,27 @@ impl ExternFn for IterReduceFn {
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std.iter.reduce function")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct IterReduceOnceFn;
+
+impl ExternFn for IterReduceOnceFn {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let iterator = argument.get(0)?;
+        let next = argument.get(1)?.into_function()?;
+        Ok(next
+            .piped(iterator)
+            .eval()?
+            .into_option()?
+            .map(|x| x.get(1))
+            .transpose()?
+            .into())
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.iter.reduce_once function")
     }
 }
 
@@ -268,26 +277,43 @@ impl ExternFn for RepeatIter {
 }
 
 #[derive(Debug, Default)]
-pub struct IterTakeFn {
-    iter: TakeIter,
-}
+pub struct IterSkipFn;
 
-impl IterTakeFn {
-    #[must_use]
-    pub const fn new() -> Self {
-        Self { iter: TakeIter }
+impl ExternFn for IterSkipFn {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        let mut iterator = argument.get(0)?;
+        let next = argument.get(1)?.into_function()?;
+        let limit = argument.get(2)?.into_i64()?;
+        for _ in 0..limit {
+            if let Some(result) = next.clone().piped(iterator.clone()).eval()?.into_option()? {
+                iterator = result.get(0)?;
+            } else {
+                break;
+            }
+        }
+
+        Ok(Value::Tuple([iterator, next.into()].into()))
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.iter.skip function")
     }
 }
 
+#[derive(Debug, Default)]
+pub struct IterTakeFn;
+
 impl ExternFn for IterTakeFn {
     fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        static ITER: TakeIter = TakeIter;
+
         let iterator = argument.get(0)?;
         let next = argument.get(1)?;
         let count = argument.get(2)?;
 
         Ok(Value::Tuple(Tuple::from([
             Value::Tuple(Tuple::from([iterator, count])),
-            Function::borrow(&self.iter).piped(next).into(),
+            Function::borrow(&ITER).piped(next).into(),
         ])))
     }
 
