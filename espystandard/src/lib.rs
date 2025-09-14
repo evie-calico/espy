@@ -468,12 +468,15 @@ pub struct StringLib;
 impl Extern for StringLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         static CONCAT: StringConcatFn = StringConcatFn;
+        static FROM_I64: StringFromI64Fn = StringFromI64Fn;
+        static PARSE_I64: StringParseI64Fn = StringParseI64Fn;
         static SPLIT: StringSplitFn = StringSplitFn;
         static SPLIT_WHITESPACE: StringSplitWhitespaceFn = StringSplitWhitespaceFn;
 
         let index = index.into_str()?;
         match &*index {
             "concat" => Ok(Function::borrow(&CONCAT).into()),
+            "from_i64" => Ok(Function::borrow(&FROM_I64).into()),
             "split" => Ok(Function::borrow(&SPLIT).into()),
             "split_whitespace" => Ok(Function::borrow(&SPLIT_WHITESPACE).into()),
             _ => Err(Error::IndexNotFound {
@@ -506,6 +509,39 @@ impl ExternFn for StringConcatFn {
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std.string.concat function")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct StringFromI64Fn;
+
+impl ExternFn for StringFromI64Fn {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        Ok(Value::String(
+            argument.into_i64()?.to_string().as_str().into(),
+        ))
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.string.from_i64 function")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct StringParseI64Fn;
+
+impl ExternFn for StringParseI64Fn {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        Ok(argument
+            .into_str()?
+            .parse::<i64>()
+            .ok()
+            .map(Value::I64)
+            .into())
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.string.parse_i64 function")
     }
 }
 
