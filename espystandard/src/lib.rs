@@ -25,7 +25,7 @@ impl Extern for StdLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         static ITER: IterLib = IterLib;
         static STRING: StringLib = StringLib;
-        static OPTION: OptionLib = OptionLib::new();
+        static OPTION: OptionLib = OptionLib;
         static TYPE_OF: TypeofFn = TypeofFn;
 
         let index = index.into_str()?;
@@ -617,27 +617,19 @@ impl ExternFnOwned for SplitWhitespaceIter {
 }
 
 #[derive(Debug, Default)]
-pub struct OptionLib {
-    unwrap: OptionUnwrapFn,
-    expect: OptionExpectFn,
-}
-
-impl OptionLib {
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            unwrap: OptionUnwrapFn,
-            expect: OptionExpectFn,
-        }
-    }
-}
+pub struct OptionLib;
 
 impl Extern for OptionLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        static UNWRAP: OptionUnwrapFn = OptionUnwrapFn;
+        static UNWRAP_OR: OptionUnwrapOrFn = OptionUnwrapOrFn;
+        static EXPECT: OptionExpectFn = OptionExpectFn;
+
         let index = index.into_str()?;
         match &*index {
-            "unwrap" => Ok(Function::borrow(&self.unwrap).into()),
-            "expect" => Ok(Function::borrow(&self.expect).into()),
+            "expect" => Ok(Function::borrow(&EXPECT).into()),
+            "unwrap" => Ok(Function::borrow(&UNWRAP).into()),
+            "unwrap_or" => Ok(Function::borrow(&UNWRAP_OR).into()),
             _ => Err(Error::IndexNotFound {
                 index: index.into(),
                 container: Value::borrow(self),
@@ -660,6 +652,19 @@ impl ExternFn for OptionUnwrapFn {
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std.option.unwrap function")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct OptionUnwrapOrFn;
+
+impl ExternFn for OptionUnwrapOrFn {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        Ok(argument.get(0)?.into_option()?.unwrap_or(argument.get(1)?))
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.option.unwrap_or function")
     }
 }
 
