@@ -472,13 +472,16 @@ impl Extern for StringLib {
         static PARSE_I64: StringParseI64Fn = StringParseI64Fn;
         static SPLIT: StringSplitFn = StringSplitFn;
         static SPLIT_WHITESPACE: StringSplitWhitespaceFn = StringSplitWhitespaceFn;
+        static TRIM_WHITESPACE: StringTrimWhitespaceFn = StringTrimWhitespaceFn;
 
         let index = index.into_str()?;
         match &*index {
             "concat" => Ok(Function::borrow(&CONCAT).into()),
             "from_i64" => Ok(Function::borrow(&FROM_I64).into()),
+            "parse_i64" => Ok(Function::borrow(&PARSE_I64).into()),
             "split" => Ok(Function::borrow(&SPLIT).into()),
             "split_whitespace" => Ok(Function::borrow(&SPLIT_WHITESPACE).into()),
+            "trim_whitespace" => Ok(Function::borrow(&TRIM_WHITESPACE).into()),
             _ => Err(Error::IndexNotFound {
                 index: index.into(),
                 container: Value::borrow(self),
@@ -649,6 +652,19 @@ impl ExternFnOwned for SplitWhitespaceIter {
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std.string.split_whitespace iterator")
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct StringTrimWhitespaceFn;
+
+impl ExternFn for StringTrimWhitespaceFn {
+    fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
+        Ok(Value::String(argument.into_str()?.trim().into()))
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::write!(f, "std.string.split_whitespace function")
     }
 }
 
