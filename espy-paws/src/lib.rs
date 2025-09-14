@@ -93,10 +93,18 @@ impl<'host> Value<'host> {
                 }),
             Value::Type(Type::Option(ty)) => match index {
                 0 => Ok(Value::Function(Rc::new(
-                    FunctionAction::Some((**ty).clone()).into(),
+                    FunctionAction::OptionCase {
+                        some: true,
+                        ty: (**ty).clone(),
+                    }
+                    .into(),
                 ))),
                 1 => Ok(Value::Function(Rc::new(
-                    FunctionAction::None((**ty).clone()).into(),
+                    FunctionAction::OptionCase {
+                        some: false,
+                        ty: (**ty).clone(),
+                    }
+                    .into(),
                 ))),
                 _ => Err(Error::IndexNotFound {
                     index: index.into(),
@@ -151,10 +159,18 @@ impl<'host> Value<'host> {
             }
             Value::Type(Type::Option(ty)) => match &*index {
                 "Some" => Ok(Value::Function(Rc::new(
-                    FunctionAction::Some((**ty).clone()).into(),
+                    FunctionAction::OptionCase {
+                        some: true,
+                        ty: (**ty).clone(),
+                    }
+                    .into(),
                 ))),
                 "None" => Ok(Value::Function(Rc::new(
-                    FunctionAction::None((**ty).clone()).into(),
+                    FunctionAction::OptionCase {
+                        some: false,
+                        ty: (**ty).clone(),
+                    }
+                    .into(),
                 ))),
                 _ => Err(Error::IndexNotFound {
                     container: self.clone(),
@@ -293,7 +309,6 @@ impl From<ComplexType> for Value<'_> {
 
 impl std::fmt::Debug for Value<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Storage::")?;
         match self {
             Value::Unit => write!(f, "Unit"),
             Value::Tuple(tuple) => write!(f, "Tuple({tuple:?})"),
@@ -342,6 +357,7 @@ impl<'host> Value<'host> {
             }
             (Value::I64(l), Value::I64(r)) => Ok(l == r),
             (Value::Bool(l), Value::Bool(r)) => Ok(l == r),
+            (Value::String(l), Value::String(r)) => Ok(l == r),
             (Value::EnumVariant(l), Value::EnumVariant(r)) => Ok(l.variant == r.variant
                 && Rc::ptr_eq(&l.definition, &r.definition)
                 && Rc::try_unwrap(l)
@@ -989,10 +1005,10 @@ impl<'host> Function<'host> {
                     Value::Mut(Mut::new(Rc::new(RefCell::new(self.argument))))
                 }
             }
-            FunctionAction::Option => {
+            FunctionAction::OptionConstructor => {
                 Type::Option(Rc::new(self.argument.into_complex_type()?)).into()
             }
-            FunctionAction::Some(ty) => {
+            FunctionAction::OptionCase { some: true, ty } => {
                 if self.argument.type_of()? != ty {
                     return Err(Error::type_error(self.argument, ty));
                 }
@@ -1001,7 +1017,7 @@ impl<'host> Function<'host> {
                     ty,
                 }
             }
-            FunctionAction::None(ty) => {
+            FunctionAction::OptionCase { some: false, ty } => {
                 self.argument.into_unit()?;
                 Value::Option { contents: None, ty }
             }
@@ -1042,9 +1058,11 @@ enum FunctionAction<'host> {
         definition: Rc<EnumType>,
     },
     Mut,
-    Option,
-    Some(ComplexType),
-    None(ComplexType),
+    OptionConstructor,
+    OptionCase {
+        some: bool,
+        ty: ComplexType,
+    },
     Borrow(&'host dyn ExternFn),
     Owned(Rc<dyn ExternFnOwned>),
 }
@@ -1086,9 +1104,9 @@ impl std::fmt::Debug for FunctionAction<'_> {
                 .field("definition", definition)
                 .finish(),
             Self::Mut => write!(f, "Mut"),
-            Self::Option => write!(f, "Option"),
-            Self::Some(arg0) => f.debug_tuple("Some").field(arg0).finish(),
-            Self::None(arg0) => f.debug_tuple("None").field(arg0).finish(),
+            Self::OptionConstructor => write!(f, "Option"),
+            Self::OptionCase { some: true, ty } => f.debug_tuple("Some").field(ty).finish(),
+            Self::OptionCase { some: false, ty } => f.debug_tuple("None").field(ty).finish(),
             Self::Borrow(arg0) => arg0.debug(f),
             Self::Owned(arg0) => arg0.debug(f),
         }
@@ -1453,7 +1471,9 @@ impl Program {
                             stack.push(Type::I64.into());
                         }
                         builtins::OPTION => {
-                            stack.push(Value::Function(Rc::new(FunctionAction::Option.into())));
+                            stack.push(Value::Function(Rc::new(
+                                FunctionAction::OptionConstructor.into(),
+                            )));
                         }
                         builtins::MUT => {
                             stack.push(Value::Function(Rc::new(FunctionAction::Mut.into())));
@@ -1573,9 +1593,47 @@ impl Program {
                         } = &function.action
                         && subject.definition == *definition
                     {
-                        stack.push((subject.variant == *variant).into());
+                        // Destructuring changes the value forwarded to the match arm.
+                        if subject.variant == *variant {
+                            program.pop(stack)?;
+                            stack.push(subject.contents.clone());
+
+                            stack.push(true.into());
+                        } else {
+                            stack.push(false.into());
+                        }
+                    } else if let Value::Option { contents, ty } = &subject
+                        && let Value::Function(function) = &candidate
+                        && let FunctionAction::OptionCase {
+                            some,
+                            ty: expected_ty,
+                        } = &function.action
+                    {
+                        match (contents, some) {
+                            (Some(contents), true) => {
+                                if !ty.compare(expected_ty) {
+                                    return Err(Error::type_error(
+                                        subject,
+                                        Type::Option(Rc::new(expected_ty.clone())),
+                                    ));
+                                }
+                                // Destructuring changes the value forwarded to the match arm.
+                                program.pop(stack)?;
+                                stack.push((**contents).clone());
+                                stack.push(true.into());
+                            }
+                            (None, false) => {
+                                // Destructuring changes the value forwarded to the match arm.
+                                program.pop(stack)?;
+                                stack.push(().into());
+                                stack.push(true.into());
+                            }
+                            _ => {
+                                stack.push(false.into());
+                            }
+                        }
                     } else {
-                        stack.push(subject.eq(candidate)?.into());
+                        stack.push(subject.clone().eq(candidate)?.into());
                     }
                 }
                 instruction::EQUAL_TO => {
