@@ -112,8 +112,9 @@ checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
 name = "dst-factory"
-version = "0.2.3"
-source = "git+ssh://git@github.com/evie-calico/dst-factory#d0a538ba925f07b32b7e7bf03cafc2846c756cd2"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0fe26ce426128a274de7e5cf07f12bcfe03cae6d9a5f6480ff86bfd90bb931a"
 dependencies = [
  "proc-macro2",
  "quote",
