@@ -644,6 +644,7 @@ impl<'source> Program<'source> {
                     self.add_block(block_id, if_block.second, scope.child())?;
 
                     resolve_jump(&mut block!(), jump_destination);
+                    scope.stack_pointer += 1;
                 }
                 Node::Field {
                     dot_token: _,
