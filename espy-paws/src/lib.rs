@@ -1470,6 +1470,9 @@ impl Program {
                         builtins::I64 => {
                             stack.push(Type::I64.into());
                         }
+                        builtins::STRING => {
+                            stack.push(Type::String.into());
+                        }
                         builtins::OPTION => {
                             stack.push(Value::Function(Rc::new(
                                 FunctionAction::OptionConstructor.into(),

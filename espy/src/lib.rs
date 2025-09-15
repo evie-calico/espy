@@ -88,7 +88,7 @@ mod tests {
     #[test]
     fn enums_usage() {
         let actual =
-            Program::try_from("let Option = enum Some: any, None: unit end; Option.Some 1")
+            Program::try_from("let Option = enum Some: Any, None: Unit end; Option.Some 1")
                 .unwrap();
         println!("{actual:?}");
         let (variant, value) = interpreter::EnumVariant::try_from(actual.eval().unwrap())
@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn options() {
         let actual = Program::try_from(
-            "let OptionI64 = option i64; (OptionI64.Some 1), (OptionI64.None ())",
+            "let OptionI64 = Option I64; (OptionI64.Some 1), (OptionI64.None ())",
         )
         .unwrap();
         println!("{actual:?}");
@@ -327,12 +327,12 @@ mod tests {
                 Program::try_from(
                     "with foreach;
                 let countdown = {
-                    let item = option i64, i64;
+                    let Item = Option I64, I64;
                     with i;
                     if i >= 0 then
-                        item.Some i - 1, i
+                        Item.Some i - 1, i
                     else then
-                        item.None ()
+                        Item.None ()
                     end
                 };
                 let accumulator = mut 0;

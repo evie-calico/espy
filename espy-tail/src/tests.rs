@@ -177,7 +177,7 @@ fn if_expression() {
 
 #[test]
 fn option_enum() {
-    let mut lexer = Lexer::from("let Option = enum Some: any, None: () end;").peekable();
+    let mut lexer = Lexer::from("let Option = enum Some: Any, None: Unit end;").peekable();
     let block = Block::new(&mut lexer);
     let program = Program::try_from(block).unwrap();
     let actual = program.compile().unwrap();
@@ -187,7 +187,7 @@ fn option_enum() {
         fn _main {
             Clone(builtins::ANY),
             Name(some),
-            PushUnit,
+            Clone(builtins::UNIT),
             Name(none),
             Tuple,
             PushEnum,
@@ -241,7 +241,7 @@ fn named_tuple_indexing() {
 
 #[test]
 fn builtins() {
-    let mut lexer = Lexer::from("let OptionI64 = option i64; OptionI64.Some 1").peekable();
+    let mut lexer = Lexer::from("let OptionI64 = Option I64; OptionI64.Some 1").peekable();
     let block = Block::new(&mut lexer);
     let program = Program::try_from(block).unwrap();
     let actual = program.compile().unwrap();
