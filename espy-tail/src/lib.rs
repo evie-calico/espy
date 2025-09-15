@@ -625,6 +625,7 @@ impl<'source> Program<'source> {
                     try_validate(if_block.diagnostics)?;
                     self.add_expression(block_id, if_block.condition, scope)?;
                     block!().extend(Instruction::If(0));
+                    scope.stack_pointer -= 1;
                     let if_destination = block!().len() - size_of::<ProgramCounter>();
                     self.add_block(block_id, if_block.first, scope.child())?;
 
