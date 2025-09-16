@@ -186,8 +186,8 @@ enum Operation<'source> {
 impl Operation<'_> {
     fn precedence(self) -> usize {
         match self {
-            Operation::Field { .. } => 13,
-            Operation::Positive(_) | Operation::Negative(_) | Operation::Deref(_) => 12,
+            Operation::Field { .. } | Operation::Deref(_) => 13,
+            Operation::Positive(_) | Operation::Negative(_) => 12,
             Operation::Mul(_) | Operation::Div(_) => 11,
             Operation::Add(_) | Operation::Sub(_) => 10,
             Operation::BitwiseAnd(_) => 9,
