@@ -697,6 +697,7 @@ impl<'source> Program<'source> {
                     self.add_expression(block_id, expression, scope)?;
                     let jump_locations = cases
                         .map(|case| {
+                            let scope = &mut scope.child();
                             self.blocks[block_id as usize].extend(Instruction::Clone(subject));
                             scope.stack_pointer += 1;
                             self.add_expression(block_id, case.case, scope)?;
@@ -712,8 +713,8 @@ impl<'source> Program<'source> {
                                 self.add_binding(block_id, binding, scope)?;
                             }
                             self.add_expression(block_id, case.expression, scope)?;
+                            self.blocks[block_id as usize].extend(Instruction::Collapse(subject));
                             self.blocks[block_id as usize].extend(Instruction::Jump(0));
-                            scope.stack_pointer -= 1;
                             resolve_jump(&mut self.blocks[block_id as usize], if_location);
                             Ok(self.blocks[block_id as usize].len() - size_of::<ProgramCounter>())
                         })
@@ -721,7 +722,6 @@ impl<'source> Program<'source> {
                     for jump_location in jump_locations {
                         resolve_jump(&mut self.blocks[block_id as usize], jump_location);
                     }
-                    scope.stack_pointer += 1;
                 }
             }
         }
