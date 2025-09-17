@@ -11,10 +11,14 @@ in
       llvmPackages_20.bintools
       llvmPackages_20.lldb
       rustup
+      # espygarten
       wasm-pack
       vscode-langservers-extracted
       typescript-language-server
       live-server
+      # tree-sitter-espy
+      tree-sitter
+      nodejs
     ];
     RUSTC_VERSION = overrides.toolchain.channel;
     # https://github.com/rust-lang/rust-bindgen#environment-variables

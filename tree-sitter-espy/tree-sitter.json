@@ -1,0 +1,36 @@
+{
+  "grammars": [
+    {
+      "name": "espy",
+      "camelcase": "Espy",
+      "title": "espy",
+      "scope": "source.espy",
+      "file-types": [
+        "source.espy"
+      ]
+    }
+  ],
+  "metadata": {
+    "description": "extensible, stateless scripting language",
+    "version": "0.1.0",
+    "license": "MPL-2.0",
+    "authors": [
+      {
+        "name": "Evie Calico"
+      }
+    ],
+    "links": {
+      "repository": "https://github.com/evie-calico/espy"
+    }
+  },
+  "bindings": {
+    "c": false,
+    "go": false,
+    "java": false,
+    "kotlin": false,
+    "node": false,
+    "python": false,
+    "rust": false,
+    "swift": false
+  }
+}
