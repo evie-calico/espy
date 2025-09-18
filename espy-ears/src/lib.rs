@@ -216,7 +216,6 @@ impl Operation<'_> {
             | Operation::Deref(_)
             | Operation::Mul(_)
             | Operation::Div(_)
-            | Operation::Name { .. }
             | Operation::Add(_)
             | Operation::Sub(_)
             | Operation::BitwiseAnd(_)
@@ -234,6 +233,7 @@ impl Operation<'_> {
             | Operation::SubExpression(_)
             | Operation::Call(_)
             | Operation::Pipe(_) => true,
+            Operation::Name { .. } => false,
         }
     }
 }
