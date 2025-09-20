@@ -55,6 +55,42 @@ pub enum Value<'host> {
 }
 
 impl<'host> Value<'host> {
+    /// Returns None if `self` contains any [`Value::Borrow`] or [`Value::Mut`].
+    ///
+    /// [`Value::Borrow`] is not static for obvious reasons,
+    /// and [`Value::Mut`] cannot be made static because of refcell subtyping.
+    /// Instead, hosts using as_static should provide mutable state outside of
+    /// the espy runtime.
+    #[must_use]
+    pub fn as_static(&self) -> Option<Value<'static>> {
+        match self {
+            Value::Unit => Some(Value::Unit),
+            Value::Tuple(tuple) => Some(Value::Tuple(tuple.as_static()?)),
+            Value::Borrow(_) => None,
+            Value::Owned(extern_owned) => Some(Value::Owned(extern_owned.clone())),
+            Value::I64(x) => Some(Value::I64(*x)),
+            Value::Bool(x) => Some(Value::Bool(*x)),
+            Value::String(x) => Some(Value::String(x.clone())),
+            Value::Function(function) => Some(Value::Function(function.as_static()?.into())),
+            Value::EnumVariant(enum_variant) => Some(Value::EnumVariant(Rc::new(EnumVariant {
+                contents: enum_variant.contents.as_static()?,
+                variant: enum_variant.variant,
+                definition: enum_variant.definition.clone(),
+            }))),
+            Value::Option { contents, ty } => Some(Value::Option {
+                contents: contents
+                    .as_ref()
+                    .map(|x| x.as_static().ok_or(()))
+                    .transpose()
+                    .ok()?
+                    .map(Rc::new),
+                ty: ty.clone(),
+            }),
+            Value::Mut(_) => None,
+            Value::Type(x) => Some(Value::Type(x.clone())),
+        }
+    }
+
     /// Convenience methods for indexing values of various types by an integer.
     ///
     /// Usually this is most useful for reading function arguments by index,
@@ -854,6 +890,34 @@ impl<T> Tuple<T> {
     }
 }
 
+impl<'host> Tuple<Value<'host>> {
+    fn as_static(&self) -> Option<Tuple<Value<'static>>> {
+        match &self.0 {
+            TupleStorage::Numeric(items) => rc_slice_try_from_iter(
+                items.len(),
+                items
+                    .iter()
+                    .map(|value: &Value| value.as_static().ok_or(())),
+            )
+            .map(TupleStorage::Numeric)
+            .map(Tuple)
+            .ok(),
+            TupleStorage::Named(items) => rc_slice_try_from_iter(
+                items.len(),
+                items.iter().map(|(name, value)| {
+                    value
+                        .as_static()
+                        .map(|value| (name.clone(), value))
+                        .ok_or(())
+                }),
+            )
+            .map(TupleStorage::Named)
+            .map(Tuple)
+            .ok(),
+        }
+    }
+}
+
 impl<'host> TryFrom<Tuple<Value<'host>>> for Tuple<ComplexType> {
     type Error = Error<'host>;
 
@@ -960,6 +1024,49 @@ impl<'host> Function<'host> {
             action: FunctionAction::Owned(external),
             argument: ().into(),
         }
+    }
+
+    #[must_use]
+    pub fn as_static(&self) -> Option<Function<'static>> {
+        Some(Function {
+            action: match &self.action {
+                FunctionAction::With {
+                    program,
+                    block_id,
+                    signature,
+                    captures,
+                } => FunctionAction::With {
+                    program: program.clone(),
+                    block_id: *block_id,
+                    signature: signature.clone(),
+                    captures: captures
+                        .iter()
+                        .map(|x| x.as_static())
+                        .collect::<Option<_>>()?,
+                },
+                FunctionAction::Never { signature } => FunctionAction::Never {
+                    signature: signature.clone(),
+                },
+                FunctionAction::Enum {
+                    variant,
+                    definition,
+                } => FunctionAction::Enum {
+                    variant: *variant,
+                    definition: definition.clone(),
+                },
+                FunctionAction::Mut => FunctionAction::Mut,
+                FunctionAction::OptionConstructor => FunctionAction::OptionConstructor,
+                FunctionAction::OptionCase { some, ty } => FunctionAction::OptionCase {
+                    some: *some,
+                    ty: ty.clone(),
+                },
+                FunctionAction::Borrow(_) => return None,
+                FunctionAction::Owned(extern_fn_owned) => {
+                    FunctionAction::Owned(extern_fn_owned.clone())
+                }
+            },
+            argument: self.argument.as_static()?,
+        })
     }
 
     /// # Errors
