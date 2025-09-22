@@ -23,22 +23,21 @@ pub struct StdLib;
 
 impl Extern for StdLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        static ITER: IterLib = IterLib;
-        static STRING: StringLib = StringLib;
-        static OPTION: OptionLib = OptionLib;
-        static TYPE_OF: TypeofFn = TypeofFn;
-
         let index = index.into_str()?;
         match &*index {
-            "iter" => Ok(Value::borrow(&ITER)),
-            "string" => Ok(Value::borrow(&STRING)),
-            "option" => Ok(Value::borrow(&OPTION)),
-            "typeof" => Ok(Function::borrow(&TYPE_OF).into()),
+            "iter" => Ok(Value::borrow(&IterLib)),
+            "string" => Ok(Value::borrow(&StringLib)),
+            "option" => Ok(Value::borrow(&OptionLib)),
+            "typeof" => Ok(Function::borrow(&TypeofFn).into()),
             _ => Err(Error::IndexNotFound {
                 index: index.into(),
                 container: Value::borrow(self),
             }),
         }
+    }
+
+    fn as_static(&self) -> Option<Value<'static>> {
+        Some(espy_paws::Value::borrow(&StdLib))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -54,6 +53,10 @@ impl ExternFn for TypeofFn {
         Ok(argument.type_of()?.into())
     }
 
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&TypeofFn))
+    }
+
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std.typeof function")
     }
@@ -64,34 +67,27 @@ pub struct IterLib;
 
 impl Extern for IterLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        static FILTER: IterFilterFn = IterFilterFn::new();
-        static FOLD: IterFoldFn = IterFoldFn;
-        static FOREACH: IterForeachFn = IterForeachFn;
-        static MAP: IterMapFn = IterMapFn::new();
-        static RANGE: IterRangeFn = IterRangeFn;
-        static REDUCE: IterReduceFn = IterReduceFn;
-        static REDUCE_ONCE: IterReduceOnceFn = IterReduceOnceFn;
-        static REPEAT: IterRepeatFn = IterRepeatFn::new();
-        static SKIP: IterSkipFn = IterSkipFn;
-        static TAKE: IterTakeFn = IterTakeFn;
-
         let index = index.into_str()?;
         match &*index {
-            "filter" => Ok(Function::borrow(&FILTER).into()),
-            "fold" => Ok(Function::borrow(&FOLD).into()),
-            "foreach" => Ok(Function::borrow(&FOREACH).into()),
-            "map" => Ok(Function::borrow(&MAP).into()),
-            "range" => Ok(Function::borrow(&RANGE).into()),
-            "reduce" => Ok(Function::borrow(&REDUCE).into()),
-            "reduce_once" => Ok(Function::borrow(&REDUCE_ONCE).into()),
-            "repeat" => Ok(Function::borrow(&REPEAT).into()),
-            "skip" => Ok(Function::borrow(&SKIP).into()),
-            "take" => Ok(Function::borrow(&TAKE).into()),
+            "filter" => Ok(Function::borrow(&IterFilterFn).into()),
+            "fold" => Ok(Function::borrow(&IterFoldFn).into()),
+            "foreach" => Ok(Function::borrow(&IterForeachFn).into()),
+            "map" => Ok(Function::borrow(&IterMapFn).into()),
+            "range" => Ok(Function::borrow(&IterRangeFn).into()),
+            "reduce" => Ok(Function::borrow(&IterReduceFn).into()),
+            "reduce_once" => Ok(Function::borrow(&IterReduceOnceFn).into()),
+            "repeat" => Ok(Function::borrow(&IterReduceFn).into()),
+            "skip" => Ok(Function::borrow(&IterSkipFn).into()),
+            "take" => Ok(Function::borrow(&IterTakeFn).into()),
             _ => Err(Error::IndexNotFound {
                 index: index.into(),
                 container: Value::borrow(self),
             }),
         }
+    }
+
+    fn as_static(&self) -> Option<Value<'static>> {
+        Some(espy_paws::Value::borrow(&IterLib))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -112,6 +108,10 @@ impl ExternFn for IterForeachFn {
             foreach.clone().piped(result.get(1)?).eval()?;
         }
         Ok(().into())
+    }
+
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&IterForeachFn))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -137,6 +137,10 @@ impl ExternFn for IterFoldFn {
                 .eval()?;
         }
         Ok(accumulator)
+    }
+
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&IterFoldFn))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -167,6 +171,10 @@ impl ExternFn for IterReduceFn {
         Ok(accumulator.into())
     }
 
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&IterReduceFn))
+    }
+
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std.iter.reduce function")
     }
@@ -188,6 +196,10 @@ impl ExternFn for IterReduceOnceFn {
             .into())
     }
 
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&IterReduceOnceFn))
+    }
+
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std.iter.reduce_once function")
     }
@@ -205,6 +217,10 @@ impl ExternFn for IterRangeFn {
             current,
             Function::owned(Rc::new(RangeIter { limit })).into(),
         ])))
+    }
+
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&IterRangeFn))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -236,23 +252,18 @@ impl ExternFnOwned for RangeIter {
 }
 
 #[derive(Debug, Default)]
-pub struct IterRepeatFn {
-    iter: RepeatIter,
-}
-
-impl IterRepeatFn {
-    #[must_use]
-    pub const fn new() -> Self {
-        Self { iter: RepeatIter }
-    }
-}
+pub struct IterRepeatFn;
 
 impl ExternFn for IterRepeatFn {
     fn call<'host>(&'host self, value: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         Ok(Value::Tuple(Tuple::from([
             value,
-            Function::borrow(&self.iter).into(),
+            Function::borrow(&RepeatIter).into(),
         ])))
+    }
+
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&IterRepeatFn))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -269,6 +280,10 @@ impl ExternFn for RepeatIter {
             argument.clone(),
             argument,
         ])))))
+    }
+
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&RepeatIter))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -295,6 +310,10 @@ impl ExternFn for IterSkipFn {
         Ok(Value::Tuple([iterator, next.into()].into()))
     }
 
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&IterSkipFn))
+    }
+
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std.iter.skip function")
     }
@@ -305,16 +324,18 @@ pub struct IterTakeFn;
 
 impl ExternFn for IterTakeFn {
     fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        static ITER: TakeIter = TakeIter;
-
         let iterator = argument.get(0)?;
         let next = argument.get(1)?;
         let count = argument.get(2)?;
 
         Ok(Value::Tuple(Tuple::from([
             Value::Tuple(Tuple::from([iterator, count])),
-            Function::borrow(&ITER).piped(next).into(),
+            Function::borrow(&TakeIter).piped(next).into(),
         ])))
+    }
+
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&IterTakeFn))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -347,22 +368,17 @@ impl ExternFn for TakeIter {
         ))
     }
 
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&TakeIter))
+    }
+
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std.iter.take iterator")
     }
 }
 
 #[derive(Debug, Default)]
-pub struct IterMapFn {
-    iter: MapIter,
-}
-
-impl IterMapFn {
-    #[must_use]
-    pub const fn new() -> Self {
-        Self { iter: MapIter }
-    }
-}
+pub struct IterMapFn;
 
 impl ExternFn for IterMapFn {
     fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
@@ -372,8 +388,12 @@ impl ExternFn for IterMapFn {
 
         Ok(Value::Tuple(Tuple::from([
             iterator,
-            Function::borrow(&self.iter).piped(next).piped(map).into(),
+            Function::borrow(&MapIter).piped(next).piped(map).into(),
         ])))
+    }
+
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&IterMapFn))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -405,22 +425,17 @@ impl ExternFn for MapIter {
             .into())
     }
 
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&MapIter))
+    }
+
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std.iter.map iterator")
     }
 }
 
 #[derive(Debug, Default)]
-pub struct IterFilterFn {
-    iter: FilterIter,
-}
-
-impl IterFilterFn {
-    #[must_use]
-    pub const fn new() -> Self {
-        Self { iter: FilterIter }
-    }
-}
+pub struct IterFilterFn;
 
 impl ExternFn for IterFilterFn {
     fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
@@ -430,8 +445,12 @@ impl ExternFn for IterFilterFn {
 
         Ok(Value::Tuple(Tuple::from([
             iterator,
-            Function::borrow(&self.iter).piped(next).piped(map).into(),
+            Function::borrow(&FilterIter).piped(next).piped(map).into(),
         ])))
+    }
+
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&IterFilterFn))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -457,6 +476,10 @@ impl ExternFn for FilterIter {
         Ok(None::<Value>.into())
     }
 
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&FilterIter))
+    }
+
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std.iter.filter iterator")
     }
@@ -467,26 +490,23 @@ pub struct StringLib;
 
 impl Extern for StringLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        static CONCAT: StringConcatFn = StringConcatFn;
-        static FROM_I64: StringFromI64Fn = StringFromI64Fn;
-        static PARSE_I64: StringParseI64Fn = StringParseI64Fn;
-        static SPLIT: StringSplitFn = StringSplitFn;
-        static SPLIT_WHITESPACE: StringSplitWhitespaceFn = StringSplitWhitespaceFn;
-        static TRIM_WHITESPACE: StringTrimWhitespaceFn = StringTrimWhitespaceFn;
-
         let index = index.into_str()?;
         match &*index {
-            "concat" => Ok(Function::borrow(&CONCAT).into()),
-            "from_i64" => Ok(Function::borrow(&FROM_I64).into()),
-            "parse_i64" => Ok(Function::borrow(&PARSE_I64).into()),
-            "split" => Ok(Function::borrow(&SPLIT).into()),
-            "split_whitespace" => Ok(Function::borrow(&SPLIT_WHITESPACE).into()),
-            "trim_whitespace" => Ok(Function::borrow(&TRIM_WHITESPACE).into()),
+            "concat" => Ok(Function::borrow(&StringConcatFn).into()),
+            "from_i64" => Ok(Function::borrow(&StringFromI64Fn).into()),
+            "parse_i64" => Ok(Function::borrow(&StringParseI64Fn).into()),
+            "split" => Ok(Function::borrow(&StringSplitFn).into()),
+            "split_whitespace" => Ok(Function::borrow(&StringSplitWhitespaceFn).into()),
+            "trim_whitespace" => Ok(Function::borrow(&StringTrimWhitespaceFn).into()),
             _ => Err(Error::IndexNotFound {
                 index: index.into(),
                 container: Value::borrow(self),
             }),
         }
+    }
+
+    fn as_static(&self) -> Option<Value<'static>> {
+        Some(espy_paws::Value::borrow(&StringLib))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -510,6 +530,10 @@ impl ExternFn for StringConcatFn {
             .map(|s| Value::String(s.into()))
     }
 
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&StringConcatFn))
+    }
+
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std.string.concat function")
     }
@@ -523,6 +547,10 @@ impl ExternFn for StringFromI64Fn {
         Ok(Value::String(
             argument.into_i64()?.to_string().as_str().into(),
         ))
+    }
+
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&StringFromI64Fn))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -541,6 +569,10 @@ impl ExternFn for StringParseI64Fn {
             .ok()
             .map(Value::I64)
             .into())
+    }
+
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&StringParseI64Fn))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -563,6 +595,10 @@ impl ExternFn for StringSplitFn {
             ]
             .into(),
         ))
+    }
+
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&StringSplitFn))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -608,6 +644,10 @@ impl ExternFn for StringSplitWhitespaceFn {
             ]
             .into(),
         ))
+    }
+
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&StringSplitWhitespaceFn))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -663,6 +703,10 @@ impl ExternFn for StringTrimWhitespaceFn {
         Ok(Value::String(argument.into_str()?.trim().into()))
     }
 
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&StringTrimWhitespaceFn))
+    }
+
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std.string.split_whitespace function")
     }
@@ -673,20 +717,20 @@ pub struct OptionLib;
 
 impl Extern for OptionLib {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>> {
-        static UNWRAP: OptionUnwrapFn = OptionUnwrapFn;
-        static UNWRAP_OR: OptionUnwrapOrFn = OptionUnwrapOrFn;
-        static EXPECT: OptionExpectFn = OptionExpectFn;
-
         let index = index.into_str()?;
         match &*index {
-            "expect" => Ok(Function::borrow(&EXPECT).into()),
-            "unwrap" => Ok(Function::borrow(&UNWRAP).into()),
-            "unwrap_or" => Ok(Function::borrow(&UNWRAP_OR).into()),
+            "expect" => Ok(Function::borrow(&OptionExpectFn).into()),
+            "unwrap" => Ok(Function::borrow(&OptionUnwrapFn).into()),
+            "unwrap_or" => Ok(Function::borrow(&OptionUnwrapOrFn).into()),
             _ => Err(Error::IndexNotFound {
                 index: index.into(),
                 container: Value::borrow(self),
             }),
         }
+    }
+
+    fn as_static(&self) -> Option<Value<'static>> {
+        Some(espy_paws::Value::borrow(&OptionLib))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -702,6 +746,10 @@ impl ExternFn for OptionUnwrapFn {
         Ok(argument.into_option()?.ok_or(LibraryError::UnwrapFailed)?)
     }
 
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&OptionUnwrapFn))
+    }
+
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::write!(f, "std.option.unwrap function")
     }
@@ -713,6 +761,10 @@ pub struct OptionUnwrapOrFn;
 impl ExternFn for OptionUnwrapOrFn {
     fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>> {
         Ok(argument.get(0)?.into_option()?.unwrap_or(argument.get(1)?))
+    }
+
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&OptionUnwrapOrFn))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -729,6 +781,10 @@ impl ExternFn for OptionExpectFn {
             .get(0)?
             .into_option()?
             .ok_or(LibraryError::ExpectFailed(argument.get(1)?.into_str()?))?)
+    }
+
+    fn as_static(&self) -> Option<Function<'static>> {
+        Some(espy_paws::Function::borrow(&OptionExpectFn))
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

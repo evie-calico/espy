@@ -66,7 +66,7 @@ impl<'host> Value<'host> {
         match self {
             Value::Unit => Some(Value::Unit),
             Value::Tuple(tuple) => Some(Value::Tuple(tuple.as_static()?)),
-            Value::Borrow(_) => None,
+            Value::Borrow(extern_borrow) => extern_borrow.as_static(),
             Value::Owned(extern_owned) => Some(Value::Owned(extern_owned.clone())),
             Value::I64(x) => Some(Value::I64(*x)),
             Value::Bool(x) => Some(Value::Bool(*x)),
@@ -1060,7 +1060,7 @@ impl<'host> Function<'host> {
                     some: *some,
                     ty: ty.clone(),
                 },
-                FunctionAction::Borrow(_) => return None,
+                FunctionAction::Borrow(extern_fn_borrow) => return extern_fn_borrow.as_static(),
                 FunctionAction::Owned(extern_fn_owned) => {
                     FunctionAction::Owned(extern_fn_owned.clone())
                 }
@@ -1827,8 +1827,12 @@ impl Program {
 }
 
 #[allow(clippy::missing_errors_doc)]
-pub trait Extern: Any {
+pub trait Extern {
     fn index<'host>(&'host self, index: Value<'host>) -> Result<Value<'host>, Error<'host>>;
+
+    fn as_static(&self) -> Option<Value<'static>> {
+        None
+    }
 
     /// Allows the [`Extern`] trait object to be downcasted back into its original type.
     ///
@@ -1844,7 +1848,7 @@ pub trait Extern: Any {
 }
 
 #[allow(clippy::missing_errors_doc)]
-pub trait ExternOwned: Any {
+pub trait ExternOwned {
     /// Note that self's reference count will always be greater than one,
     /// so [`Rc::unwrap_or_clone`], [`Rc::get_mut`], etc. are useless.
     fn index<'host>(self: Rc<Self>, index: Value<'host>) -> Result<Value<'host>, Error<'host>>;
@@ -1868,6 +1872,10 @@ pub trait ExternOwned: Any {
 #[allow(clippy::missing_errors_doc)]
 pub trait ExternFn {
     fn call<'host>(&'host self, argument: Value<'host>) -> Result<Value<'host>, Error<'host>>;
+
+    fn as_static(&self) -> Option<Function<'static>> {
+        None
+    }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{external function}}")
