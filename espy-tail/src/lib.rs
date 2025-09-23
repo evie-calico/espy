@@ -13,7 +13,7 @@
 
 use espy_ears::{
     Binding, BindingMethod, Block, BlockResult, Diagnostics, Expression, FunctionBody, Let, Match,
-    Node, Sequence, Set, Statement,
+    Node, Rebind, Sequence, Set, Statement,
 };
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;
@@ -470,6 +470,25 @@ impl<'source> Program<'source> {
                 let binding = binding.expect("missing bindings should be caught by diagnostics");
                 self.add_expression(block_id, expression, scope)?;
                 self.add_binding(block_id, binding, scope)?;
+            }
+            Statement::Rebind(Rebind {
+                bindings,
+                diagnostics,
+                ..
+            }) => {
+                try_validate(diagnostics)?;
+                for binding in bindings {
+                    let token = binding
+                        .ident_token
+                        .expect("bindings should be some in a valid rebind");
+                    let ident = token
+                        .resolve()
+                        .map_err(|e| Error::InvalidIdentifier(token, e))?;
+                    let value = scope.get(&ident).ok_or(Error::UndefinedSymbol(token))?;
+                    self.blocks[block_id as usize].extend(Instruction::Clone(value.index));
+                    scope.stack_pointer += 1;
+                    scope.insert(ident);
+                }
             }
             Statement::Set(Set {
                 target,

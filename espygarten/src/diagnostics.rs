@@ -256,6 +256,26 @@ fn diagnose_statement(source: &str, statement: &Statement, for_each: &mut impl F
             }
             diagnose_expression(source, evaluation.expression.as_deref(), &mut *for_each);
         }
+        Statement::Rebind(rebind) => {
+            let anchored_range = (
+                origin_range(rebind.let_token.origin, source).0,
+                origin_range(rebind.star_token.origin, source).1,
+            );
+            for error in &rebind.diagnostics.errors {
+                let mut diagnostic = Diagnostic::from_error(error, source);
+                if diagnostic
+                    .primary
+                    .range
+                    .is_none_or(|range| range.0 > anchored_range.1)
+                {
+                    diagnostic.secondary.push(Comment {
+                        message: "for this binding".to_string(),
+                        range: Some(anchored_range),
+                    });
+                }
+                for_each(diagnostic);
+            }
+        }
         Statement::Set(set) => {
             let set_range = origin_range(set.set_token.origin, source);
             let anchored_range = set.expression.as_ref().and_then(|x| x.first_token).map_or(

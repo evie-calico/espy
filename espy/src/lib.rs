@@ -86,6 +86,24 @@ mod tests {
     }
 
     #[test]
+    fn rebind() {
+        let actual =
+            Program::try_from("let a = 1; let b = 2; { let* a, b; with (); a + b }").unwrap();
+        println!("{actual:?}");
+        assert!(
+            actual
+                .eval()
+                .unwrap()
+                .into_function()
+                .unwrap()
+                .eval()
+                .unwrap()
+                .eq(3.into())
+                .unwrap()
+        );
+    }
+
+    #[test]
     fn enums_usage() {
         let actual =
             Program::try_from("let Option = enum Some: Any, None: Unit end; Option.Some 1")

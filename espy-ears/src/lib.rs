@@ -763,8 +763,9 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Enum<'source> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Statement<'source> {
-    Let(Let<'source>),
     Sequence(Sequence<'source>),
+    Let(Let<'source>),
+    Rebind(Rebind<'source>),
     Set(Set<'source>),
 }
 
@@ -784,14 +785,8 @@ impl<'source> Let<'source> {
     /// Panics if the lexer returns `None`.
     ///
     /// This function should only be called after successfully peeking a [`Lexigram::Let`].
-    pub fn binding(lexer: &mut Peekable<Lexer<'source>>) -> Self {
+    pub fn new(let_token: Token<'source>, lexer: &mut Peekable<Lexer<'source>>) -> Self {
         let mut diagnostics = Diagnostics::default();
-        let let_token = lexer
-            .next()
-            .transpose()
-            .ok()
-            .flatten()
-            .expect("caller must have peeked a token");
         let binding = Binding::new(lexer)
             .map_err(|e| diagnostics.errors.push(e))
             .ok();
@@ -804,6 +799,64 @@ impl<'source> Let<'source> {
             binding,
             equals_token,
             expression,
+            semicolon_token,
+            diagnostics,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct RebindSubject<'source> {
+    pub ident_token: Option<Token<'source>>,
+    pub comma_token: Option<Token<'source>>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct Rebind<'source> {
+    pub let_token: Token<'source>,
+    pub star_token: Token<'source>,
+    pub bindings: Box<[RebindSubject<'source>]>,
+    pub semicolon_token: Option<Token<'source>>,
+    pub diagnostics: Diagnostics<'source>,
+}
+
+impl<'source> Rebind<'source> {
+    /// # Panics
+    ///
+    /// Panics if the lexer returns `None`.
+    ///
+    /// This function should only be called after successfully peeking a [`Lexigram::Star`].
+    pub fn new(let_token: Token<'source>, lexer: &mut Peekable<Lexer<'source>>) -> Self {
+        let mut diagnostics = Diagnostics::default();
+        let star_token = lexer
+            .next()
+            .transpose()
+            .ok()
+            .flatten()
+            .expect("caller must have peeked a token");
+        let mut bindings = Vec::new();
+        if let Some(ident_token) = diagnostics.next_if(lexer, &[Lexigram::Ident]) {
+            bindings.push(RebindSubject {
+                ident_token: Some(ident_token),
+                comma_token: None,
+            });
+        }
+        while let comma_token @ Some(Token {
+            lexigram: Lexigram::Comma,
+            ..
+        }) = diagnostics.wrap(lexer.peek().copied())
+        {
+            lexer.next();
+            bindings.push(RebindSubject {
+                ident_token: diagnostics.next_if(lexer, &[Lexigram::Ident]),
+                comma_token,
+            });
+        }
+        let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
+        Rebind {
+            let_token,
+            star_token,
+            bindings: bindings.into_boxed_slice(),
             semicolon_token,
             diagnostics,
         }
@@ -1190,10 +1243,23 @@ impl<'source> Block<'source> {
         let mut statements = Vec::new();
         loop {
             let statement = match diagnostics.wrap(lexer.peek().copied()) {
-                Some(Token {
-                    lexigram: Lexigram::Let,
-                    ..
-                }) => Statement::Let(Let::binding(lexer)),
+                Some(
+                    let_token @ Token {
+                        lexigram: Lexigram::Let,
+                        ..
+                    },
+                ) => {
+                    lexer.next();
+                    if let Some(Ok(Token {
+                        lexigram: Lexigram::Star,
+                        ..
+                    })) = lexer.peek()
+                    {
+                        Statement::Rebind(Rebind::new(let_token, lexer))
+                    } else {
+                        Statement::Let(Let::new(let_token, lexer))
+                    }
+                }
                 Some(Token {
                     lexigram: Lexigram::Set,
                     ..
