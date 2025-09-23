@@ -12,8 +12,8 @@
 //! ```
 
 use espy_ears::{
-    Binding, BindingMethod, Block, BlockResult, Diagnostics, Evaluation, Expression, FunctionBody,
-    Match, Node, Set, Statement,
+    Binding, BindingMethod, Block, BlockResult, Diagnostics, Expression, FunctionBody, Let, Match,
+    Node, Sequence, Set, Statement,
 };
 use espy_eyes::{Lexigram, Token};
 use espy_heart::prelude::*;
@@ -452,35 +452,24 @@ impl<'source> Program<'source> {
         statement: Statement<'source>,
         scope: &mut Scope<'_, 'source>,
     ) -> Result<(), Error<'source>> {
-        macro_rules! block {
-            () => {
-                self.blocks[block_id as usize]
-            };
-        }
         match statement {
-            Statement::Evaluation(Evaluation {
+            Statement::Sequence(Sequence {
+                expression,
+                semicolon_token: _,
+            }) => {
+                self.add_expression(block_id, expression, scope)?;
+                self.blocks[block_id as usize].extend(Instruction::Pop);
+            }
+            Statement::Let(Let {
                 binding,
                 expression,
                 diagnostics,
                 ..
             }) => {
                 try_validate(diagnostics)?;
-                if let Some(expression) = expression {
-                    self.add_expression(block_id, expression, scope)?;
-                } else {
-                    // If the binding exists but not an expression, we need to generate a unit value.
-                    scope.stack_pointer += 1;
-                    block!().extend(Instruction::PushUnit);
-                }
-                if let Some(binding) = binding {
-                    let binding = binding
-                        .binding
-                        .expect("valid statement structures always have bindings");
-                    self.add_binding(block_id, binding, scope)?;
-                } else {
-                    block!().extend(Instruction::Pop);
-                    scope.stack_pointer -= 1;
-                }
+                let binding = binding.expect("missing bindings should be caught by diagnostics");
+                self.add_expression(block_id, expression, scope)?;
+                self.add_binding(block_id, binding, scope)?;
             }
             Statement::Set(Set {
                 target,
@@ -491,7 +480,7 @@ impl<'source> Program<'source> {
                 try_validate(diagnostics)?;
                 self.add_expression(block_id, target, scope)?;
                 self.add_expression(block_id, expression, scope)?;
-                block!().extend(Instruction::Set);
+                self.blocks[block_id as usize].extend(Instruction::Set);
                 scope.stack_pointer -= 2;
             }
         }

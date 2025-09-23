@@ -763,20 +763,22 @@ impl<'source> From<&mut Peekable<Lexer<'source>>> for Enum<'source> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Statement<'source> {
-    Evaluation(Evaluation<'source>),
-    /// Technically this could be an expression too but i actually think being statement based for assignments is a feature.
+    Let(Let<'source>),
+    Sequence(Sequence<'source>),
     Set(Set<'source>),
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct Evaluation<'source> {
-    pub binding: Option<LetBinding<'source>>,
+pub struct Let<'source> {
+    pub let_token: Token<'source>,
+    pub binding: Option<Binding<'source>>,
+    pub equals_token: Option<Token<'source>>,
     pub expression: Option<Box<Expression<'source>>>,
     pub semicolon_token: Option<Token<'source>>,
     pub diagnostics: Diagnostics<'source>,
 }
 
-impl<'source> Evaluation<'source> {
+impl<'source> Let<'source> {
     /// # Panics
     ///
     /// Panics if the lexer returns `None`.
@@ -797,22 +799,28 @@ impl<'source> Evaluation<'source> {
         let expression = diagnostics.expect_expression(lexer);
         let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
 
-        Evaluation {
-            binding: Some(LetBinding {
-                let_token,
-                binding,
-                equals_token,
-            }),
+        Let {
+            let_token,
+            binding,
+            equals_token,
             expression,
             semicolon_token,
             diagnostics,
         }
     }
+}
 
+#[derive(Debug, Eq, PartialEq)]
+pub struct Sequence<'source> {
+    pub expression: Option<Box<Expression<'source>>>,
+    pub semicolon_token: Token<'source>,
+}
+
+impl<'source> Sequence<'source> {
     /// # Errors
     ///
     /// Returns a lone [`Expression`] if no semicolon token was encountered.
-    pub fn try_expression(
+    pub fn try_sequence(
         lexer: &mut Peekable<Lexer<'source>>,
     ) -> Result<Self, Option<Box<Expression<'source>>>> {
         let expression = Expression::new(&mut *lexer);
@@ -824,23 +832,14 @@ impl<'source> Evaluation<'source> {
         )) = lexer.peek().copied()
         {
             lexer.next();
-            Ok(Evaluation {
-                binding: None,
+            Ok(Sequence {
                 expression,
-                semicolon_token: Some(semicolon_token),
-                diagnostics: Diagnostics::default(),
+                semicolon_token,
             })
         } else {
             Err(expression)
         }
     }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct LetBinding<'source> {
-    pub let_token: Token<'source>,
-    pub binding: Option<Binding<'source>>,
-    pub equals_token: Option<Token<'source>>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -1194,7 +1193,7 @@ impl<'source> Block<'source> {
                 Some(Token {
                     lexigram: Lexigram::Let,
                     ..
-                }) => Statement::Evaluation(Evaluation::binding(lexer)),
+                }) => Statement::Let(Let::binding(lexer)),
                 Some(Token {
                     lexigram: Lexigram::Set,
                     ..
@@ -1268,8 +1267,8 @@ impl<'source> Block<'source> {
                         statements,
                     );
                 }
-                _ => match Evaluation::try_expression(&mut *lexer) {
-                    Ok(evaluation) => Statement::Evaluation(evaluation),
+                _ => match Sequence::try_sequence(&mut *lexer) {
+                    Ok(sequence) => Statement::Sequence(sequence),
                     Err(expression) => {
                         if root && let Some(t) = lexer.peek().copied().transpose().ok().flatten() {
                             diagnostics

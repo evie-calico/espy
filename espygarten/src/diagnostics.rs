@@ -228,35 +228,27 @@ fn diagnose_block(source: &str, block: &Block, for_each: &mut impl FnMut(Diagnos
 
 fn diagnose_statement(source: &str, statement: &Statement, for_each: &mut impl FnMut(Diagnostic)) {
     match statement {
-        Statement::Evaluation(evaluation) => {
-            let let_range = evaluation
-                .binding
-                .as_ref()
-                .map(|binding| origin_range(binding.let_token.origin, source));
+        Statement::Sequence(sequence) => {
+            diagnose_expression(source, sequence.expression.as_deref(), &mut *for_each);
+        }
+        Statement::Let(evaluation) => {
+            let let_range = origin_range(evaluation.let_token.origin, source);
             let anchored_range = evaluation
                 .expression
                 .as_ref()
                 .and_then(|x| x.first_token)
-                .map(|first_token| {
-                    let (first, last) = origin_range(first_token.origin, source);
-                    (let_range.map_or(first, |(x, _)| x), last)
-                })
-                .or(let_range);
+                .map_or(let_range, |first_token| {
+                    (let_range.0, origin_range(first_token.origin, source).1)
+                });
             for error in &evaluation.diagnostics.errors {
                 let mut diagnostic = Diagnostic::from_error(error, source);
-                if let Some(anchored_range) = anchored_range
-                    && diagnostic
-                        .primary
-                        .range
-                        .is_none_or(|range| range.0 > anchored_range.1)
+                if diagnostic
+                    .primary
+                    .range
+                    .is_none_or(|range| range.0 > anchored_range.1)
                 {
                     diagnostic.secondary.push(Comment {
-                        message: if evaluation.binding.is_some() {
-                            "for this binding"
-                        } else {
-                            "for this expression"
-                        }
-                        .to_string(),
+                        message: "for this binding".to_string(),
                         range: Some(anchored_range),
                     });
                 }

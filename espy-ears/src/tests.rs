@@ -70,15 +70,13 @@ fn binding<'source>(
     origin: &'source str,
     expression: Box<Expression<'source>>,
 ) -> Statement<'source> {
-    Statement::Evaluation(Evaluation {
-        binding: Some(LetBinding {
-            let_token: LET,
-            binding: Some(Binding {
-                method: BindingMethod::Single(ident(origin)),
-                diagnostics: Diagnostics::default(),
-            }),
-            equals_token: Some(SINGLE_EQUAL),
+    Statement::Let(Let {
+        let_token: LET,
+        binding: Some(Binding {
+            method: BindingMethod::Single(ident(origin)),
+            diagnostics: Diagnostics::default(),
         }),
+        equals_token: Some(SINGLE_EQUAL),
         expression: Some(expression),
         semicolon_token: Some(SEMICOLON),
         diagnostics: Diagnostics::default(),
@@ -296,15 +294,13 @@ fn malformed_binding() {
     let source = "let x 2";
     let actual = Block::new(&mut Lexer::from(source).peekable());
     let expected = statements(
-        [Statement::Evaluation(Evaluation {
-            binding: Some(LetBinding {
-                let_token: LET,
-                binding: Some(Binding {
-                    method: BindingMethod::Single(ident("x")),
-                    diagnostics: Diagnostics::default(),
-                }),
-                equals_token: None,
+        [Statement::Let(Let {
+            let_token: LET,
+            binding: Some(Binding {
+                method: BindingMethod::Single(ident("x")),
+                diagnostics: Diagnostics::default(),
             }),
+            equals_token: None,
             // Despite being malformed, this expression is still parsed correctly!
             expression: Some(expression(
                 number("2"),
