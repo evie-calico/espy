@@ -259,7 +259,7 @@ fn diagnose_statement(source: &str, statement: &Statement, for_each: &mut impl F
         Statement::Rebind(rebind) => {
             let anchored_range = (
                 origin_range(rebind.let_token.origin, source).0,
-                origin_range(rebind.star_token.origin, source).1,
+                origin_range(rebind.caret_token.origin, source).1,
             );
             for error in &rebind.diagnostics.errors {
                 let mut diagnostic = Diagnostic::from_error(error, source);

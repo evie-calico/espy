@@ -88,7 +88,7 @@ mod tests {
     #[test]
     fn rebind() {
         let actual =
-            Program::try_from("let a = 1; let b = 2; { let* a, b; with (); a + b }").unwrap();
+            Program::try_from("let a = 1; let b = 2; { let^ a, b; with (); a + b }").unwrap();
         println!("{actual:?}");
         assert!(
             actual

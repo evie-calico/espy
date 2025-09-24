@@ -814,7 +814,7 @@ pub struct RebindSubject<'source> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct Rebind<'source> {
     pub let_token: Token<'source>,
-    pub star_token: Token<'source>,
+    pub caret_token: Token<'source>,
     pub bindings: Box<[RebindSubject<'source>]>,
     pub semicolon_token: Option<Token<'source>>,
     pub diagnostics: Diagnostics<'source>,
@@ -825,10 +825,10 @@ impl<'source> Rebind<'source> {
     ///
     /// Panics if the lexer returns `None`.
     ///
-    /// This function should only be called after successfully peeking a [`Lexigram::Star`].
+    /// This function should only be called after successfully peeking a [`Lexigram::Caret`].
     pub fn new(let_token: Token<'source>, lexer: &mut Peekable<Lexer<'source>>) -> Self {
         let mut diagnostics = Diagnostics::default();
-        let star_token = lexer
+        let caret_token = lexer
             .next()
             .transpose()
             .ok()
@@ -855,7 +855,7 @@ impl<'source> Rebind<'source> {
         let semicolon_token = diagnostics.next_if(lexer, &[Lexigram::Semicolon]);
         Rebind {
             let_token,
-            star_token,
+            caret_token,
             bindings: bindings.into_boxed_slice(),
             semicolon_token,
             diagnostics,
@@ -1251,7 +1251,7 @@ impl<'source> Block<'source> {
                 ) => {
                     lexer.next();
                     if let Some(Ok(Token {
-                        lexigram: Lexigram::Star,
+                        lexigram: Lexigram::Caret,
                         ..
                     })) = lexer.peek()
                     {
