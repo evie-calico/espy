@@ -7,7 +7,7 @@ use wasm_bindgen::prelude::*;
 
 #[derive(Debug, Default)]
 struct EspygartenLibContainer {
-    std: espystandard::StdLib,
+    std: espystandard::Lib,
     espygarten: EspygartenLib,
 }
 

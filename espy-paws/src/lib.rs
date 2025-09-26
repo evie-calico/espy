@@ -4,6 +4,90 @@ use std::cell::RefCell;
 use std::mem;
 use std::rc::{Rc, Weak};
 
+#[macro_export]
+macro_rules! extern_impl {
+    {
+        $(#[espy(
+            $(debug = $description:literal)?
+        )])?
+        $vis:vis fn $this:ident <$host:lifetime> (&self, $argument:ident)
+            $body:tt
+    } => {
+        #[derive(
+            ::std::clone::Clone,
+            ::std::marker::Copy,
+            ::std::fmt::Debug,
+            ::std::default::Default
+        )]
+        $vis struct $this;
+
+        impl $crate::ExternFn for $this {
+            fn call<$host>(
+                &$host self, $argument: $crate::Value<$host>
+            ) -> ::std::result::Result<$crate::Value<$host>, $crate::Error<$host>>
+                $body
+
+            fn as_static(&self) -> ::std::option::Option<$crate::Function<'static>> {
+                Some($crate::Function::borrow(&$this))
+            }
+
+            $($(
+                fn debug(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                    ::std::write!(f, $description)
+                }
+            )?)?
+        }
+    };
+    {
+        $(#[espy(
+            // Allows the user to set adebug string to be shown used by the Extern trait.
+            //
+            // This is a format string, and the `self` parameter may be bound
+            // by using square brackets after "debug".
+            // Using `self` directly will not work because it is not considered in scope of the macro.
+            $(debug$([$debug_name:ident])? = $description:literal)?
+        )])?
+        $vis:vis struct $this:ident {
+            $($name:ident: $value:expr),* $(,)?
+        }
+    } => {
+        #[derive(
+            ::std::clone::Clone,
+            ::std::marker::Copy,
+            ::std::fmt::Debug,
+            ::std::default::Default
+        )]
+        $vis struct $this;
+
+        impl $crate::Extern for $this {
+            fn index<'host>(
+                &'host self, index: $crate::Value<'host>
+            ) -> ::std::result::Result<$crate::Value<'host>, $crate::Error<'host>> {
+                let index = index.into_str()?;
+                match &*index {
+                    $(stringify!($name) => Ok($crate::Value::from($value)),)*
+                    _ => Err($crate::Error::IndexNotFound {
+                        index: index.into(),
+                        container: $crate::Value::borrow(self),
+                    }),
+                }
+            }
+
+            fn as_static(&self) -> ::std::option::Option<$crate::Value<'static>> {
+                ::std::option::Option::Some($crate::Value::borrow(&$this))
+            }
+
+            fn any(&self) -> ::std::option::Option<&dyn ::std::any::Any> {
+                ::std::option::Option::Some(self)
+            }
+
+            fn debug(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                ::std::write!(f, "std.string module")
+            }
+        }
+    };
+}
+
 fn rc_slice_try_from_iter<T, E>(
     len: usize,
     iter: impl Iterator<Item = Result<T, E>>,
