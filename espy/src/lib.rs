@@ -3,7 +3,9 @@ pub use espy_eyes as lexer;
 pub use espy_paws as interpreter;
 pub use espy_tail as compiler;
 
-pub use interpreter::{Error, Extern, ExternFn, ExternFnOwned, ExternOwned, Function, Type, Value};
+pub use interpreter::{
+    Error, Extern, ExternFn, ExternFnOwned, ExternOwned, Function, Type, Value, extern_impl,
+};
 
 #[derive(Debug)]
 pub struct Program(interpreter::Program);
