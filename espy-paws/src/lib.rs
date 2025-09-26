@@ -1162,13 +1162,12 @@ impl<'host> Function<'host> {
                 program,
                 block_id,
                 signature: FunctionType { input, output },
-                mut captures,
+                captures,
             } => {
                 if !self.argument.type_of()?.compare(&input) {
                     return Err(Error::type_error(self.argument, input));
                 }
-                captures.push(self.argument);
-                let result = program.eval_block(block_id, &mut captures)?;
+                let result = program.eval_block(block_id, captures, self.argument)?;
                 if !result.type_of()?.compare(&output) {
                     return Err(Error::type_error(result, output));
                 }
@@ -1239,7 +1238,7 @@ enum FunctionAction<'host> {
         program: Program,
         block_id: usize,
         signature: FunctionType,
-        captures: Vec<Value<'host>>,
+        captures: Rc<[Value<'host>]>,
     },
     Never {
         signature: FunctionType,
@@ -1552,20 +1551,23 @@ impl Program {
     ///
     /// Returns an error if the evaluating the program results in an error
     pub fn eval<'host>(&self) -> Result<Value<'host>, Error<'host>> {
-        self.eval_block(0, &mut Vec::new())
+        self.eval_block(0, None, None)
     }
 
     fn eval_block<'host>(
         &self,
         block_id: usize,
-        stack: &mut Vec<Value<'host>>,
+        captures: impl Into<Option<Rc<[Value<'host>]>>>,
+        argument: impl Into<Option<Value<'host>>>,
     ) -> Result<Value<'host>, Error<'host>> {
-        struct Frame<'a> {
+        struct Frame<'a, 'host> {
             bytecode: &'a [u8],
             pc: usize,
+            captures: Option<Rc<[Value<'host>]>>,
+            stack: Vec<Value<'host>>,
         }
 
-        impl Frame<'_> {
+        impl<'host> Frame<'_, 'host> {
             fn next(&mut self) -> Result<u8, InvalidBytecode> {
                 let next = self
                     .bytecode
@@ -1595,21 +1597,39 @@ impl Program {
                 ]))
             }
 
-            #[expect(
-                clippy::unused_self,
-                reason = "This doesn't use self yet, but i want to include pc in errors eventually."
-            )]
-            fn pop<'host>(
-                &'_ self,
-                stack: &mut Vec<Value<'host>>,
-            ) -> Result<Value<'host>, Error<'host>> {
-                stack.pop().ok_or(InvalidBytecode::StackUnderflow.into())
+            fn stack_len(&self) -> usize {
+                self.captures.as_ref().map_or(0, |captures| captures.len()) + self.stack.len()
+            }
+
+            fn get(&self, index: usize) -> Result<&Value<'host>, InvalidBytecode> {
+                let capture_count = self.captures.as_ref().map_or(0, |captures| captures.len());
+                if index < capture_count {
+                    self.captures
+                        .as_ref()
+                        .expect("capture count should only be nonzero if captures is some")
+                        .get(index)
+                } else {
+                    self.stack.get(index - capture_count)
+                }
+                .ok_or(InvalidBytecode::StackOutOfBounds)
+            }
+
+            fn push(&'_ mut self, value: Value<'host>) {
+                self.stack.push(value);
+            }
+
+            fn pop(&'_ mut self) -> Result<Value<'host>, Error<'host>> {
+                self.stack
+                    .pop()
+                    .ok_or(InvalidBytecode::StackUnderflow.into())
             }
         }
 
         let mut program = Frame {
             bytecode: block(&self.bytes, block_id)?,
             pc: 0,
+            captures: captures.into(),
+            stack: argument.into().into_iter().collect(),
         };
 
         // The program counter reaching the first (and only the first)
@@ -1617,11 +1637,11 @@ impl Program {
         while program.pc != program.bytecode.len() {
             macro_rules! bi_op {
                 (let $l:ident, $r:ident: $type:ident => $expr_type:ident: $expr:expr) => {{
-                    let $r = program.pop(stack)?;
-                    let $l = program.pop(stack)?;
+                    let $r = program.pop()?;
+                    let $l = program.pop()?;
                     match (&$l, &$r) {
                         (Value::$type($l), Value::$type($r)) => {
-                            stack.push(Value::$expr_type($expr))
+                            program.push(Value::$expr_type($expr))
                         }
                         _ => return Err(Error::ExpectedNumbers($l, $r)),
                     }
@@ -1648,64 +1668,64 @@ impl Program {
                     )]
                     match index as i32 {
                         0.. => {
-                            let value =
-                                stack.get(index).ok_or(InvalidBytecode::StackOutOfBounds)?;
-                            stack.push(value.clone());
+                            let value = program.get(index)?;
+                            program.push(value.clone());
                         }
                         builtins::ANY => {
-                            stack.push(Type::Any.into());
+                            program.push(Type::Any.into());
                         }
                         builtins::UNIT => {
-                            stack.push(Type::Unit.into());
+                            program.push(Type::Unit.into());
                         }
                         builtins::I64 => {
-                            stack.push(Type::I64.into());
+                            program.push(Type::I64.into());
                         }
                         builtins::STRING => {
-                            stack.push(Type::String.into());
+                            program.push(Type::String.into());
                         }
                         builtins::OPTION => {
-                            stack.push(Value::Function(Rc::new(
+                            program.push(Value::Function(Rc::new(
                                 FunctionAction::OptionConstructor.into(),
                             )));
                         }
                         builtins::MUT => {
-                            stack.push(Value::Function(Rc::new(FunctionAction::Mut.into())));
+                            program.push(Value::Function(Rc::new(FunctionAction::Mut.into())));
                         }
                         _ => Err(InvalidBytecode::InvalidBuiltin)?,
                     }
                 }
                 instruction::POP => {
-                    program.pop(stack)?;
+                    program.pop()?;
                 }
                 instruction::COLLAPSE => {
-                    let value = program.pop(stack)?;
-                    for _ in 0..(stack.len() - program.next4()?) {
-                        stack.pop();
+                    let value = program.pop()?;
+                    for _ in 0..(program.stack_len() - program.next4()?) {
+                        program.pop()?;
                     }
-                    stack.push(value);
+                    program.push(value);
                 }
                 instruction::JUMP => {
                     program.pc = program.next4()?;
                 }
                 instruction::IF => {
                     let target = program.next4()?;
-                    if let Value::Bool(false) = program.pop(stack)? {
+                    if let Value::Bool(false) = program.pop()? {
                         program.pc = target;
                     }
                 }
 
                 instruction::PUSH_UNIT => {
-                    stack.push(().into());
+                    program.push(().into());
                 }
                 instruction::PUSH_TRUE => {
-                    stack.push(true.into());
+                    program.push(true.into());
                 }
                 instruction::PUSH_FALSE => {
-                    stack.push(false.into());
+                    program.push(false.into());
                 }
                 instruction::PUSH_I64 => {
-                    stack.push(program.next_i64()?.into());
+                    let i = program.next_i64()?.into();
+                    program.push(i);
                 }
                 instruction::PUSH_STRING => {
                     let string_id = program.next4()?;
@@ -1714,19 +1734,19 @@ impl Program {
                         .get(string_id)
                         .ok_or(InvalidBytecode::UnexpectedStringId)?
                         .clone();
-                    stack.push(string.into());
+                    program.push(string.into());
                 }
                 instruction::PUSH_FUNCTION => {
                     let captures = program.next4()?;
                     let function = program.next4()?;
-                    let output = program.pop(stack)?;
-                    let input = program.pop(stack)?;
+                    let output = program.pop()?;
+                    let input = program.pop()?;
                     if function == 0 {
                         // ignore captures if the function will never be called.
                         for _ in 0..captures {
-                            stack.pop();
+                            program.pop()?;
                         }
-                        stack.push(Value::Function(Rc::new(
+                        program.push(Value::Function(Rc::new(
                             FunctionAction::Never {
                                 signature: FunctionType {
                                     input: input.try_into()?,
@@ -1736,8 +1756,11 @@ impl Program {
                             .into(),
                         )));
                     } else {
-                        let new_stack = stack.split_off(stack.len() - captures);
-                        stack.push(Value::Function(Rc::new(
+                        let new_stack = rc_slice_from_iter(
+                            captures,
+                            program.stack.drain((program.stack.len() - captures)..),
+                        );
+                        program.push(Value::Function(Rc::new(
                             FunctionAction::With {
                                 program: self.clone(),
                                 signature: FunctionType {
@@ -1752,7 +1775,7 @@ impl Program {
                     }
                 }
                 instruction::PUSH_ENUM => {
-                    let variants = program.pop(stack)?;
+                    let variants = program.pop()?;
                     let Value::Tuple(Tuple(TupleStorage::Named(variants))) = variants else {
                         Err(Error::ExpectedNamedTuple(variants))?
                     };
@@ -1762,7 +1785,7 @@ impl Program {
                             value.clone().try_into().map(|value| (name.clone(), value))
                         }),
                     )?;
-                    stack.push(Type::from(EnumType { variants }).into());
+                    program.push(Type::from(EnumType { variants }).into());
                 }
 
                 instruction::ADD => bi_num!(let l, r => l + r),
@@ -1777,8 +1800,8 @@ impl Program {
                 instruction::LESSER => bi_cmp!(let l, r => l < r),
                 instruction::LESSER_EQUAL => bi_cmp!(let l, r => l <= r),
                 instruction::MATCHES => {
-                    let candidate = program.pop(stack)?;
-                    let subject = program.pop(stack)?;
+                    let candidate = program.pop()?;
+                    let subject = program.pop()?;
                     if let Value::EnumVariant(subject) = &subject
                         && let Value::Function(function) = &candidate
                         && let FunctionAction::Enum {
@@ -1789,12 +1812,12 @@ impl Program {
                     {
                         // Destructuring changes the value forwarded to the match arm.
                         if subject.variant == *variant {
-                            program.pop(stack)?;
-                            stack.push(subject.contents.clone());
+                            program.pop()?;
+                            program.push(subject.contents.clone());
 
-                            stack.push(true.into());
+                            program.push(true.into());
                         } else {
-                            stack.push(false.into());
+                            program.push(false.into());
                         }
                     } else if let Value::Option { contents, ty } = &subject
                         && let Value::Function(function) = &candidate
@@ -1812,50 +1835,50 @@ impl Program {
                                     ));
                                 }
                                 // Destructuring changes the value forwarded to the match arm.
-                                program.pop(stack)?;
-                                stack.push((**contents).clone());
-                                stack.push(true.into());
+                                program.pop()?;
+                                program.push((**contents).clone());
+                                program.push(true.into());
                             }
                             (None, false) => {
                                 // Destructuring changes the value forwarded to the match arm.
-                                program.pop(stack)?;
-                                stack.push(().into());
-                                stack.push(true.into());
+                                program.pop()?;
+                                program.push(().into());
+                                program.push(true.into());
                             }
                             _ => {
-                                stack.push(false.into());
+                                program.push(false.into());
                             }
                         }
                     } else {
-                        stack.push(subject.clone().eq(candidate)?.into());
+                        program.push(subject.clone().eq(candidate)?.into());
                     }
                 }
                 instruction::EQUAL_TO => {
-                    let r = program.pop(stack)?;
-                    let l = program.pop(stack)?;
-                    stack.push(l.eq(r)?.into());
+                    let r = program.pop()?;
+                    let l = program.pop()?;
+                    program.push(l.eq(r)?.into());
                 }
                 instruction::NOT_EQUAL_TO => {
-                    let r = program.pop(stack)?;
-                    let l = program.pop(stack)?;
-                    stack.push((!l.eq(r)?).into());
+                    let r = program.pop()?;
+                    let l = program.pop()?;
+                    program.push((!l.eq(r)?).into());
                 }
                 instruction::LOGICAL_AND => bi_op!(let l, r: Bool => Bool: *l && *r),
                 instruction::LOGICAL_OR => bi_op!(let l, r: Bool => Bool: *l || *r),
                 instruction::PIPE => {
-                    let mut function = Rc::<Function>::try_from(program.pop(stack)?)?;
-                    let argument = program.pop(stack)?;
+                    let mut function = Rc::<Function>::try_from(program.pop()?)?;
+                    let argument = program.pop()?;
                     let function_mut = Rc::make_mut(&mut function);
                     let mut arguments = ().into();
                     mem::swap(&mut arguments, &mut function_mut.argument);
                     arguments = Value::concat(arguments, argument);
                     mem::swap(&mut arguments, &mut function_mut.argument);
-                    stack.push(Value::Function(function));
+                    program.push(Value::Function(function));
                 }
 
                 instruction::CALL => {
-                    let argument = program.pop(stack)?;
-                    let function = program.pop(stack)?;
+                    let argument = program.pop()?;
+                    let function = program.pop()?;
                     let result = match function {
                         Value::Function(function) => Rc::<Function>::try_unwrap(function)
                             .unwrap_or_else(|function| (*function).clone())
@@ -1863,17 +1886,17 @@ impl Program {
                             .eval()?,
                         function => Err(Error::ExpectedFunction(function))?,
                     };
-                    stack.push(result);
+                    program.push(result);
                 }
                 instruction::TUPLE => {
-                    let r = program.pop(stack)?;
-                    let l = program.pop(stack)?;
-                    stack.push(Value::concat(l, r));
+                    let r = program.pop()?;
+                    let l = program.pop()?;
+                    program.push(Value::concat(l, r));
                 }
                 instruction::INDEX => {
-                    let index = program.pop(stack)?;
-                    let container = program.pop(stack)?;
-                    stack.push(container.index(index)?);
+                    let index = program.pop()?;
+                    let container = program.pop()?;
+                    program.push(container.index(index)?);
                 }
                 instruction::NAME => {
                     let name_id = program.next4()?;
@@ -1882,31 +1905,31 @@ impl Program {
                         .get(name_id)
                         .ok_or(InvalidBytecode::UnexpectedStringId)?
                         .clone();
-                    let value = program.pop(stack)?;
-                    stack.push(Value::Tuple(Tuple::from([(name, value)])));
+                    let value = program.pop()?;
+                    program.push(Value::Tuple(Tuple::from([(name, value)])));
                 }
                 instruction::NEST => {
-                    let value = program.pop(stack)?;
-                    stack.push(Value::Tuple(Tuple::from([value])));
+                    let value = program.pop()?;
+                    program.push(Value::Tuple(Tuple::from([value])));
                 }
                 instruction::NEGATIVE => {
-                    let value = program.pop(stack)?.into_i64()?;
-                    stack.push((-value).into());
+                    let value = program.pop()?.into_i64()?;
+                    program.push((-value).into());
                 }
                 instruction::DEREF => {
-                    let value = program.pop(stack)?.into_refcell()?;
-                    stack.push(value.try_borrow()?.clone());
+                    let value = program.pop()?.into_refcell()?;
+                    program.push(value.try_borrow()?.clone());
                 }
                 instruction::SET => {
-                    let value = program.pop(stack)?;
-                    let target = program.pop(stack)?.into_refcell()?;
+                    let value = program.pop()?;
+                    let target = program.pop()?.into_refcell()?;
                     *target.borrow_mut() = value;
                 }
 
                 _ => Err(InvalidBytecode::InvalidInstruction)?,
             }
         }
-        program.pop(stack)
+        program.pop()
     }
 }
 
